@@ -821,7 +821,8 @@ allowBuilds:                       # explicit; everything else blocked (dependen
   onnxruntime-node: false          # its postinstall downloads the CUDA EP; ORT ships bundled binaries
   # better-sqlite3-multiple-ciphers v13 and sqlite-vec ship bundled/per-platform prebuilds: no build script needed
 ```
-- Pin pnpm via the `packageManager` field and `pnpm/action-setup`. Do **not** rely on Corepack: it is no longer bundled from Node 25.
+- Pin pnpm via **`devEngines.packageManager`** in the root `package.json` (preferred over the legacy `packageManager` field since pnpm 11, supports ranges, and records the resolved version in `pnpm-lock.yaml`), with **`pmOnFail: error`** in `pnpm-workspace.yaml` so a mismatched client fails rather than silently downloading. Use `pnpm/action-setup` in CI. Do **not** rely on Corepack: it is not bundled from Node 25 onward, and pnpm now does the version switching itself. `managePackageManagerVersions`, `packageManagerStrict` and `COREPACK_ENABLE_STRICT` were all removed in pnpm 11 — see `01` §14 **A31**.
+- `minimumReleaseAge` is in **minutes** (so `4320` = 3 days) and already defaults to `1440` in pnpm 11+. `strictDepBuilds` now defaults to `true`, so a dependency with an install script that is absent from `allowBuilds` hard-fails the install; that is the intended behavior here. `onlyBuiltDependencies` and friends were **removed** in pnpm 11, not deprecated (`01` §14 **A31**).
 - CI runs `pnpm install --frozen-lockfile`.
 
 **Dependency updates.**

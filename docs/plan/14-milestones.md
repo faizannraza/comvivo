@@ -57,7 +57,7 @@ Each milestone gives a rough count of **focused Claude Code sessions**: one sess
 
 ### 0.4 Sub-agents and parallel work
 
-- Only rows marked `‖` may go to sub-agents. Everything in `packages/core/src/{policy,ifc,constitution,declassify,governance,consent}` and every database migration is serial and stays on the main thread, even if a row is marked `‖` (CLAUDE.md §1.5).
+- Only rows marked `‖` may go to sub-agents. Everything in `packages/core/src/{policy,ifc,constitution,declassify,governance,consent}` and every **database** migration is serial and stays on the main thread, even if a row is marked `‖` (CLAUDE.md §1.5). "Database migration" means, by path: any `migrations/` directory, and migration code under `packages/storage/src/{migrate,migrations}/**`. It does **not** mean unrelated code that merely contains the word *migration* — `M3-T34`'s `packages/channels/telegram/src/migration.ts` handles Telegram's group→supergroup chat-id change and is correctly parallel-ok. `scripts/plan/trace.py --check` enforces this path scope and reports violations as `SERIAL-VIOLATION`.
 - Brief each sub-agent with the task row, its *Read* sections, the files it owns, and the AC. Use `isolation: "worktree"` for code tasks. One sub-agent owns one task; two sub-agents never edit the same package in the same wave.
 - The main thread merges sub-agent work one task at a time, runs `pnpm verify` after each merge, then ticks and commits. A sub-agent's "done" is never trusted without the main thread's own `pnpm verify` run.
 - Good sub-agent candidates are marked in §1.2: adapters in M10, dashboard screens in M9, eval scenario packs and generators, docs pages, provider adapters in M2 and example plugins in M12.
@@ -452,9 +452,9 @@ Task table columns: **ID** · **Task** (title, then description) · **Src** (spe
 | M4-T2 | **Action registry.** | 03:M4-T2 | 03 §3.3.1, §3.3.13; 05 §3.6.7; 07 §4.1 | `packages/core/src/policy/actions.ts` | `ACTION_REGISTRY` with category, risk, contest mode and taint flag; `categoryOf`, `matchesPattern`; patterns like `calendar.event.*` resolve. CI cross-check (03:M4-T2): every (tool, op, taint) case yields exactly one kind and every yielded kind is in the registry. In M4 it runs over the tool modules that exist plus a static fixture table derived from 05 §3.6.7 and 07 §4.1 for tools not yet built; `M7-T36` re-runs it over all 62 real modules (§4.3 item 12) | M4-T1 | — |
 | M4-T3 | **Constitution schema & 8 templates.** | 03:M4-T3 | 03 §3.2.1–§3.2.3, §3.2.9; 07 §5; 04 §5; 06 §3.20.4; 10 §3.3.5 | `packages/core/src/constitution/schema.v1.ts`, `templates/constitutions/*.yaml` | Schema exactly as 03 §3.2.2 incl. the consumer sections for 04/06/07/10; the 8 YAMLs carry the 03 §3.2.9 delta values; all templates parse and compile with **zero errors and zero warnings**; every key 07 §5 marks "request to 03" exists; schema snapshot test; the loader rejects YAML aliases and files > 64 KiB. Constraint-kind enum is a named stub until `M5-T6` | M4-T1, M4-T2 | — |
 | M4-T4 | **Compiler, `CompiledPolicy`, issues.** | 03:M4-T4 | 03 §3.2.4–§3.2.5 | `packages/core/src/constitution/{compiler,compiled,errors,floor}.ts` | Every error code has a failing-fixture test; `constitution.prop.compile_total` passes 50k fuzz runs; `hydrate(dehydrate(p)) ≡ p`; budgets `auto` resolve to the A3 per-preset caps | M4-T3 | — |
-| M4-T5 | **Semantic diff, privacy delta & constitution API.** | 03:M4-T5 | 03 §3.2.10, §3.3.8 | `packages/core/src/constitution/{diff,privacy-delta,api}.ts` | `constitution.prop.privacy_delta_complete`; golden diff strings for 20 mutations; `validate` returns spans (`line/column/endLine/endColumn`) for every `CONST_E*` fixture; the JSON Schema snapshot matches `ConstitutionV1Schema`; `capabilitiesFor(policy, member)` golden tables for 8 templates × 4 roles | M4-T4 | ‖ |
-| M4-T6 | **Charter & group prompt layer.** | 03:M4-T6 | 03 §3.2.7–§3.2.8 | `packages/core/src/constitution/{charter/render,charter/en,prompt-layer}.ts` | Golden charters for the 8 templates; `charter()` returns RichText; layer ≤ 1,400 tokens with 50 members; hash stable across runs and changes on a role change | M4-T4 | ‖ |
-| M4-T7 | **Governance core.** Proposal state machine, tally, electorate, amendment rule selection and entrenchment | 03:M4-T8 | 03 §3.3.6, §3.3.8 | `packages/core/src/governance/{proposal,tally,electorate,amendment}.ts` | `governance.prop.*`; state-machine transitions exhaustively tested; illegal transitions return typed errors; the 03 §9 `tally.test.ts` cases pass | M4-T4 | ‖ |
+| M4-T5 | **Semantic diff, privacy delta & constitution API.** | 03:M4-T5 | 03 §3.2.10, §3.3.8 | `packages/core/src/constitution/{diff,privacy-delta,api}.ts` | `constitution.prop.privacy_delta_complete`; golden diff strings for 20 mutations; `validate` returns spans (`line/column/endLine/endColumn`) for every `CONST_E*` fixture; the JSON Schema snapshot matches `ConstitutionV1Schema`; `capabilitiesFor(policy, member)` golden tables for 8 templates × 4 roles | M4-T4 | — |
+| M4-T6 | **Charter & group prompt layer.** | 03:M4-T6 | 03 §3.2.7–§3.2.8 | `packages/core/src/constitution/{charter/render,charter/en,prompt-layer}.ts` | Golden charters for the 8 templates; `charter()` returns RichText; layer ≤ 1,400 tokens with 50 members; hash stable across runs and changes on a role change | M4-T4 | — |
+| M4-T7 | **Governance core.** Proposal state machine, tally, electorate, amendment rule selection and entrenchment | 03:M4-T8 | 03 §3.3.6, §3.3.8 | `packages/core/src/governance/{proposal,tally,electorate,amendment}.ts` | `governance.prop.*`; state-machine transitions exhaustively tested; illegal transitions return typed errors; the 03 §9 `tally.test.ts` cases pass | M4-T4 | — |
 | M4-T8 | **`authorize()`.** Pure, with `PolicyStateView`, reasons and deny copy | 03:M4-T7 | 03 §3.3.2–§3.3.5, §3.3.11 | `packages/core/src/policy/{authorize,contest,reasons,decisions}.ts` | All 03 §9 `authorize.test.ts` cases pass; `policy.authorize.*` properties pass; zero `any`; branch coverage ≥ 95%; `checkWrite` is a named stub until `M5-T1` | M4-T2, M4-T4 | — |
 | M4-T9 | **Policy support for extensions.** | 10:M4-T90 | 10 §3.3.5, §3.2.6; 03 §3.1.2 | `packages/core/src/policy/extensions.ts` | `plugin:<provider>:<tool>` capabilities with `*` wildcards; `extensions.manage`, `mcp.connect`; `confirm:'always'` floor; `SystemAuthority{onBehalfOf, delegationId}` evaluated as constitution-permitted AND grantor-holds-capability; property tests for grants | M4-T8 | — |
 | M4-T10 | **Reference policy model & differential test.** Written from 03's semantics without reading `core/policy` (§0.4) | 11:M4-T1 | 11 §3.4.5; 03 §3.3 | `packages/evals/src/oracles/reference-policy.ts`, `policy.diff.prop.test.ts` | Independent of `core/policy` (depcruise rule); truth-table tests; the differential property test is green at 20k nightly | M4-T1, M4-T2 | ‖ |
@@ -1252,6 +1252,11 @@ Each release is cut only when its checklist is closed in a GitHub issue created 
 
 ## 4. Traceability matrix
 
+> Regenerate with `python3 scripts/plan/trace.py --regen-matrix` (verify with `--check`). Everything between
+> the markers below is generated from the `Src` columns of §2's task tables; edit those, not this.
+
+<!-- BEGIN:TRACE-MATRIX -->
+
 Every task listed in a spec's §10 (`02`–`13`) appears below with its canonical task. **Generated** from this file's *Src* columns and checked against a grep of each spec's §10 (see §4.4). "⇢" marks a task that runs in a different milestone than the spec proposed; "+" marks a spec task split across several canonical tasks. No spec task was dropped. Merges are listed in §4.2; deferrals in §4.2 are only the cut-lines of §2, so none are pre-decided.
 
 | Doc | Spec tasks | Count |
@@ -1518,6 +1523,7 @@ Every task listed in a spec's §10 (`02`–`13`) appears below with its canonica
 | `13:M15-T7` | M15-T15 | `13:M15-T8` | M15-T16 | `13:M15-T9` | M15-T6 |
 | `13:M15-T10` | M15-T17 | `13:M15-T11` | M15-T18 | `13:M15-T12` | M15-T19 |
 | `13:M15-T13` | M15-T22 | `13:M15-T14` | M15-T24 | `13:M15-T15` | M15-T25 |
+<!-- END:TRACE-MATRIX -->
 
 ### 4.1 "14 (new)" tasks (no or partial spec §10 source)
 

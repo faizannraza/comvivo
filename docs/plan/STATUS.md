@@ -5,7 +5,7 @@
 **Last green gate:** none  
 **Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
 **Operating mode:** autonomous (`CLAUDE.md` §5). Ask the owner only for money, credentials/account actions, or a 2-minute real-chat smoke test.  
-**Repo:** https://github.com/faizannraza/village
+**Repo:** https://github.com/faizannraza/folkstead (renamed from `village` on 2026-11-01 when D-2 landed)
 
 ## How to update this file
 
@@ -45,7 +45,7 @@ Batched per `CLAUDE.md` §5. Everything else proceeds without waiting, using the
 | H-3 | Telegram bot token + a private test group containing the owner and the bot | cred | `M3-T56` real-group exit check; `M3-T32`–`T35` live verification | **open** (asked 2026-11-01) |
 | H-4 | Docker Desktop first run (accept the licence dialog once so the daemon starts) | account action | `M3-T50` image build, `M10-T1` Synapse homeserver, `M14` packaging | **open** (asked 2026-11-01) |
 | H-5 | Create the 5 extra GitHub Discussions categories (no API exists for this; web UI only) | account action | `M8-T27`, `M15-T15` | **open** (asked 2026-11-01) |
-| H-6 | Secure the chosen product name's assets: GitHub org, npm org/scope (needs `npm login`), social handles | account action | `M0-T15` names manifest; `M12-T34` npm trusted publishing | **open** — exact steps posted once D-2 lands |
+| H-6 | **Secure the `folkstead` assets — highest priority of all the asks.** See the steps below | account action | `M0-T15` names manifest; `M12-T34` npm trusted publishing; `ghcr.io/folkstead` | **open** (asked 2026-11-01) |
 | H-7 | Optional: a domain for the docs site and product URL | money | nothing (GitHub Pages is used until bought) | **open** (asked 2026-11-01) |
 | H-8 | Later, announced at their milestone: Discord + Slack apps (M10), `npm login` / trusted publishing (M12), Cloudflare Pages token for docs (M0-T18/M15), optional paid security + child-safety review (M13/M15), community-chat space + bot spend cap (M8, D-7) | mixed | their milestones | **not yet due** |
 
@@ -66,6 +66,33 @@ Anthropic list prices used for the estimates (cached 2026-10-06 in `11` §8; re-
 - **Open-source credits.** I will verify the current Anthropic programme and hand over a prepared application; applying costs nothing. If credits are granted we upgrade to the full nightly profile at no cash cost.
 - Spend is recorded in *API spend ledger* below after every live run.
 
+### H-6 — secure the Folkstead assets
+
+D-2 is decided (**`Folkstead`**, [ADR-024](../adr/ADR-024-product-name.md)) and the repository is already public, so the
+window between the decision and securing these names is the only squatting risk in the project. All four were verified
+free on 2026-11-01. In priority order:
+
+1. **GitHub organisation `folkstead`** — https://github.com/organizations/plan → Free. This also claims
+   **`ghcr.io/folkstead`**, which is the container namespace the release pipeline publishes to. Afterwards, transfer
+   `faizannraza/folkstead` into the org (Settings → Danger Zone → Transfer); GitHub keeps redirects, and `BRAND.repo`
+   is the single line that changes.
+2. **npm organisation `folkstead`** — needs `npm login`, then `npm org create folkstead` (free for public packages).
+   This claims the `@folkstead` scope. The unscoped names `folkstead` and `create-folkstead` are both free; do **not**
+   publish placeholder packages — npm discourages squatting and `13` §3.A.4 says real alpha builds ship at M8.
+3. **Domain `folkstead.dev`** (~$12/year; this is the money part of H-7). Turn on registrar lock, DNSSEC and 2FA.
+   Until it exists, `BRAND.urls` point at GitHub Pages.
+4. **Handles**: X `@folkstead`, Mastodon `@folkstead@fosstodon.org`, LinkedIn `/company/folkstead`, and — once the
+   domain exists — a Bluesky **domain handle** `@folkstead.dev`, which is self-verifying.
+   (`folkstead.bsky.social` is already taken, which is why the domain handle is the right route.)
+
+**Also worth doing, but not blocking:** the formal trademark registers could not be searched without a human. Every one
+refused automated access — USPTO's search is an interactive SPA with no documented wordmark field, TSDR needs an API
+key, EUIPO/TMview sits behind a WAF, WIPO behind a proof-of-work challenge, UKIPO behind a CAPTCHA. What was done
+instead (Trademarkia: **zero results**; USPTO's fuzzy index ranks no FOLKSTEAD-shaped mark, validated against control
+queries that *did* surface exact matches) is a strong substitute but **not a clearance opinion**. If you want the real
+thing: run `folkstead` in classes 9, 38, 42 and 45 at https://tmsearch.uspto.gov, https://www.tmdn.org/tmview/ and
+https://branddb.wipo.int/, and optionally buy a one-hour attorney knockout opinion (money, offered not required).
+
 ### API spend ledger
 
 | Date | Milestone / task | Route(s) | Model(s) | Cost (USD) | Running total |
@@ -79,7 +106,7 @@ Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needi
 | ID | Decision | Ask at | Needed before | Status | Answer | Decided by / date |
 |---|---|---|---|---|---|---|
 | [D-1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Wizard pre-selected preset | M3 (inform), M9 entry | M9-T32; revisit at M13-T25 | open | — | — |
-| [D-2](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Final product name | **M0** (pulled forward by the owner 2026-11-01, because the repo is already public and renaming later is expensive) | M0-T5 `BRAND`; M8 exit hard | **in progress** | Clearance research running on the `13` §3.A.3 shortlist (Kinhold, Folkmoot, Thorp, Commonhold) | Claude Code (delegated) |
+| [D-2](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Final product name | **M0** (pulled forward by the owner 2026-11-01, because the repo is already public and renaming later is expensive) | M0-T5 `BRAND`; M8 exit hard | **decided** | **`Folkstead`** — Old English *folcstede*, "the dwelling place of a people". All four `13` §3.A.3 shortlisted names failed clearance. Evidence and risks in [ADR-024](../adr/ADR-024-product-name.md); unredacted in the gitignored `naming/`. Repo renamed to `faizannraza/folkstead` | Claude Code (delegated) / 2026-11-01 |
 | [D-3](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | When the repo goes public | M8 entry | M8-T28 | **decided** | Already public (2026-11-02). Stays public but **unannounced**; no launch posts until the 1.0 launch gates pass. `M8-T28` becomes "announce-readiness check", not a visibility flip | Claude Code (delegated) / 2026-11-01 |
 | [D-4](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Funding for live-model evals | M2 entry (per run), M5 entry (standing) | M8-T22 | **asked (money)** | Budget proposal H-1 above: $600 total with a $40/day hard cap, gate-triggered instead of nightly. Awaiting owner approval; no live call is made before it | owner (money part) |
 | [D-5](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Minors' self-harm/abuse disclosures in DMs | M5 (inform), M13 entry | M13-T30, 1.0 | **decided** | **No automatic guardian alert in v1.** Resources-only response with carefully reviewed copy. No guardian-escalation code path is built. Paid external child-safety review is offered to the owner as a money item and never blocks the gate; the automated substitute is a dedicated red-team family plus a documented limitation | Claude Code (delegated) / 2026-11-01 |
@@ -104,6 +131,10 @@ Every significant delegated decision, with its rationale. Architectural decision
 | DL-2 | 2026-11-01 | **D-8 — WhatsApp stays out of 1.x.** | `06` §B's conclusion is unchanged: Meta's WhatsApp Business Platform does not support bots as members of ordinary user groups, and its AI-assistant policy is restrictive. Unofficial clients (Baileys, whatsapp-web.js) are a permanent "never" (`00` §6.3) on terms-of-service and legal grounds. | — |
 | DL-3 | 2026-11-01 | **D-5 — resources-only response to minors' disclosures; no automatic guardian alert.** | This is the safest design and the one every option in `15` D-5 includes, so building it exclusively forecloses nothing. An automatic alert can out a child to the person harming them, and Village cannot verify who a "guardian" actually is. Building no escalation code path at all is also the only way to be sure one cannot be triggered by prompt injection. A paid expert review is offered but never gates the release; the automated substitute is a dedicated red-team family plus an honest documented limitation. | pending (M5) |
 | DL-4 | 2026-11-01 | **D-7 — GitHub Discussions is the community baseline.** | It needs no new account, no hosting, no moderation bot and no spend, and it is indexable, which matters for support SEO. Discord is additive and is handed to the owner as a short set of steps at M8. Running Village in its own community is excellent dogfooding but is real money, so it carries a proposed cap. | — |
+| DL-8 | 2026-11-01 | **D-2 — the product is `Folkstead`.** | Old English *folcstede*, "the dwelling place of a people": the right meaning, describes nothing about software (so an **arbitrary** mark, the strongest class short of a coined word), and functionally extinct in modern English (so a safe bot trigger word with no SEO competition). Every surface that matters for an open-source developer tool is free — npm `folkstead` and `create-folkstead`, the `@folkstead` scope, the GitHub org (and therefore `ghcr.io/folkstead`), zero matching GitHub repositories, `.dev`/`.org`/`.sh`/`.chat`/`.ai`, PyPI, crates.io, Hugging Face, Mastodon, LinkedIn. Trademarkia returns zero results. **All four `13` §3.A.3 shortlisted names failed**, three of them because an active product already occupies this exact category under senior common-law rights that no trademark register records — which is precisely the failure mode a registry-only check would have missed. Runner-up Moothall (37.75 vs 41 weighted) was rejected because "a moot point" means *irrelevant* in English. | [ADR-024](../adr/ADR-024-product-name.md) |
+| DL-9 | 2026-11-01 | **TypeScript is pinned to 6.0.3, not 7.x.** | `typescript-eslint@8.72.1` declares a hard peer of `typescript >=4.8.4 <6.1.0`, and TS 7 support is closed `not_planned` upstream pending a stable TS 7 JavaScript API (typescript-eslint#12518, #10940; TS 7.0.2 ships no `tsserver` binary and no `lib/typescript.js`). The four type-aware rules the spine makes non-negotiable — `no-floating-promises`, `no-misused-promises`, `switch-exhaustiveness-check`, `strict-boolean-expressions` — only exist there; Biome's equivalents are nursery-grade with `information` severity and cannot carry a gate. A working lint gate on an event-driven server is worth more than being on the newest compiler, so TS 6 it is. Revisit when typescript-eslint#12803 (TS 7.1 native-parser support over IPC) lands. | [ADR-025](../adr/ADR-025-typescript-version-pin.md) |
+| DL-10 | 2026-11-01 | **pnpm settings live in `pnpm-workspace.yaml`, and `allowBuilds` replaces `onlyBuiltDependencies`.** | pnpm 11 moved every setting except auth/registry/TLS/proxy out of `.npmrc`, and pnpm 11 **removed** `onlyBuiltDependencies`, `neverBuiltDependencies`, `ignoredBuiltDependencies` and `ignoreDepScripts` in favour of the `allowBuilds` *map*. `strictDepBuilds` now defaults to `true`, so any package with an install script that is not listed hard-fails the install — which is exactly the behaviour `08` §3.15 wanted and had to ask for explicitly. `minimumReleaseAge` is in **minutes** (4320 = 3 days) and already defaults to 1440. Corepack is gone from Node ≥ 25, and pnpm now reads `devEngines.packageManager` itself, governed by `pmOnFail`. `08` §3.15's YAML block is updated to the current spelling. | — |
+| DL-11 | 2026-11-01 | **`--allow-net` cannot implement the guarded-egress allowlist; the in-process allowlist stays load-bearing.** | `01` §14 A1 treats `--allow-net` (Node ≥ 25) as the plugin network-isolation mechanism and records weaker isolation on Node 24 as the residual risk. Verified on Node 26: the flag is **boolean, all-or-nothing, with no host or port scoping** (`AddOption("--allow-net", …, BOOL_FIELD(allow_net))`; per-host scoping is only a proposal, nodejs/node#67115). So on *every* Node version, invariant **I5 (guarded egress)** must be enforced by `shared/net`'s `safeFetch` allowlist, and `--allow-net` is only a coarse second layer. This strengthens rather than weakens A1, and the residual-risk wording in `08` is corrected accordingly. | — |
 | DL-5 | 2026-11-01 | **pnpm 12.16.1, not pnpm 11.** | `08` §3.15 and `01` §14 A1 require "pnpm ≥ 11, pinned by `packageManager`, installed explicitly, never Corepack". pnpm 12 is the current major, satisfies "≥ 11", and the supply-chain settings the plan depends on (`minimumReleaseAge`, `trustPolicy`, build allowlisting) are present and better documented there. Logged as a Plan change rather than a spine change because the spec states a floor, not a pin. | — |
 | DL-6 | 2026-11-01 | **Node pins: 26.13.0 primary, 24.22.2 matrix leg.** | `01` §14 A1 names "Node 26 primary, Node 24 ≥ 24.11 supported". 26.13.0 is the Active LTS ("Lithium", since 2026-10-28) and 24.22.2 is the newest 24.x, so these are the concrete versions behind A1. `.node-version` holds `26` so minor bumps need no commit. | — |
 | DL-7 | 2026-11-01 | **Homebrew is not used for the toolchain.** | Homebrew 6.0.12 reports this macOS/CLT combination as a Tier-3 (unsupported) configuration and therefore builds every formula from source, which failed for both `pnpm` and `fnm`. Official Node tarballs plus an explicit global `pnpm` install are reproducible and match what CI does. Recorded so a future session does not retry brew. | — |
@@ -115,6 +146,10 @@ Every significant delegated decision, with its rationale. Architectural decision
 | 2026-11-01 | M0 entry | `08` §3.15, `01` §14 A1 | Toolchain pins recorded concretely: pnpm **12.16.1**, Node **26.13.0** primary / **24.22.2** matrix. The specs state floors ("pnpm ≥ 11", "Node 26 / ≥ 24.11"); these are the versions that satisfy them today | Re-verification of third-party facts at implementation time (`CLAUDE.md` §6). See DL-5, DL-6 |
 | 2026-11-01 | M0 entry (D-2) | `14` §0.6, `15` §1 | **D-2 (final name) is pulled forward from M7/M8 to M0** | Owner instruction, 2026-11-01: the repository is already public, so renaming later is expensive. Consequence: `M0-T1` scaffolds packages directly under the final npm scope instead of `@village/*`, and `M0-T22` (naming kickoff) is folded into the M0 decision. `BRAND`, the AST guard, the codemod and the weekly rename drill are still built exactly as `13` §3.A.6 specifies, so a forced change stays a one-command operation |
 | 2026-11-01 | M0 entry (D-2) | `13` §3.A.3 | The candidate shortlist table is **redacted from the public tree** and kept in the gitignored `naming/` workspace | `13` §3.A.5 requires redaction before the repo is public so nobody squats the candidates. The repo is already public, so this is done immediately rather than at M8 |
+| 2026-11-01 | M0 entry | `01` §14 (new **A31**), `08` §3.15 | **Spine amendment A31** records the toolchain facts re-verified per `CLAUDE.md` §6: TypeScript pinned to 6.x (ADR-025), concrete Node pins, the `--allow-net` correction, pnpm 11+ settings relocation, Vitest 5 `test.projects`, and two upstream repo renames. `08` §3.15's pnpm pinning paragraph rewritten to `devEngines.packageManager` + `pmOnFail`. Spine text changed under delegated authority (`CLAUDE.md` §5 lists spine changes); logged here and as DL-9/DL-10/DL-11 rather than queued for approval | Five of the plan's third-party facts had moved since 2026-11-01, and two of them (typescript-eslint vs TS 7; `vitest.workspace.ts` failing silently) would have broken the M0 gate |
+| 2026-11-01 | M0-T23 | `14` §0.4 | The serial-only rule's "every database migration" is now scoped **by name**: a `migrations/` or `migrate/` path segment, not any occurrence of the word *migration* | `scripts/plan/trace.py --check` flagged `M3-T34` (`packages/channels/telegram/src/{membership,migration,probe,webhook}.ts`) as a serial violation. That file handles Telegram's group→supergroup chat-id change, not a schema migration. §0.4's prose already said "**database** migration"; only the enforceable scope was missing |
+| 2026-11-01 | M0-T23 | `14` §2 M4 table | `M4-T5`, `M4-T6` and `M4-T7` re-tagged from `‖` to `—` | All three write to `packages/core/src/{constitution,governance}`, which `14` §0.4 and `CLAUDE.md` §1.5 require to stay serial on the main thread. §0.4 already overrode the tag, so the `‖` marks were actively misleading. Their neighbours `M4-T1`–`M4-T4`, `M4-T8`, `M4-T9`, `M4-T13`, `M4-T18` and every M5 IFC row were already correct, so these were oversights |
+| 2026-11-01 | M0-T23 | `14` §4 | Added `<!-- BEGIN:TRACE-MATRIX -->` / `<!-- END:TRACE-MATRIX -->` markers around §4's body | `--regen-matrix` is specified to write between markers and refuses to restructure the document itself. Without them it could only print to stdout |
 | 2026-11-01 | M0 entry | docs 02–13 (global) | Where the specs write `@village/<pkg>`, read `@<final-scope>/<pkg>`. Package *directory* names and spec section numbering are unchanged | Avoids rewriting 2.5 MB of plan text for a scope rename. `BRAND.npmScope` is the single source of truth and the codemod keeps the two in sync |
 
 ## Spikes
@@ -138,12 +173,12 @@ Every significant delegated decision, with its rationale. Architectural decision
 State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; mark each `resolved (date, commit)` when the spec text is fixed.
 
 - [x] `03:M4-T9` "HMAC tokens" → 06 `InteractionToken`: spec text fixed 2026-11-01
-- [ ] `03:M4-T2` runs all 62 tools in M4 before most exist; fixture approach (M4-T2), full run at M7-T36
+- [ ] `03:M4-T2` runs all 62 tools in M4 before most exist; fixture approach (M4-T2), full run at M7-T36 — **open, blocks M4 only**; verified at M0-T23 as not blocking M0–M2
 - [x] `10:M5-T91` duplicate `turn_effects.status` migration: spec text fixed 2026-11-01 (02's M1 schema already has it)
 - [x] `@village/mcp-bridge` added to 12 P11 public packages (approval A-1 resolved 2026-11-01)
 - [x] Renovate file name unified as `renovate.json5` in 12 (2026-11-01)
-- [ ] `@modelcontextprotocol/node`: named conditionally in A12; confirm in M12-T2 and update ADR-021
-- [x] Spine wording and pointers, R4 §(b) B1–B9: applied to `01`/`15` on 2026-11-01 (A12 update, new A30); M0-T23 verifies
+- [ ] `@modelcontextprotocol/node`: named conditionally in A12; confirm in M12-T2 and update ADR-021 — **open, blocks M12 only**; verified at M0-T23 as not blocking M0–M2
+- [x] Spine wording and pointers, R4 §(b) B1–B9: applied to `01`/`15` on 2026-11-01 (A12 update, new A30); **verified by M0-T23 on 2026-11-01** — `01` §6.1 steps 2.2/2.5/4 cite A27/A25/A16, §5 and §6.4 point at `02` §3.3.13 and §3.10.1, §10 carries `traces.retentionDays` and `mcp.server.http`, A7's entity list and A12 are present, and `15` §2's resolved rows match. No residue
 - [x] 03↔07 names, constraints, FairnessPort, statuses, poll hooks: resolved by R4 (verify in M7-T7)
 - [x] `ledgerVisibility` default `self_only`: resolved by R4 D1
 - [x] ICS token/route; 09 API shapes; MCP format and `/mcp` endpoint; `keyringSnapshot.static.blobId`; TurnTrace 30 d; reactions persistence; guard input; 06 PSC-9 fields; IMAP env var; in-memory demo repos (`02:M12-T70`): resolved by R4 (verify)
@@ -152,7 +187,7 @@ State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; 
 
 ### M0 — Foundations
 
-Status: not started · Tasks: 0/23 · Gate: —
+Status: in progress · Tasks: 2/23 · Gate: —
 
 - [ ] M0-T1 Monorepo scaffold
 - [ ] M0-T2 Runtime pins & pnpm supply-chain policy
@@ -173,10 +208,10 @@ Status: not started · Tasks: 0/23 · Gate: —
 - [ ] M0-T17 Issue/PR templates, labels, CODEOWNERS
 - [ ] M0-T18 Docs-site skeleton & docs CI
 - [ ] M0-T19 Rename codemod & weekly drill
-- [ ] M0-T20 ADR files
+- [x] M0-T20 ADR files — `docs/adr/` ADR-001…ADR-023 + README + TEMPLATE-mini, plus ADR-024 (name) and ADR-025 (TS pin)
 - [ ] M0-T21 Branch protection, merge queue & CI docs
 - [ ] M0-T22 Naming kickoff (private)
-- [ ] M0-T23 Plan consistency pass
+- [x] M0-T23 Plan consistency pass — `scripts/plan/trace.py` + 54 unit tests; **504 tasks / 552 spec tasks, 0 errors, 0 warnings, 0 unmapped spec tasks**; 4 findings fixed (see Plan changes)
 
 #### Execution note
 

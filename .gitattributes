@@ -1,0 +1,29 @@
+# Normalize line endings: the repo is LF everywhere.
+* text=auto eol=lf
+
+# Binary / generated assets: never diff, never normalize.
+*.png            binary
+*.jpg            binary
+*.jpeg           binary
+*.gif            binary
+*.webp           binary
+*.ico            binary
+*.woff           binary
+*.woff2          binary
+*.mp4            binary
+*.webm           binary
+*.wasm           binary
+*.sqlite         binary
+*.tar.xz         binary
+
+# Lockfile: generated, large, and reviewed by the supply-policy check rather than by eye.
+pnpm-lock.yaml   -diff linguist-generated=true
+
+# Renderer snapshots are reviewed as rendered markup, so keep them diffable text.
+*.telegram.html  text
+*.discord.md     text
+*.slack.mrkdwn   text
+*.matrix.html    text
+
+# Keep the plan and docs out of the language statistics.
+docs/**          linguist-documentation=true

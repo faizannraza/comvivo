@@ -81,7 +81,7 @@ This document owns how people **find, understand, try, trust, install and join**
 | **npm scope `@village`**: no public packages found; we could not check anonymously whether the org exists | npm search | Unknown. Check in M0 by trying `npm org create` |
 | Generic word | Weak trademark, poor search ranking, and name-invocation false positives ("the village fair") | Medium |
 
-**Conclusion:** do not launch as "Village". Keep it as the internal codename until the rename lands.
+**Conclusion:** do not launch as "Village". ~~Keep it as the internal codename until the rename lands.~~ **Resolved 2026-11-01 (D-2): the product is `Folkstead`.** The codename was retired in M0 rather than at M8, because the repository was already public and renaming later is expensive. See [`docs/adr/ADR-024-product-name.md`](../adr/ADR-024-product-name.md). `BRAND` (`packages/shared/src/brand.ts`), the AST guard, the codemod and the weekly rename drill are still built exactly as §3.A.6 specifies, so a forced change remains a one-command operation.
 
 #### 3.A.2 Selection criteria (each scored 0–3, then weighted)
 
@@ -95,26 +95,18 @@ This document owns how people **find, understand, try, trust, install and join**
 
 #### 3.A.3 Candidates
 
-Signals were checked 2026-11-01 against the npm registry, the GitHub API and DNS NS records. A domain with no DNS record is not proof that it is available.
-
-| # | Name | Rationale | npm `name` / `create-name` | Domains with no NS record | Risks |
-|---|---|---|---|---|---|
-| 1 | **Kinhold** | "kin" + "household". A coined word, so the strongest mark; reads as "what the group holds together" | free / free | .dev, .sh, .chat | GitHub user `kinhold` exists (org `kinholdhq` is free); .com is in use |
-| 2 | **Folkmoot** | The Old English assembly where the people settled community matters, which maps directly onto the constitution | free / free | .dev, .sh, .chat | "moot" also means "irrelevant"; quirky |
-| 3 | **Thorp** | Old English for village or hamlet. One syllable; continuity with the codename | free / free | .sh, .chat | Spelling (thorp vs thorpe); a surname |
-| 4 | **Commonhold** | Shared ownership (UK legal term for owners holding a building in common) | free / free | .dev, .sh | Three syllables; sounds like a legal term |
-| 5 | Ingle | Scots for the fire on the hearth (as in "inglenook"); warm and rare | free / free | .sh, .chat | Obscure; .dev and .app taken |
-| 6 | Hearthly | The hearth a household gathers round | free / free | .sh, .chat | "Hearth" brands are crowded; weak mark |
-| 7 | Kinfold | "Into the fold" | free / free | .sh, .chat | GitHub `getkinfold` exists |
-| 8 | Usward | "Toward us" | free / free | .dev, .sh, .app, .chat | Reads oddly ("U.S. ward") |
-| 9 | Hamlet | Literally a small village | taken | .dev | Shakespeare comes up in school-parent chats, causing false invocations |
-| 10 | Moai | Okinawan lifelong mutual-support circle | taken | .dev | Cultural sensitivity (Okinawan practice; Rapa Nui statues); needs review by people from those communities |
-| 11 | Oikos | Greek "household", the root of economy and ecology | taken | .sh, .chat | Yogurt brand (different class); pronunciation |
-| 12 | Covey | A small group that moves together | taken | .sh | Existing "Covey" brands in training and software |
-
-**Rejected early:** Hearth: crowded; Kin: an existing personal-AI product; Chorus, Nori, Carly: existing family-AI assistants (chorus.com, heynori.com, usecarly.com all publish comparisons against Ollie); Flock: a surveillance-camera company, the wrong association; Gaggle: a student-surveillance company; Agora: Agora.io; Polis: pol.is, a deliberation tool; Bevy: a well-known game engine; Common Room: a devrel SaaS; Plural: plural.sh; Hive, Circle, Folk: crowded.
-
-**Recommendation:** run formal clearance (§3.A.4) in this order: **Kinhold, Folkmoot, Thorp, Commonhold**.
+> **Redacted (2026-11-01).** §3.A.5 requires this section to leave the public tree before the
+> repository goes public, so that nobody can squat the candidates. The repository was already
+> public when D-2 was decided, so the longlist, the scoring sheet and the shortlist were moved to
+> the private, gitignored `naming/` workspace (`naming/redacted-13-A3.md`), together with the
+> per-candidate clearance evidence.
+>
+> **Outcome: the name is `Folkstead`** (Old English *folcstede*, "the dwelling place of a people").
+> All four shortlisted names failed clearance — three of them because an active product already
+> occupies this exact category under senior common-law rights that no trademark register records.
+> The decision, the full evidence and the recorded risks are in
+> [`docs/adr/ADR-024-product-name.md`](../adr/ADR-024-product-name.md) and, in unredacted form,
+> in `naming/decision-2026-11-01.md`.
 
 #### 3.A.4 Clearance checklist (one file per shortlisted name: private `naming/clearance-<name>.md`)
 

@@ -6,3 +6,11 @@ dist/
 !.env.example
 data/
 *.log
+
+# Private naming workspace (13 §3.A.5: the candidate shortlist must not be public,
+# so nobody can squat the names we considered). Never commit.
+naming/
+
+# Python bytecode from the plan scripts (scripts/plan/trace.py and its tests).
+__pycache__/
+*.pyc
