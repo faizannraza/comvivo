@@ -18,7 +18,7 @@
 
 1. **Start of session.** Read `CLAUDE.md`, `README.md`, `STATUS.md`, then this file's §0 and the milestone's section in §2.
 2. **Gate check.** Confirm the previous milestone's exit gate is recorded as green in `STATUS.md`. The only exceptions are the explicit overlaps in §1.2.
-3. **Owner checkpoints.** If §0.6 lists an owner decision for this milestone and `STATUS.md` shows it open, **stop and ask** before any task tagged with that decision. Work on untagged tasks may continue.
+3. **Owner checkpoints (delegated).** If §0.6 lists an owner decision for this milestone and `STATUS.md` shows it open, **make the decision yourself** (autonomous mode, `CLAUDE.md` §5) and log the rationale. Only the money parts of a decision are asked of the owner. While waiting on them, continue untagged work.
 4. **Open issues.** Check §0.7 for cross-document issues that block tasks in this milestone. If an issue is still open in the spec text, fix it with the first affected task, following §0.5.
 5. **Spikes first.** Run the milestone's spikes (listed under *Spikes first*). Record each result, the fallback taken and the evidence link in `STATUS.md` → Spikes. A failed spike switches to its documented fallback (`15` §4). It never silently drops work.
 6. **Execution note.** Write the milestone's execution note in `STATUS.md`: task order (normally the table order), which tasks will use sub-agents, risks, spike outcomes, and anything needed from the human (credentials, hardware, money, publishing).
@@ -29,7 +29,7 @@
    4. Tick the task in `STATUS.md` and log any deviation under "Plan changes".
    5. Commit with a Conventional Commit that names the canonical ID, e.g. `feat(core): add IFC join and canRead (M5-T1)`.
 8. **Exit gate.** Run every command in the milestone's *Exit gate* block. The `11` §3.12 row for the milestone is included verbatim, and all of `ci-ok` must be green on `main`.
-9. **Milestone report.** Write it in `STATUS.md`: what shipped, gate results with numbers, cut-lines used, known gaps and follow-up tasks. Then stop for human review. Never start the next milestone in the same session without the human's go-ahead.
+9. **Milestone report.** Write it in `STATUS.md`: what shipped, gate results with numbers, cut-lines used, known gaps and follow-up tasks. Then (autonomous mode, `CLAUDE.md` §1.4 and §5) have an independent reviewer sub-agent with fresh context audit the milestone, fix every finding, open and merge the milestone PR with CI green, and **continue to the next milestone without waiting**.
 
 **Tags used in task rows**
 
@@ -37,11 +37,11 @@
 |---|---|---|
 | `‖` in the last column | parallel-ok | May run in a sub-agent or out of order once its deps are done (§0.4) |
 | `—` in the last column | serial | Run in table order on the main thread |
-| `[ask:cost]` | Spends money (live model calls, paid services) | Ask in chat first, with an estimate (CLAUDE.md §5) |
-| `[ask:publish]` | Publishes something (npm, GHCR, releases, store listings, posts, public repo) | Ask in chat first |
+| `[ask:cost]` | Spends money (live model calls, paid services) | Within the owner-approved budget: proceed and log the spend. Beyond it: ask first, with an estimate (CLAUDE.md §5) |
+| `[ask:publish]` | Publishes something (npm, GHCR, releases, store listings, public repo) | Delegated: proceed per `12` (the owner only provides credentials such as `npm login`). **Social-media and HN/Reddit posts are never made by Claude Code** |
 | `[cred]` | Needs real credentials (bot tokens, API keys, accounts) | The human provides them; never commit them |
 | `[human]` | A step only a person can do (hardware runs, annotation, external reviewers, account settings) | Claude Code prepares everything, and the human performs and confirms it |
-| `[D-n]` | Blocked by owner decision D-n (§0.6) | Stop and ask if the decision is open |
+| `[D-n]` | Depends on owner decision D-n (§0.6) | Decide it yourself if it is open (delegated); ask only for its money part |
 
 **Global acceptance rules** (implicit in every row):
 - `pnpm verify` is green, and the task's tests are in the default CI tier unless the row says nightly.

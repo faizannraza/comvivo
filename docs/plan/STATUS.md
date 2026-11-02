@@ -3,7 +3,9 @@
 **Current milestone:** M0 — Foundations (not started)  
 **Last updated:** 2026-11-01  
 **Last green gate:** none  
-**Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.
+**Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
+**Operating mode:** autonomous (`CLAUDE.md` §5). Ask the owner only for money, credentials/account actions, or a 2-minute real-chat smoke test.  
+**Repo:** https://github.com/faizannraza/village
 
 ## How to update this file
 
@@ -11,13 +13,13 @@
 - **Before a milestone:** fill in its *Execution note*: task order (normally the table order in `14`), which `‖` tasks go to sub-agents, spike plan, risks, and what you need from the human (credentials, hardware, money, publishing approvals). Check `14` §0.6 for owner decisions and §0.7 for open cross-doc issues.
 - **Per task:** tick `[x]` only after the AC are met and `pnpm verify` is green. Append the commit hash, e.g. `- [x] M3-T5 RichText AST & parser — a1b2c3d`. Log any deviation under *Plan changes* in the same commit.
 - **Spikes:** set the status (`open` → `running` → `passed` / `failed → fallback`), the decision and an evidence link.
-- **Owner decisions:** never fill in an answer yourself. When a checkpoint in `14` §0.6 is reached, ask in chat, then record the owner's answer, the date and who decided. Spine changes and other approvals also go under *Decisions needing approval*, with status `proposed` until the owner answers.
-- **End of a milestone:** paste the exit-gate results with numbers into *Milestone report*, list cut-lines used and known gaps, update *Last green gate*, then stop for human review.
+- **Owner decisions (autonomous mode since 2026-11-01, `CLAUDE.md` §5):** the owner delegated D-1…D-8, spine changes and approvals to Claude Code, except the **money** parts (D-4 budget, paid services, domains, paid reviews), which must be asked once and recorded. At each checkpoint in `14` §0.6, decide with critical thinking and the `15` §1 recommendation. Record the answer, the rationale, the date and "Claude Code (delegated)" in the table below, and add an ADR when the decision is architectural.
+- **End of a milestone:** paste the exit-gate results with numbers into *Milestone report*, list cut-lines used and known gaps, update *Last green gate*, have an independent reviewer sub-agent audit the milestone, merge it, and continue to the next milestone (no stop; `CLAUDE.md` §1.4).
 - **Never** delete history. Strike through superseded text with `~~…~~` and add a dated line.
 
 ## Decisions needing approval
 
-Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner). Claude Code must stop and ask at the checkpoint in `14` §0.6.
+Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner). **Delegated to Claude Code** (autonomous mode, `CLAUDE.md` §5): decide at the checkpoint in `14` §0.6 and log the rationale. Only the money parts are asked of the owner. D-2 (name) is pulled forward to M0 because the repo is already public.
 
 | ID | Decision | Ask at | Needed before | Status | Answer | Decided by / date |
 |---|---|---|---|---|---|---|
