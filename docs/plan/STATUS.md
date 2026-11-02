@@ -1,6 +1,6 @@
 # STATUS — Village build tracker
 
-**Current milestone:** M0 — Foundations (not started)  
+**Current milestone:** M0 — Foundations (in progress)  
 **Last updated:** 2026-11-01  
 **Last green gate:** none  
 **Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
@@ -17,6 +17,61 @@
 - **End of a milestone:** paste the exit-gate results with numbers into *Milestone report*, list cut-lines used and known gaps, update *Last green gate*, have an independent reviewer sub-agent audit the milestone, merge it, and continue to the next milestone (no stop; `CLAUDE.md` §1.4).
 - **Never** delete history. Strike through superseded text with `~~…~~` and add a dated line.
 
+## Environment (host audit, 2026-11-01)
+
+The build machine is the project owner's macOS arm64 laptop (Darwin 23.6.0 / macOS 14).
+
+| Tool | Required | Found | Action taken |
+|---|---|---|---|
+| Node (primary) | 26 LTS | `v26.0.0` via Homebrew; **26.13.0 "Lithium"** is the current Active LTS (since 2026-10-28) | Installing 26.13.0 into `~/.local/node/v26.13.0` (official tarball; Homebrew is on a Tier-3 config here and can only build from source) |
+| Node (matrix leg) | ≥ 24.11 | absent | Installing **24.22.2** ("Krypton") into `~/.local/node/v24.22.2` |
+| pnpm | ≥ 11, explicit, no Corepack | absent | **12.16.1** installed with `npm install -g pnpm` (explicit, not Corepack). Pinned in `package.json#packageManager` |
+| Docker Desktop | running | installed (`29.2.0`), daemon stopped | `open -a Docker` issued; first-run GUI acceptance may be needed → owner ask #4 |
+| gh CLI | authenticated | `2.83.1`, logged in as `faizannraza`, scopes `repo, workflow, read:org, gist, user, delete_repo` | ready |
+| git identity | set | `Muhammad Faizan Raza <faizanraza766@gmail.com>` | ready |
+| Python 3 | for plan scripts | `3.14.5` | ready |
+| Homebrew | — | `6.0.12`, **Tier-3 (unsupported) config**: outdated Command Line Tools, so formulae build from source | Avoid brew for toolchain; use official tarballs and npm. Owner may optionally refresh Xcode CLT (not blocking) |
+
+**GitHub repo configured** (2026-11-01): `origin` added and `main` pushed; description and 15 topics set; Discussions enabled; Issues and Projects on; wiki off; delete-branch-on-merge on; **private vulnerability reporting enabled**; **Dependabot alerts enabled**; secret scanning + push protection confirmed enabled. Branch protection waits for `ci-ok` to exist (`M0-T21`).
+
+## What I need from the human (open asks)
+
+Batched per `CLAUDE.md` §5. Everything else proceeds without waiting, using the simulator, the fake/adversarial model gateways, recorded fixtures and local services.
+
+| # | Ask | Kind | Blocks | Status |
+|---|---|---|---|---|
+| H-1 | Approve the API budget below (one-time approval; then I operate inside it and track spend here) | money | `M2-T19`, `M2-T20` live calls; all live evals from M5 | **open** (asked 2026-11-01) |
+| H-2 | `ANTHROPIC_API_KEY` in `~/village/.env` (mode 0600, gitignored) | cred | `M2-T19` onwards; live smoke | **open** (asked 2026-11-01) |
+| H-3 | Telegram bot token + a private test group containing the owner and the bot | cred | `M3-T56` real-group exit check; `M3-T32`–`T35` live verification | **open** (asked 2026-11-01) |
+| H-4 | Docker Desktop first run (accept the licence dialog once so the daemon starts) | account action | `M3-T50` image build, `M10-T1` Synapse homeserver, `M14` packaging | **open** (asked 2026-11-01) |
+| H-5 | Create the 5 extra GitHub Discussions categories (no API exists for this; web UI only) | account action | `M8-T27`, `M15-T15` | **open** (asked 2026-11-01) |
+| H-6 | Secure the chosen product name's assets: GitHub org, npm org/scope (needs `npm login`), social handles | account action | `M0-T15` names manifest; `M12-T34` npm trusted publishing | **open** — exact steps posted once D-2 lands |
+| H-7 | Optional: a domain for the docs site and product URL | money | nothing (GitHub Pages is used until bought) | **open** (asked 2026-11-01) |
+| H-8 | Later, announced at their milestone: Discord + Slack apps (M10), `npm login` / trusted publishing (M12), Cloudflare Pages token for docs (M0-T18/M15), optional paid security + child-safety review (M13/M15), community-chat space + bot spend cap (M8, D-7) | mixed | their milestones | **not yet due** |
+
+### H-1 — proposed API budget
+
+Anthropic list prices used for the estimates (cached 2026-10-06 in `11` §8; re-verified at `M8-T22`): Opus 5.5 $4/$20 per MTok, Sonnet 5.5 $2/$10, Haiku 5.5 $0.10/$0.50, Batches −50%.
+
+| Bucket | What it buys | When | Cap |
+|---|---|---|---|
+| Development smoke + spikes | `SP-4` (per-message effort + cache behaviour, refusal-fallback beta), `SP-5`/E-CAT tool-catalog experiment, per-milestone live smoke, `pnpm evals:live` spot checks | M2–M15 | **$100** |
+| Gate-triggered live evals (reduced profile) | Discretion / authority / injection red-team suites plus judges on real models, run **at each milestone gate** rather than nightly | M5–M13 | **$250** |
+| Full hardening run | The ≥ 500-scenario red-team at full size across Opus 5.5 / Sonnet 5.5 / Haiku 5.5 with an OpenAI cross-check; extraction F1 on the labelled multilingual corpus | M13 | **$150** |
+| Release gates | `quality-gates.yml` for 0.1 alpha, 0.5 beta, 1.0, plus one launch rehearsal | M8, M12, M15 | **$100** |
+| | | **Total** | **$600** |
+
+- **Hard daily cap $40**, enforced in the eval runner: a run that would exceed the remaining budget refuses to start rather than truncating.
+- **Why not the plan's nightly profile.** `11` §8 prices the full nightly profile at ≈ $850/month and the reduced profile at ≈ $370/month. Both assume a human team working over calendar months. Running continuously, the same coverage comes from gate-triggered runs at a fraction of the cost, because the deterministic adversarial fake gateways carry the per-PR guarantee by design (`15` D-4 interim behaviour). If the owner prefers a true nightly cadence, that is ≈ $370/month for the reduced profile.
+- **Open-source credits.** I will verify the current Anthropic programme and hand over a prepared application; applying costs nothing. If credits are granted we upgrade to the full nightly profile at no cash cost.
+- Spend is recorded in *API spend ledger* below after every live run.
+
+### API spend ledger
+
+| Date | Milestone / task | Route(s) | Model(s) | Cost (USD) | Running total |
+|---|---|---|---|---|---|
+| — | no live calls yet | — | — | 0.00 | 0.00 |
+
 ## Decisions needing approval
 
 Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner). **Delegated to Claude Code** (autonomous mode, `CLAUDE.md` §5): decide at the checkpoint in `14` §0.6 and log the rationale. Only the money parts are asked of the owner. D-2 (name) is pulled forward to M0 because the repo is already public.
@@ -24,13 +79,13 @@ Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needi
 | ID | Decision | Ask at | Needed before | Status | Answer | Decided by / date |
 |---|---|---|---|---|---|---|
 | [D-1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Wizard pre-selected preset | M3 (inform), M9 entry | M9-T32; revisit at M13-T25 | open | — | — |
-| [D-2](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Final product name | M7 exit (target) | M8 exit, hard (before first public tag) | open | — | — |
-| [D-3](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | When the repo goes public | M8 entry | M8-T28 | open | — | — |
-| [D-4](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Funding for live-model evals | M2 entry (per run), M5 entry (standing) | M8-T22 | open | — | — |
-| [D-5](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Minors' self-harm/abuse disclosures in DMs | M5 (inform), M13 entry | M13-T30, 1.0 | open | — | — |
+| [D-2](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Final product name | **M0** (pulled forward by the owner 2026-11-01, because the repo is already public and renaming later is expensive) | M0-T5 `BRAND`; M8 exit hard | **in progress** | Clearance research running on the `13` §3.A.3 shortlist (Kinhold, Folkmoot, Thorp, Commonhold) | Claude Code (delegated) |
+| [D-3](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | When the repo goes public | M8 entry | M8-T28 | **decided** | Already public (2026-11-02). Stays public but **unannounced**; no launch posts until the 1.0 launch gates pass. `M8-T28` becomes "announce-readiness check", not a visibility flip | Claude Code (delegated) / 2026-11-01 |
+| [D-4](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Funding for live-model evals | M2 entry (per run), M5 entry (standing) | M8-T22 | **asked (money)** | Budget proposal H-1 above: $600 total with a $40/day hard cap, gate-triggered instead of nightly. Awaiting owner approval; no live call is made before it | owner (money part) |
+| [D-5](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Minors' self-harm/abuse disclosures in DMs | M5 (inform), M13 entry | M13-T30, 1.0 | **decided** | **No automatic guardian alert in v1.** Resources-only response with carefully reviewed copy. No guardian-escalation code path is built. Paid external child-safety review is offered to the owner as a money item and never blocks the gate; the automated substitute is a dedicated red-team family plus a documented limitation | Claude Code (delegated) / 2026-11-01 |
 | [D-6](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Hybrid mode pre-selected (Ollama + ≥ 16 GB) | M9 entry | M9-T32 / M9-T33 | open | — | — |
-| [D-7](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Community chat home | M8 entry | M8-T27, M10-T24; confirm at M15 | open | — | — |
-| [D-8](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | WhatsApp | Quarterly (M4, M8, M12, M15 entry) | — (stays out of 1.x unless decided) | open | — | — |
+| [D-7](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Community chat home | M8 entry | M8-T27, M10-T24; confirm at M15 | **decided** | **GitHub Discussions is the guaranteed baseline** and ships at 1.0 (enabled 2026-11-01). A Discord space is the recommended addition but needs the owner's account, so exact steps are handed over at M8; running Village itself there is a money item with a proposed **$5/day / $30/month cap** on the Economy preset. Matrix bridge is post-1.0 | Claude Code (delegated) / 2026-11-01 |
+| [D-8](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | WhatsApp | Quarterly (M4, M8, M12, M15 entry) | — (stays out of 1.x unless decided) | **decided** | **Out of 1.x.** Meta's official platform still does not support bots as members of ordinary user groups, and unofficial clients are permanently excluded (`00` §6.3). Re-check recorded at M4, M8, M12 and M15 entry | Claude Code (delegated) / 2026-11-01 |
 
 **Other approvals** (spine changes, owner-level questions, new runtime dependencies, spend, publishing):
 
@@ -39,10 +94,28 @@ Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needi
 | A-1 | 2026-11-01 | `@village/mcp-bridge` is not in 12's P11 public-package set but must be installable by members (`14` §4.3 item 9) | before M12-T19 | **resolved** (planner, 2026-11-01) | Added to 12 P11. There are now six public packages; publishing still needs owner approval at release time |
 | A-2 | 2026-11-01 | 0.5 beta checklist items that 12 schedules in M14 (overlays, N-3 upgrade matrix, runbooks, sizing): waive for 0.5 or pull forward (`14` §3.2) | before M12 exit | **resolved** (planner default, 2026-11-01; owner may override) | **Pulled forward to M12:** the default compose file, an upgrade test from the previous release (N-1), and the backup/restore + "bot stopped responding" runbooks (data safety for beta testers). **Deferred to the 1.0 checklist:** the N-3 upgrade matrix, the Ollama/Caddy/signal-cli/rclone overlays, the full runbook set and the sizing guide |
 
+## Decisions log
+
+Every significant delegated decision, with its rationale. Architectural decisions also get an ADR in `docs/adr/`.
+
+| # | Date | Decision | Rationale | ADR |
+|---|---|---|---|---|
+| DL-1 | 2026-11-01 | **D-3 — repo stays public but unannounced.** | The owner created the repository as public and instructed that it stay unannounced until the 1.0 launch gates pass. `15`'s recommendation was "public unannounced at M8", so this is the same posture, reached earlier. Consequence: `M3-T52` edge images must push to a namespace that is not advertised, and `13` §3.A.3's name shortlist is redacted from the public tree so the candidates cannot be squatted. | — |
+| DL-2 | 2026-11-01 | **D-8 — WhatsApp stays out of 1.x.** | `06` §B's conclusion is unchanged: Meta's WhatsApp Business Platform does not support bots as members of ordinary user groups, and its AI-assistant policy is restrictive. Unofficial clients (Baileys, whatsapp-web.js) are a permanent "never" (`00` §6.3) on terms-of-service and legal grounds. | — |
+| DL-3 | 2026-11-01 | **D-5 — resources-only response to minors' disclosures; no automatic guardian alert.** | This is the safest design and the one every option in `15` D-5 includes, so building it exclusively forecloses nothing. An automatic alert can out a child to the person harming them, and Village cannot verify who a "guardian" actually is. Building no escalation code path at all is also the only way to be sure one cannot be triggered by prompt injection. A paid expert review is offered but never gates the release; the automated substitute is a dedicated red-team family plus an honest documented limitation. | pending (M5) |
+| DL-4 | 2026-11-01 | **D-7 — GitHub Discussions is the community baseline.** | It needs no new account, no hosting, no moderation bot and no spend, and it is indexable, which matters for support SEO. Discord is additive and is handed to the owner as a short set of steps at M8. Running Village in its own community is excellent dogfooding but is real money, so it carries a proposed cap. | — |
+| DL-5 | 2026-11-01 | **pnpm 12.16.1, not pnpm 11.** | `08` §3.15 and `01` §14 A1 require "pnpm ≥ 11, pinned by `packageManager`, installed explicitly, never Corepack". pnpm 12 is the current major, satisfies "≥ 11", and the supply-chain settings the plan depends on (`minimumReleaseAge`, `trustPolicy`, build allowlisting) are present and better documented there. Logged as a Plan change rather than a spine change because the spec states a floor, not a pin. | — |
+| DL-6 | 2026-11-01 | **Node pins: 26.13.0 primary, 24.22.2 matrix leg.** | `01` §14 A1 names "Node 26 primary, Node 24 ≥ 24.11 supported". 26.13.0 is the Active LTS ("Lithium", since 2026-10-28) and 24.22.2 is the newest 24.x, so these are the concrete versions behind A1. `.node-version` holds `26` so minor bumps need no commit. | — |
+| DL-7 | 2026-11-01 | **Homebrew is not used for the toolchain.** | Homebrew 6.0.12 reports this macOS/CLT combination as a Tier-3 (unsupported) configuration and therefore builds every formula from source, which failed for both `pnpm` and `fnm`. Official Node tarballs plus an explicit global `pnpm` install are reproducible and match what CI does. Recorded so a future session does not retry brew. | — |
+
 ## Plan changes
 
 | Date | Task | File § | Change | Reason |
 |---|---|---|---|---|
+| 2026-11-01 | M0 entry | `08` §3.15, `01` §14 A1 | Toolchain pins recorded concretely: pnpm **12.16.1**, Node **26.13.0** primary / **24.22.2** matrix. The specs state floors ("pnpm ≥ 11", "Node 26 / ≥ 24.11"); these are the versions that satisfy them today | Re-verification of third-party facts at implementation time (`CLAUDE.md` §6). See DL-5, DL-6 |
+| 2026-11-01 | M0 entry (D-2) | `14` §0.6, `15` §1 | **D-2 (final name) is pulled forward from M7/M8 to M0** | Owner instruction, 2026-11-01: the repository is already public, so renaming later is expensive. Consequence: `M0-T1` scaffolds packages directly under the final npm scope instead of `@village/*`, and `M0-T22` (naming kickoff) is folded into the M0 decision. `BRAND`, the AST guard, the codemod and the weekly rename drill are still built exactly as `13` §3.A.6 specifies, so a forced change stays a one-command operation |
+| 2026-11-01 | M0 entry (D-2) | `13` §3.A.3 | The candidate shortlist table is **redacted from the public tree** and kept in the gitignored `naming/` workspace | `13` §3.A.5 requires redaction before the repo is public so nobody squats the candidates. The repo is already public, so this is done immediately rather than at M8 |
+| 2026-11-01 | M0 entry | docs 02–13 (global) | Where the specs write `@village/<pkg>`, read `@<final-scope>/<pkg>`. Package *directory* names and spec section numbering are unchanged | Avoids rewriting 2.5 MB of plan text for a scope rename. `BRAND.npmScope` is the single source of truth and the codemod keeps the two in sync |
 
 ## Spikes
 
