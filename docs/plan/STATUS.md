@@ -192,9 +192,9 @@ State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; 
 
 ### M0 — Foundations
 
-Status: in progress · Tasks: 2/23 · Gate: —
+Status: in progress · Tasks: 3/23 · Gate: —
 
-- [ ] M0-T1 Monorepo scaffold
+- [x] M0-T1 Monorepo scaffold — 24 packages/apps; `pnpm verify` green in 6s on Node 26.13.0 **and** 24.22.2; 27 modules / 0 depcruise violations; 18 tests — ae5b2e1
 - [ ] M0-T2 Runtime pins & pnpm supply-chain policy
 - [ ] M0-T3 Vitest workspace
 - [ ] M0-T4 Dependency boundaries & lint bans
@@ -220,7 +220,57 @@ Status: in progress · Tasks: 2/23 · Gate: —
 
 #### Execution note
 
-_Not written yet._
+**Written 2026-11-01.** Order is `14` §2's table order. Deviations and their reasons are below.
+
+**Spikes.** None for M0 (`14` §2). The §0.7 consistency pass ran as `M0-T23` and came back clean —
+504 canonical tasks across 16 milestones, 552 spec tasks in `02`–`13` §10, **0 unmapped spec tasks,
+0 unknown references**, and `STATUS.md` in exact agreement with every task table. Four real
+inconsistencies were found and fixed (see *Plan changes*).
+
+**Owner checkpoints.** `D-2` was pulled forward to M0 by the owner, so it was decided here rather
+than at M7/M8 — see DL-8 and [ADR-024](../adr/ADR-024-product-name.md). `D-3`, `D-5`, `D-7` and
+`D-8` were also decided now, since each was either already determined by the facts on the ground or
+costs nothing to settle early (DL-1 to DL-4). `D-1` and `D-6` wait for M9, where there will be
+measured cost data to decide with. `D-4` is the money part and is the owner ask H-1.
+
+**Task order, with the deviations.**
+
+1. `M0-T20` (ADRs) and `M0-T23` (the plan consistency pass) ran **first**, in parallel sub-agents,
+   because both are `‖`, neither depends on the scaffold, and `M0-T23`'s checker is the thing that
+   tells me whether the plan I am about to execute is self-consistent. It was worth knowing that
+   before writing code, and it found four defects.
+2. `M0-T1` (scaffold) next, on the main thread.
+3. Then `M0-T2` → `M0-T19` in table order. `M0-T5` (`BRAND`) was partly pulled into `M0-T1`,
+   because every one of the 24 `package.json` files needs the final npm scope and there is no
+   sensible way to scaffold without it. `M0-T5` is ticked only when its full acceptance criteria
+   are met (the `13` §4.1 shape, the exclusions, and the planted-violation fixture).
+4. `M0-T21` (branch protection) last, since it needs `ci-ok` to exist.
+
+**Sub-agents.** `M0-T20` and `M0-T23` went to sub-agents (disjoint file sets, no commits from the
+agent, the main thread verifies and commits). Four more sub-agents ran the D-2 clearance research
+and one re-verified the entire toolchain against the live registries. Everything touching
+`packages/core` and every migration stays serial, per `14` §0.4 — and `M0-T23` found three M4 rows
+mis-tagged `‖` over exactly those paths, now corrected.
+
+**Risks taken into M0, and what happened.**
+
+- *The plan's third-party facts were a day old.* Re-verification found five that had moved, two of
+  which would have broken the M0 gate: `typescript-eslint` cannot run on TypeScript 7, and
+  `vitest.workspace.ts` is removed in Vitest 5 and now fails **silently**. Recorded as spine
+  amendment **A31** plus [ADR-025](../adr/ADR-025-typescript-version-pin.md).
+- *Naming was the real risk.* Every name in `13` §3.A.3's shortlist failed, and two replacements
+  were chosen and reversed. The `BRAND` + codemod + weekly-drill machinery is what made that cost
+  an hour instead of a week; it earned its place before a line of product code existed.
+- *Guards that report success while enforcing nothing.* The first dependency-cruiser config excluded
+  `/dist/`, and since workspace imports resolve through `node_modules` into `dist/`, every
+  cross-package edge was invisible. It printed "no violations" over an empty graph. Found by
+  planting a violation, not by reading. This is the argument for `M0-T4`'s
+  planted-violation-fixture requirement, and it generalises: **a guard is not done until it has
+  been seen to fail.**
+
+**Needed from the human.** H-1 (API budget) through H-7, listed above. None of them block M0: the
+scaffold, the guards, CI and the docs skeleton need no credentials. H-6 (securing the `comvivo`
+names) is the one with a clock on it, because the repository is public.
 
 #### Milestone report
 
