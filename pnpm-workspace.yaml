@@ -1,0 +1,18 @@
+# pnpm workspace definition and settings.
+#
+# Since pnpm 11, almost every setting lives HERE rather than in `.npmrc` — only auth,
+# registry, TLS, proxy and `local-address` are still read from `.npmrc`.
+# See `docs/plan/01-architecture.md` §14 A31 and `docs/plan/08-security-privacy.md` §3.15.
+
+packages:
+  - 'packages/*'
+  - '!packages/channels'
+  - '!packages/plugins'
+  - 'packages/channels/*'
+  - 'packages/plugins/*'
+  - 'apps/*'
+
+# Fail rather than silently download a different pnpm when the client does not match
+# `devEngines.packageManager`. Corepack is not bundled from Node 25 onward; pnpm does its own
+# version switching, governed by this setting. (A31)
+pmOnFail: error

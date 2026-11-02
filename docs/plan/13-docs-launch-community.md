@@ -81,7 +81,7 @@ This document owns how people **find, understand, try, trust, install and join**
 | **npm scope `@village`**: no public packages found; we could not check anonymously whether the org exists | npm search | Unknown. Check in M0 by trying `npm org create` |
 | Generic word | Weak trademark, poor search ranking, and name-invocation false positives ("the village fair") | Medium |
 
-**Conclusion:** do not launch as "Village". ~~Keep it as the internal codename until the rename lands.~~ **Resolved 2026-11-01 (D-2): the product is `Folkstead`.** The codename was retired in M0 rather than at M8, because the repository was already public and renaming later is expensive. See [`docs/adr/ADR-024-product-name.md`](../adr/ADR-024-product-name.md). `BRAND` (`packages/shared/src/brand.ts`), the AST guard, the codemod and the weekly rename drill are still built exactly as §3.A.6 specifies, so a forced change remains a one-command operation.
+**Conclusion:** do not launch as "Village". ~~Keep it as the internal codename until the rename lands.~~ **Resolved 2026-11-01 (D-2): the product is `Comvivo`.** The codename was retired in M0 rather than at M8, because the repository was already public and renaming later is expensive. See [`docs/adr/ADR-024-product-name.md`](../adr/ADR-024-product-name.md). `BRAND` (`packages/shared/src/brand.ts`), the AST guard, the codemod and the weekly rename drill are still built exactly as §3.A.6 specifies, so a forced change remains a one-command operation.
 
 #### 3.A.2 Selection criteria (each scored 0–3, then weighted)
 
@@ -101,9 +101,20 @@ This document owns how people **find, understand, try, trust, install and join**
 > the private, gitignored `naming/` workspace (`naming/redacted-13-A3.md`), together with the
 > per-candidate clearance evidence.
 >
-> **Outcome: the name is `Folkstead`** (Old English *folcstede*, "the dwelling place of a people").
-> All four shortlisted names failed clearance — three of them because an active product already
-> occupies this exact category under senior common-law rights that no trademark register records.
+> **Outcome: the name is `Comvivo`** — *com* (with) + *vivo* (I live), "living together", the root of
+> *convivial*. All four shortlisted names failed clearance, three of them because an active product
+> already occupies this exact category under senior common-law rights that no trademark register
+> records. Two later candidates were chosen and reversed before this one.
+>
+> **Two findings supersede §3.A.2–§3.A.3 for any future rename.** First, the whole
+> Anglo-Saxon/Norse revivalist register is off-limits for this product: *folk-*, *moot*, *stead*,
+> *garth*, *hearth*, *kindred*, *thing*, *frith*, *troth*, *thorp*, *kith* and *kin* all carry a
+> Germanic-neopagan reading, and "folkish" (*völkisch*) is the self-applied label of that
+> movement's racist branch. §3.A.3's entire candidate family drew from that one well. Second,
+> every apt dictionary word or obvious compound in this space is already claimed by someone
+> building something adjacent, so **only a genuine coinage is reliably free** — which §3.A.2
+> already implies by ranking *coined > arbitrary > suggestive > descriptive* at weight 3.
+> Procedurally: screen **trademark and same-category products first**, availability second.
 > The decision, the full evidence and the recorded risks are in
 > [`docs/adr/ADR-024-product-name.md`](../adr/ADR-024-product-name.md) and, in unredacted form,
 > in `naming/decision-2026-11-01.md`.

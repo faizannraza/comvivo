@@ -1,0 +1,62 @@
+{
+  "name": "comvivo-monorepo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Comvivo — the open-source AI that belongs to your group, not to one person.",
+  "license": "Apache-2.0",
+  "repository": { "type": "git", "url": "git+https://github.com/faizannraza/comvivo.git" },
+  "homepage": "https://github.com/faizannraza/comvivo",
+  "bugs": { "url": "https://github.com/faizannraza/comvivo/issues" },
+  "engines": {
+    "node": ">=24.11.0",
+    "pnpm": ">=12"
+  },
+  "packageManager": "pnpm@12.16.1",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.16.1",
+      "onFail": "error"
+    }
+  },
+  "scripts": {
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "lint": "biome ci . && eslint .",
+    "lint:fix": "biome check --write . && eslint . --fix",
+    "format": "biome format --write .",
+    "typecheck": "tsc -b --pretty",
+    "typecheck:watch": "tsc -b --watch --pretty",
+    "depcruise": "depcruise packages apps --config",
+    "depcruise:graph": "depcruise packages apps --config --output-type dot | dot -T svg > reports/dependency-graph.svg",
+    "brand:check": "tsx scripts/brand/check.ts",
+    "plan:check": "python3 scripts/plan/trace.py --check",
+    "build": "turbo run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:unit": "vitest run --project unit",
+    "test:int": "vitest run --project integration",
+    "test:contract": "vitest run --project contract",
+    "test:scenario": "vitest run --project scenario",
+    "test:prop": "vitest run --project unit --testNamePattern=\"\" --coverage=false",
+    "bench": "vitest bench --project bench",
+    "coverage": "vitest run --coverage",
+    "evals:smoke": "turbo run evals:smoke",
+    "evals:live": "turbo run evals:live",
+    "dev": "turbo run dev --parallel",
+    "db:generate": "pnpm --filter @comvivo/storage exec drizzle-kit generate",
+    "db:migrate": "pnpm --filter @comvivo/storage exec drizzle-kit migrate",
+    "clean": "turbo run clean && rimraf node_modules/.cache .turbo reports .vitest"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.6",
+    "@types/node": "^24.9",
+    "dependency-cruiser": "^18.7",
+    "eslint": "^10.13",
+    "tsx": "^4.21",
+    "turbo": "^2.11",
+    "typescript": "6.0.3",
+    "typescript-eslint": "^8.72",
+    "vitest": "^5.0"
+  }
+}

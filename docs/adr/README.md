@@ -29,14 +29,14 @@ This directory holds one file per architecture decision. ADR-001 … ADR-023 are
 | [ADR-021](ADR-021-mcp-sdk-v2.md) | MCP — spec 2026-07-28, SDK v2, `/mcp` on the main listener, per-member bearer tokens | Accepted |
 | [ADR-022](ADR-022-docs-site-analytics.md) | Docs-site analytics — self-hosted cookieless Umami, docs site only (product telemetry stays zero) | Accepted |
 | [ADR-023](ADR-023-tool-catalog.md) | Tool catalog strategy — one stable ordered catalog keyed by `catalogHash` | **Proposed** (decided by SP-5 / `M2-T20`, finalised by `M13-T15`) |
-| [ADR-024](ADR-024-product-name.md) | Product name — resolves owner decision **D-2** and supersedes the naming half of `01` §14 A2 | Accepted |
+| [ADR-024](ADR-024-product-name.md) | Product name — **Comvivo**; resolves owner decision **D-2** and supersedes the naming half of `01` §14 A2 | Accepted |
 | [ADR-025](ADR-025-typescript-version-pin.md) | TypeScript pinned to 6.x, because `typescript-eslint` cannot yet run on TS 7 — amends ADR-001 and ADR-003 | Accepted (revisit on typescript-eslint TS 7 support) |
 
 ADR-001 … ADR-023 are the spine's own decisions; **ADR-024 onward are decisions taken during implementation** and are recorded here the same way. Each is logged in `docs/plan/STATUS.md` → Decisions log with its rationale (ADR-024 = DL-8, ADR-025 = DL-9).
 
 **Addenda.** Three decisions are deliberately not final, because they depend on a measurement rather than an argument. Each is marked *addendum pending* above, states its fallback in its own file, and gets an addendum written by the task that runs the spike: ADR-005 by `M1-T2` (SP-1, SP-3), ADR-007 by `M6-T7` (SP-6, which writes `ADR-007-addendum.md` in this directory), and ADR-011 by `M7-T1` (SP-7). ADR-023 is `Proposed` and becomes `Accepted` at `M13-T15`.
 
-**Package names.** These files use the plan's `@village/*` package names and the `village.yaml` / `VILLAGE_` spellings, because that is how `02`–`13` are written. Per `01` §14 A2 as superseded by ADR-024, read every published name through `BRAND` (`BRAND.npmScope`, `BRAND.npmCliPackage`, `BRAND.configFileName`, `BRAND.envPrefix`) and `deploy/names.json`; package *directory* names are unchanged, and `BRAND.legacy` keeps the old config name and env prefix working with a deprecation warning until 1.1.
+**Package names.** These files use the plan's `@village/*` package names and the `village.yaml` / `VILLAGE_` spellings, because that is how `02`–`13` are written. The real names are `@comvivo/*`, `comvivo.yaml` and `COMVIVO_` (ADR-024). Per `01` §14 A2 as superseded by ADR-024, read every published name through `BRAND` (`BRAND.npmScope`, `BRAND.npmCliPackage`, `BRAND.configFileName`, `BRAND.envPrefix`) and `deploy/names.json`; package *directory* names are unchanged, and `BRAND.legacy` keeps the old config name and env prefix working with a deprecation warning until 1.1.
 
 ## The ADR process
 
