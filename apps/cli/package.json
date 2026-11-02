@@ -1,0 +1,38 @@
+{
+  "name": "comvivo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The `comvivo` command: init wizard, start, doctor, backup, restore, export, migrate, eval and keys.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "apps/cli"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "test": "vitest run"
+  },
+  "bin": {
+    "comvivo": "./dist/bin.js"
+  },
+  "dependencies": {
+    "@comvivo/shared": "workspace:*",
+    "@comvivo/storage": "workspace:*",
+    "@comvivo/server": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

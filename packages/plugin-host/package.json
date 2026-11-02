@@ -1,0 +1,35 @@
+{
+  "name": "@comvivo/plugin-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Supervises third-party plugins: one child process each, brokered capabilities, an RPC protocol and a sandbox launcher.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "packages/plugin-host"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@comvivo/core": "workspace:*",
+    "@comvivo/shared": "workspace:*",
+    "@comvivo/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

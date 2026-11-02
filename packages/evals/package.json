@@ -1,0 +1,45 @@
+{
+  "name": "@comvivo/evals",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The simulation harness: persona agents, the scenario DSL, red-team suites, property-test arbitraries, judges and metrics.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "packages/evals"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./arbitraries": {
+      "types": "./dist/arbitraries/index.d.ts",
+      "default": "./dist/arbitraries/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "evals:smoke": "node ../../scripts/pending.mjs \"pnpm evals:smoke\" M3-T48 \"run the deterministic PR-tier scenario suite with the fake model gateway\" \"pnpm test, which runs the unit and property suites\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@comvivo/core": "workspace:*",
+    "@comvivo/shared": "workspace:*",
+    "@comvivo/engine": "workspace:*",
+    "@comvivo/models": "workspace:*",
+    "@comvivo/storage": "workspace:*",
+    "@comvivo/channel-sdk": "workspace:*",
+    "@comvivo/channel-simulator": "workspace:*",
+    "@comvivo/tools": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

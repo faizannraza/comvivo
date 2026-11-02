@@ -1,0 +1,60 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/shared"
+    },
+    {
+      "path": "../../packages/storage"
+    },
+    {
+      "path": "../../packages/models"
+    },
+    {
+      "path": "../../packages/engine"
+    },
+    {
+      "path": "../../packages/tools"
+    },
+    {
+      "path": "../../packages/channels/sdk"
+    },
+    {
+      "path": "../../packages/plugin-sdk"
+    },
+    {
+      "path": "../../packages/plugin-host"
+    },
+    {
+      "path": "../../packages/mcp"
+    },
+    {
+      "path": "../../packages/channels/telegram"
+    },
+    {
+      "path": "../../packages/channels/web"
+    },
+    {
+      "path": "../../packages/channels/simulator"
+    }
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.int.test.ts",
+    "src/**/*.contract.test.ts",
+    "src/**/*.prop.test.ts",
+    "src/**/*.bench.ts",
+    "src/**/__fixtures__/**",
+    "src/**/*.scenario.ts"
+  ]
+}

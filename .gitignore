@@ -14,3 +14,15 @@ naming/
 # Python bytecode from the plan scripts (scripts/plan/trace.py and its tests).
 __pycache__/
 *.pyc
+
+# Build and tool caches
+.turbo/
+.vitest/
+coverage/
+reports/
+*.tsbuildinfo
+.eslintcache
+
+# Vite / Astro
+.astro/
+.vite/

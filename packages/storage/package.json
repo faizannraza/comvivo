@@ -1,0 +1,38 @@
+{
+  "name": "@comvivo/storage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "SQLite persistence: the drizzle schema and migrations, repositories implementing core's ports, crypto and the keyring, the durable job queue, FTS5 and vector indexes, and the blob store.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "packages/storage"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@comvivo/core": "workspace:*",
+    "@comvivo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

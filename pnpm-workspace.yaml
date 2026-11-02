@@ -5,14 +5,33 @@
 # See `docs/plan/01-architecture.md` §14 A31 and `docs/plan/08-security-privacy.md` §3.15.
 
 packages:
-  - 'packages/*'
-  - '!packages/channels'
-  - '!packages/plugins'
-  - 'packages/channels/*'
-  - 'packages/plugins/*'
-  - 'apps/*'
+  - "packages/*"
+  - "!packages/channels"
+  - "!packages/plugins"
+  - "packages/channels/*"
+  - "packages/plugins/*"
+  - "apps/*"
 
 # Fail rather than silently download a different pnpm when the client does not match
 # `devEngines.packageManager`. Corepack is not bundled from Node 25 onward; pnpm does its own
 # version switching, governed by this setting. (A31)
 pmOnFail: error
+
+# Packages allowed to run install scripts. `strictDepBuilds` defaults to true in pnpm 11+, so
+# anything not listed here fails the install rather than silently skipping its build — which is
+# exactly what `08` §3.15 asks for. `onlyBuiltDependencies` was REMOVED in pnpm 11; this map is
+# its replacement (`01` §14 A31).
+#
+# The full policy, including the runtime native modules, lands in M0-T2. The entries here are what
+# the M0 toolchain itself needs.
+allowBuilds:
+  # Dev-only, via vite and tsx. Its postinstall links the prebuilt platform binary that ships as an
+  # optional dependency; without it the bundler cannot run. Never shipped to users.
+  esbuild: true
+
+# Shared dependency versions, referenced from packages as `"vitest": "catalog:"`. One place to bump.
+catalog:
+  vitest: ^5.0
+  "@vitest/coverage-v8": ^5.0
+  "@types/node": ^24.9
+  typescript: 6.0.3

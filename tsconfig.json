@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    {
+      "path": "packages/shared"
+    },
+    {
+      "path": "packages/core"
+    },
+    {
+      "path": "packages/storage"
+    },
+    {
+      "path": "packages/models"
+    },
+    {
+      "path": "packages/channels/sdk"
+    },
+    {
+      "path": "packages/plugin-sdk"
+    },
+    {
+      "path": "packages/tools"
+    },
+    {
+      "path": "packages/engine"
+    },
+    {
+      "path": "packages/plugin-host"
+    },
+    {
+      "path": "packages/mcp"
+    },
+    {
+      "path": "packages/mcp-bridge"
+    },
+    {
+      "path": "packages/api-client"
+    },
+    {
+      "path": "packages/channels/telegram"
+    },
+    {
+      "path": "packages/channels/discord"
+    },
+    {
+      "path": "packages/channels/slack"
+    },
+    {
+      "path": "packages/channels/matrix"
+    },
+    {
+      "path": "packages/channels/signal"
+    },
+    {
+      "path": "packages/channels/web"
+    },
+    {
+      "path": "packages/channels/simulator"
+    },
+    {
+      "path": "packages/evals"
+    },
+    {
+      "path": "apps/server"
+    },
+    {
+      "path": "apps/cli"
+    },
+    {
+      "path": "apps/dashboard"
+    },
+    {
+      "path": "apps/docs"
+    }
+  ]
+}

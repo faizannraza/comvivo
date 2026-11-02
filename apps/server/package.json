@@ -1,0 +1,45 @@
+{
+  "name": "@comvivo/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The composition root: dependency wiring, the Hono HTTP API, worker loops and process lifecycle.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "apps/server"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@comvivo/core": "workspace:*",
+    "@comvivo/shared": "workspace:*",
+    "@comvivo/storage": "workspace:*",
+    "@comvivo/models": "workspace:*",
+    "@comvivo/engine": "workspace:*",
+    "@comvivo/tools": "workspace:*",
+    "@comvivo/channel-sdk": "workspace:*",
+    "@comvivo/plugin-sdk": "workspace:*",
+    "@comvivo/plugin-host": "workspace:*",
+    "@comvivo/mcp": "workspace:*",
+    "@comvivo/channel-telegram": "workspace:*",
+    "@comvivo/channel-web": "workspace:*",
+    "@comvivo/channel-simulator": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,38 @@
+{
+  "name": "@comvivo/channel-sdk",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The channel adapter contract: capability model, inbound and outbound envelopes, the rich-text AST and its per-platform renderers, interaction tokens, and the adapter conformance test kit.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git",
+    "directory": "packages/channels/sdk"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing/index.d.ts",
+      "default": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@comvivo/core": "workspace:*",
+    "@comvivo/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
+  }
+}

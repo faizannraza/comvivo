@@ -1,0 +1,22 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "globalDependencies": ["tsconfig.base.json", "biome.json", ".node-version"],
+  "globalEnv": ["CI", "TZ", "COMVIVO_TEST_MODE"],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "inputs": ["$TURBO_DEFAULT$", "!**/*.test.ts", "!**/*.bench.ts"],
+      "outputs": ["dist/**", "!dist/**/*.tsbuildinfo"]
+    },
+    "test": {
+      "dependsOn": ["^build"],
+      "outputs": ["coverage/**"],
+      "cache": true
+    },
+    "evals:smoke": { "dependsOn": ["build"], "cache": false },
+    "evals:live": { "dependsOn": ["build"], "cache": false },
+    "dev": { "cache": false, "persistent": true },
+    "clean": { "cache": false }
+  }
+}

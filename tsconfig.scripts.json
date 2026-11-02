@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "incremental": false,
+    "isolatedDeclarations": false,
+    "types": ["node"]
+  },
+  "include": [
+    "scripts/**/*.ts",
+    "vitest.config.ts",
+    "vitest.shared.ts",
+    "vitest.setup.ts",
+    "eslint.config.ts"
+  ]
+}

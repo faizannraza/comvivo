@@ -3,11 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Comvivo — the open-source AI that belongs to your group, not to one person.",
+  "description": "Comvivo \u2014 the open-source AI that belongs to your group, not to one person.",
   "license": "Apache-2.0",
-  "repository": { "type": "git", "url": "git+https://github.com/faizannraza/comvivo.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faizannraza/comvivo.git"
+  },
   "homepage": "https://github.com/faizannraza/comvivo",
-  "bugs": { "url": "https://github.com/faizannraza/comvivo/issues" },
+  "bugs": {
+    "url": "https://github.com/faizannraza/comvivo/issues"
+  },
   "engines": {
     "node": ">=24.11.0",
     "pnpm": ">=12"
@@ -22,10 +27,10 @@
   },
   "scripts": {
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
-    "lint": "biome ci . && eslint .",
+    "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
-    "typecheck": "tsc -b --pretty",
+    "typecheck": "tsc -b --pretty && tsc -p tsconfig.scripts.json --pretty && tsc -p tsconfig.test.json --pretty",
     "typecheck:watch": "tsc -b --watch --pretty",
     "depcruise": "depcruise packages apps --config",
     "depcruise:graph": "depcruise packages apps --config --output-type dot | dot -T svg > reports/dependency-graph.svg",
@@ -42,21 +47,24 @@
     "bench": "vitest bench --project bench",
     "coverage": "vitest run --coverage",
     "evals:smoke": "turbo run evals:smoke",
-    "evals:live": "turbo run evals:live",
-    "dev": "turbo run dev --parallel",
-    "db:generate": "pnpm --filter @comvivo/storage exec drizzle-kit generate",
-    "db:migrate": "pnpm --filter @comvivo/storage exec drizzle-kit migrate",
+    "evals:live": "node scripts/pending.mjs \"pnpm evals:live\" M2-T19 \"run the eval suites against real models, inside the approved budget\" \"pnpm evals:smoke, which uses the deterministic fake gateways\"",
+    "dev": "node scripts/pending.mjs \"pnpm dev\" M3-T42 \"run the server and dashboard in watch mode on the simulator channel\" \"pnpm test:watch\"",
+    "db:generate": "node scripts/pending.mjs \"pnpm db:generate\" M1-T14 \"generate a drizzle migration from the schema\" \"nothing \u2014 there is no schema until M1\"",
+    "db:migrate": "node scripts/pending.mjs \"pnpm db:migrate\" M1-T14 \"apply pending drizzle migrations to the database\" \"nothing \u2014 there is no schema until M1\"",
     "clean": "turbo run clean && rimraf node_modules/.cache .turbo reports .vitest"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",
     "@types/node": "^24.9",
+    "@vitest/coverage-v8": "^5.0",
     "dependency-cruiser": "^18.7",
     "eslint": "^10.13",
+    "jiti": "^2.7.0",
     "tsx": "^4.21",
     "turbo": "^2.11",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.72",
+    "vite": "^8.3",
     "vitest": "^5.0"
   }
 }

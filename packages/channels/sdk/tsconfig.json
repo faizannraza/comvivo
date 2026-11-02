@@ -1,0 +1,26 @@
+{
+  "extends": "../../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    {
+      "path": "../../../packages/core"
+    },
+    {
+      "path": "../../../packages/shared"
+    }
+  ],
+  "exclude": [
+    "src/**/*.test.ts",
+    "src/**/*.int.test.ts",
+    "src/**/*.contract.test.ts",
+    "src/**/*.prop.test.ts",
+    "src/**/*.bench.ts",
+    "src/**/__fixtures__/**",
+    "src/**/*.scenario.ts"
+  ]
+}

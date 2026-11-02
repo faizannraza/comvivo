@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "incremental": false,
+    "isolatedDeclarations": false,
+    "types": ["node"]
+  },
+  "include": [
+    "packages/**/src/**/*.test.ts",
+    "packages/**/src/**/*.prop.test.ts",
+    "packages/**/src/**/*.int.test.ts",
+    "packages/**/src/**/*.contract.test.ts",
+    "packages/**/src/**/*.bench.ts",
+    "packages/evals/scenarios/**/*.scenario.ts",
+    "apps/**/src/**/*.test.ts",
+    "scripts/**/*.test.ts"
+  ]
+}
