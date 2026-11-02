@@ -1,8 +1,11 @@
 # pnpm workspace definition and settings.
 #
-# Since pnpm 11, almost every setting lives HERE rather than in `.npmrc` — only auth,
-# registry, TLS, proxy and `local-address` are still read from `.npmrc`.
-# See `docs/plan/01-architecture.md` §14 A31 and `docs/plan/08-security-privacy.md` §3.15.
+# Since pnpm 11, almost every setting lives HERE rather than in `.npmrc` — only auth, registry,
+# TLS, proxy and `local-address` are still read from `.npmrc`.
+#
+# Specification: `docs/plan/08-security-privacy.md` §3.15 (dependency policy, supply chain) and
+# `docs/plan/01-architecture.md` §14 A1 and A31 (runtime pins, the pnpm 11 settings relocation).
+# Rationale for each native dependency: `docs/architecture/native-deps.md`.
 
 packages:
   - "packages/*"
@@ -12,24 +15,74 @@ packages:
   - "packages/plugins/*"
   - "apps/*"
 
+# ---------------------------------------------------------------------------
+# Runtime pin
+# ---------------------------------------------------------------------------
 # Fail rather than silently download a different pnpm when the client does not match
 # `devEngines.packageManager`. Corepack is not bundled from Node 25 onward; pnpm does its own
-# version switching, governed by this setting. (A31)
+# version switching, governed by this setting. `managePackageManagerVersions` and
+# `packageManagerStrict` were removed in pnpm 11 (A31).
 pmOnFail: error
 
-# Packages allowed to run install scripts. `strictDepBuilds` defaults to true in pnpm 11+, so
-# anything not listed here fails the install rather than silently skipping its build — which is
-# exactly what `08` §3.15 asks for. `onlyBuiltDependencies` was REMOVED in pnpm 11; this map is
-# its replacement (`01` §14 A31).
+# ---------------------------------------------------------------------------
+# Supply chain (08 §3.15)
+# ---------------------------------------------------------------------------
+# Refuse any version — including transitive ones — published less than three days ago. This is the
+# single most effective defence against a compromised-publish attack, because those are almost
+# always caught within hours. The unit is MINUTES, and pnpm 11+ already defaults to 1440; 4320 is
+# the three days `08` §3.15 asks for. Setting it explicitly also turns on strict mode.
+minimumReleaseAge: 4320
+
+# Emergency security bumps only. A PR adding an entry must link the advisory and carry two
+# maintainer approvals, and the entry is removed once the version is three days old.
+minimumReleaseAgeExclude: []
+
+# Fail the install if a package's publish-trust level *decreases* against its earlier versions
+# (trusted publisher → provenance-only → nothing). That drop is what a hijacked account looks like.
+trustPolicy: no-downgrade
+
+# Refuse dependencies that are not plain registry packages (git URLs, tarball URLs, local links in
+# a published graph). `scripts/supply-policy.ts` (M0-T12) checks the lockfile for the same thing, so
+# the rule holds even if a future pnpm renames this setting.
+blockExoticSubdeps: true
+
+# An install script that is neither allowed nor denied below is a hard error rather than a silent
+# skip. This is the behaviour `08` §3.15 wanted and had to ask for explicitly; pnpm 11+ now
+# defaults it to true, and it is restated here so a future default change cannot weaken it.
+strictDepBuilds: true
+
+# Packages permitted to run install scripts. Everything else is blocked.
 #
-# The full policy, including the runtime native modules, lands in M0-T2. The entries here are what
-# the M0 toolchain itself needs.
+# `onlyBuiltDependencies`, `neverBuiltDependencies`, `ignoredBuiltDependencies` and
+# `ignoreDepScripts` were all REMOVED in pnpm 11 — this map replaces them (A31).
+#
+# Dependency facts: `12` §3.2.2, re-verified at implementation time. Full rationale and the
+# pruning rules: `docs/architecture/native-deps.md`.
 allowBuilds:
-  # Dev-only, via vite and tsx. Its postinstall links the prebuilt platform binary that ships as an
-  # optional dependency; without it the bundler cannot run. Never shipped to users.
+  # Its postinstall downloads the prebuilt Rust crypto binary for the platform. There is no
+  # bundled alternative, and Matrix E2EE does not work without it. Arrives in M10.
+  "@matrix-org/matrix-sdk-crypto-nodejs": true
+
+  # DENIED. Its postinstall downloads the CUDA 12 execution provider from NuGet on linux/x64 —
+  # roughly 190 MB of GPU runtime we never use, fetched from outside the npm registry. ONNX Runtime
+  # already ships the CPU binaries we need inside the package, so denying the script costs nothing.
+  # Belt and braces: `ONNXRUNTIME_NODE_INSTALL=skip` is set in CI and in the image.
+  onnxruntime-node: false
+
+  # Dev-only, reached through vite and tsx. Its postinstall links the prebuilt platform binary that
+  # ships as an optional dependency; without it the bundler cannot start. Never shipped to users.
+  # This entry is an addition to `08` §3.15's original list — see STATUS → Plan changes.
   esbuild: true
 
-# Shared dependency versions, referenced from packages as `"vitest": "catalog:"`. One place to bump.
+  # NOT listed, deliberately, because they need no build script:
+  #   better-sqlite3-multiple-ciphers  ships bundled N-API prebuilds for every target
+  #   sqlite-vec                        a loadable extension, ABI-free, per-platform optional deps
+  #   sharp                             optional platform packages, no script
+
+# ---------------------------------------------------------------------------
+# Shared dependency versions
+# ---------------------------------------------------------------------------
+# Referenced from packages as `"vitest": "catalog:"`. One place to bump.
 catalog:
   vitest: ^5.0
   "@vitest/coverage-v8": ^5.0

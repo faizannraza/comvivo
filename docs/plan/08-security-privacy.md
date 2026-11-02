@@ -811,16 +811,24 @@ Rules:
 
 **pnpm (≥ 11; `pnpm-workspace.yaml`):**
 ```yaml
-minimumReleaseAge: 4320            # 3 days; setting it explicitly enables strict mode
+# NOTE (2026-11-01): since pnpm 11 these live in `pnpm-workspace.yaml`, not `.npmrc` — only auth,
+# registry, TLS, proxy and local-address are still read from `.npmrc` (`01` §14 A31).
+minimumReleaseAge: 4320            # MINUTES = 3 days; setting it explicitly enables strict mode
 minimumReleaseAgeExclude: []       # emergency security bumps only; PR must link advisory; 2 maintainer approvals; removed after 3 days
 trustPolicy: no-downgrade          # fail if a package's trust level (provenance/trusted publishing) drops
 blockExoticSubdeps: true
-strictDepBuilds: true
-allowBuilds:                       # explicit; everything else blocked (dependency facts: 12 §3.2.2)
+strictDepBuilds: true              # pnpm 11+ defaults this to true; restated so a default change cannot weaken it
+pmOnFail: error                    # pnpm reads devEngines.packageManager itself; Corepack is gone from Node ≥ 25
+allowBuilds:                       # explicit map (NOT `onlyBuiltDependencies`, removed in pnpm 11); everything else blocked (dependency facts: 12 §3.2.2)
   "@matrix-org/matrix-sdk-crypto-nodejs": true   # postinstall fetches the prebuilt crypto binary
   onnxruntime-node: false          # its postinstall downloads the CUDA EP; ORT ships bundled binaries
+  esbuild: true                    # added M0-T2: dev-only, via vite and tsx; links the prebuilt platform binary that ships as an optional dep. Never shipped to users
   # better-sqlite3-multiple-ciphers v13 and sqlite-vec ship bundled/per-platform prebuilds: no build script needed
 ```
+Enforced beyond what YAML can express by `scripts/supply/native-policy.ts` (`pnpm supply:check`,
+part of `pnpm verify`): the `allowBuilds` map must match the documented set exactly, every setting
+above must hold, `minimumReleaseAgeExclude` must be empty, and no ONNX Runtime CUDA artefact may
+exist in the installed tree. Rationale per dependency: `docs/architecture/native-deps.md`.
 - Pin pnpm via **`devEngines.packageManager`** in the root `package.json` (preferred over the legacy `packageManager` field since pnpm 11, supports ranges, and records the resolved version in `pnpm-lock.yaml`), with **`pmOnFail: error`** in `pnpm-workspace.yaml` so a mismatched client fails rather than silently downloading. Use `pnpm/action-setup` in CI. Do **not** rely on Corepack: it is not bundled from Node 25 onward, and pnpm now does the version switching itself. `managePackageManagerVersions`, `packageManagerStrict` and `COREPACK_ENABLE_STRICT` were all removed in pnpm 11 — see `01` §14 **A31**.
 - `minimumReleaseAge` is in **minutes** (so `4320` = 3 days) and already defaults to `1440` in pnpm 11+. `strictDepBuilds` now defaults to `true`, so a dependency with an install script that is absent from `allowBuilds` hard-fails the install; that is the intended behavior here. `onlyBuiltDependencies` and friends were **removed** in pnpm 11, not deprecated (`01` §14 **A31**).
 - CI runs `pnpm install --frozen-lockfile`.

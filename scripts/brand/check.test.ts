@@ -71,8 +71,8 @@ describe('brand guard', () => {
   });
 
   it('finds nothing in a clean file', () => {
-    // biome-ignore lint/suspicious/noTemplateCurlyInString: this string IS the source under test;
-    // the placeholder must stay literal so the guard sees a real interpolation.
+    // This string IS the source under test, so the placeholder must stay literal.
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: intentional literal placeholder
     const clean = 'export const a = 1;\nconst b = `${a}`;\n';
     expect(findInSource('x.ts', clean, NAME)).toEqual([]);
   });

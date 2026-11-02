@@ -36,6 +36,14 @@ export default defineConfig(
     'apps/docs/.astro/**',
   ]),
   {
+    // Parse every TypeScript file with the TypeScript parser, whether or not it is in a project.
+    // Without this, anything outside packages/** and apps/** (the repo scripts, for instance) falls
+    // back to espree and fails on the first `as`.
+    name: 'comvivo/ts-parser',
+    files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
+    languageOptions: { parser: tseslint.parser },
+  },
+  {
     name: 'comvivo/type-aware',
     files: ['packages/**/*.ts', 'apps/**/*.ts'],
     // Test files, benches and scenarios are excluded from the emitting TS projects so they never
@@ -84,8 +92,8 @@ export default defineConfig(
     },
   },
   {
-    name: 'comvivo/tests-no-type-info',
-    files: ['**/*.test.ts', '**/*.bench.ts', '**/*.scenario.ts'],
+    name: 'comvivo/no-type-info',
+    files: ['**/*.test.ts', '**/*.bench.ts', '**/*.scenario.ts', 'scripts/**/*.ts', '*.ts'],
     extends: [tseslint.configs.disableTypeChecked],
   },
 );
