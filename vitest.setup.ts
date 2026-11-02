@@ -1,33 +1,51 @@
 /**
- * Global test environment. Deterministic by construction.
+ * Global test environment. Deterministic by construction, and offline by force.
  *
- * `docs/plan/11-quality-evals-observability.md` §3.1.1 and §3.1.3 are the specification.
- * The full network guard and the `console.error` failure rule land in **M0-T3**; what is here is
- * the part M0-T1 needs so the pinned environment is never accidentally inherited from a developer's
- * shell.
+ * Specification: `docs/plan/11-quality-evals-observability.md` §3.1.1 and §3.1.3.
+ *
+ * The environment is pinned at **module scope**, not inside `beforeAll`. That matters: Node caches
+ * the timezone the first time a `Date` is formatted, so assigning `process.env.TZ` from a hook runs
+ * too late and the suite silently keeps the host's timezone. The harness test asserts the real
+ * behaviour (`new Date(...).getHours()`), not just the variable, so this cannot regress unnoticed.
  */
-import { afterAll, beforeAll } from 'vitest';
+import { afterAll, afterEach, beforeAll, expect } from 'vitest';
+import { installNetworkGuard } from './scripts/harness/network-guard.js';
 
-const PINNED = {
-  TZ: 'UTC',
-  LANG: 'C.UTF-8',
-  COMVIVO_TEST_MODE: '1',
-} as const;
+// --- Environment, pinned before anything can read it -------------------------------------------
+process.env['TZ'] = 'UTC';
+process.env['LANG'] = 'C.UTF-8';
+process.env['COMVIVO_TEST_MODE'] = '1';
 
-let restore: [string, string | undefined][] = [];
+// --- Offline, unless this is a live-eval workflow ----------------------------------------------
+const networkAllowed = process.env['COMVIVO_ALLOW_NETWORK'] === '1';
+const restoreNetwork = networkAllowed ? (): void => {} : installNetworkGuard();
+
+afterAll(() => {
+  restoreNetwork();
+});
+
+// --- An unexpected console.error is a failure, not scrollback ----------------------------------
+// It usually means a swallowed rejection or a misconfigured logger, both of which `01` §11.6 and
+// §11.7 forbid.
+const realConsoleError = console.error;
+let consoleErrors: string[] = [];
 
 beforeAll(() => {
-  restore = Object.entries(PINNED).map(([key, value]) => {
-    const previous = process.env[key];
-    process.env[key] = value;
-    return [key, previous] as [string, string | undefined];
-  });
+  console.error = (...args: unknown[]): void => {
+    consoleErrors.push(args.map((arg) => String(arg)).join(' '));
+  };
+});
+
+afterEach(() => {
+  const seen = consoleErrors;
+  consoleErrors = [];
+  expect(
+    seen,
+    'console.error was called during this test. Handle the error, assert on it, or stub the ' +
+      'console deliberately (01 §11.6: no silent catches).',
+  ).toEqual([]);
 });
 
 afterAll(() => {
-  for (const [key, previous] of restore) {
-    if (previous === undefined) delete process.env[key];
-    else process.env[key] = previous;
-  }
-  restore = [];
+  console.error = realConsoleError;
 });
