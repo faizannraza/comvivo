@@ -1,0 +1,788 @@
+# STATUS — Village build tracker
+
+**Current milestone:** M0 — Foundations (not started)  
+**Last updated:** 2026-11-01  
+**Last green gate:** none  
+**Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.
+
+## How to update this file
+
+- **Start of a session:** read this file first. Set *Current milestone* and *Last updated* (YYYY-MM-DD).
+- **Before a milestone:** fill in its *Execution note*: task order (normally the table order in `14`), which `‖` tasks go to sub-agents, spike plan, risks, and what you need from the human (credentials, hardware, money, publishing approvals). Check `14` §0.6 for owner decisions and §0.7 for open cross-doc issues.
+- **Per task:** tick `[x]` only after the AC are met and `pnpm verify` is green. Append the commit hash, e.g. `- [x] M3-T5 RichText AST & parser — a1b2c3d`. Log any deviation under *Plan changes* in the same commit.
+- **Spikes:** set the status (`open` → `running` → `passed` / `failed → fallback`), the decision and an evidence link.
+- **Owner decisions:** never fill in an answer yourself. When a checkpoint in `14` §0.6 is reached, ask in chat, then record the owner's answer, the date and who decided. Spine changes and other approvals also go under *Decisions needing approval*, with status `proposed` until the owner answers.
+- **End of a milestone:** paste the exit-gate results with numbers into *Milestone report*, list cut-lines used and known gaps, update *Last green gate*, then stop for human review.
+- **Never** delete history. Strike through superseded text with `~~…~~` and add a dated line.
+
+## Decisions needing approval
+
+Owner decisions from [`15` §1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner). Claude Code must stop and ask at the checkpoint in `14` §0.6.
+
+| ID | Decision | Ask at | Needed before | Status | Answer | Decided by / date |
+|---|---|---|---|---|---|---|
+| [D-1](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Wizard pre-selected preset | M3 (inform), M9 entry | M9-T32; revisit at M13-T25 | open | — | — |
+| [D-2](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Final product name | M7 exit (target) | M8 exit, hard (before first public tag) | open | — | — |
+| [D-3](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | When the repo goes public | M8 entry | M8-T28 | open | — | — |
+| [D-4](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Funding for live-model evals | M2 entry (per run), M5 entry (standing) | M8-T22 | open | — | — |
+| [D-5](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Minors' self-harm/abuse disclosures in DMs | M5 (inform), M13 entry | M13-T30, 1.0 | open | — | — |
+| [D-6](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Hybrid mode pre-selected (Ollama + ≥ 16 GB) | M9 entry | M9-T32 / M9-T33 | open | — | — |
+| [D-7](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | Community chat home | M8 entry | M8-T27, M10-T24; confirm at M15 | open | — | — |
+| [D-8](15-risks-and-open-questions.md#1-decisions-needing-the-project-owner) | WhatsApp | Quarterly (M4, M8, M12, M15 entry) | — (stays out of 1.x unless decided) | open | — | — |
+
+**Other approvals** (spine changes, owner-level questions, new runtime dependencies, spend, publishing):
+
+| # | Date | Item | Raised by task | Status | Answer |
+|---|---|---|---|---|---|
+| A-1 | 2026-11-01 | `@village/mcp-bridge` is not in 12's P11 public-package set but must be installable by members (`14` §4.3 item 9) | before M12-T19 | **resolved** (planner, 2026-11-01) | Added to 12 P11. There are now six public packages; publishing still needs owner approval at release time |
+| A-2 | 2026-11-01 | 0.5 beta checklist items that 12 schedules in M14 (overlays, N-3 upgrade matrix, runbooks, sizing): waive for 0.5 or pull forward (`14` §3.2) | before M12 exit | **resolved** (planner default, 2026-11-01; owner may override) | **Pulled forward to M12:** the default compose file, an upgrade test from the previous release (N-1), and the backup/restore + "bot stopped responding" runbooks (data safety for beta testers). **Deferred to the 1.0 checklist:** the N-3 upgrade matrix, the Ollama/Caddy/signal-cli/rclone overlays, the full runbook set and the sizing guide |
+
+## Plan changes
+
+| Date | Task | File § | Change | Reason |
+|---|---|---|---|---|
+
+## Spikes
+
+| Spike | Milestone / task | Question | Fallback if it fails | Status | Decision & evidence |
+|---|---|---|---|---|---|
+| SP-1 | M1 / M1-T2 | Drizzle + better-sqlite3-multiple-ciphers (SQLCipher v4) + sqlite-vec + FTS5 on Node 26/24 × macOS, linux/amd64, linux/arm64 | Plain better-sqlite3 + column envelope encryption + HMAC-token FTS + in-memory vector index (02) | open | — |
+| SP-2 | M1 / M1-T4 | libsodium-wrappers secretstream throughput on a Pi 5 (≥ 40 MB/s?) | sodium-native | open | — |
+| SP-3 | M1 / M1-T2 | Is `VACUUM INTO` output encrypted under SQLite3MultipleCiphers in WAL mode? | Online backup API + archive encryption only | open | — |
+| SP-4 | M2 / M2-T20 | Anthropic per-message effort beta + cache behavior; refusal-fallback beta behavior | Top-level effort per route (accept the cache split) | open | — |
+| SP-5 | M2 / M2-T20 (final: M13-T15) | Tool catalog experiment E-CAT: full vs per-role vs deferred loading | Full catalog (spine default) | open | — |
+| SP-6 | M6 / M6-T7 | Embedding bake-off (e5-small vs granite-97m vs bge-m3): quality and RSS on a Pi | e5-small | open | — |
+| SP-7 | M7 / M7-T1 | `rrule-temporal` correctness on DST/EXDATE/overrides | `rrule` + a Temporal adapter | open | — |
+| SP-8 | M10 / M10-T1, M10-T2 | Do signal-cli poll votes reach the bot? Matrix E2EE library maturity | Numbered-reply polls; Matrix rooms without E2EE marked beta | open | — |
+| SP-9 | M11 / M11-T6 | transformers.js Whisper as a no-binary fallback in native mode | Require `whisper-cli` on PATH, or an API provider | open | — |
+| SP-10 | M12 / M12-T32 | Browser demo Tier 2 (real engine in a Web Worker) | Tier 1 recorded playback only | open | — |
+| SP-11 | M14 / M14-T1 (may start after M8) | Native-module matrix on Node 26 for all images; HA watchdog on an ingress-only port | Node 24 base image | open | — |
+
+## Open cross-document issues (`14` §0.7)
+
+State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; mark each `resolved (date, commit)` when the spec text is fixed.
+
+- [x] `03:M4-T9` "HMAC tokens" → 06 `InteractionToken`: spec text fixed 2026-11-01
+- [ ] `03:M4-T2` runs all 62 tools in M4 before most exist; fixture approach (M4-T2), full run at M7-T36
+- [x] `10:M5-T91` duplicate `turn_effects.status` migration: spec text fixed 2026-11-01 (02's M1 schema already has it)
+- [x] `@village/mcp-bridge` added to 12 P11 public packages (approval A-1 resolved 2026-11-01)
+- [x] Renovate file name unified as `renovate.json5` in 12 (2026-11-01)
+- [ ] `@modelcontextprotocol/node`: named conditionally in A12; confirm in M12-T2 and update ADR-021
+- [x] Spine wording and pointers, R4 §(b) B1–B9: applied to `01`/`15` on 2026-11-01 (A12 update, new A30); M0-T23 verifies
+- [x] 03↔07 names, constraints, FairnessPort, statuses, poll hooks: resolved by R4 (verify in M7-T7)
+- [x] `ledgerVisibility` default `self_only`: resolved by R4 D1
+- [x] ICS token/route; 09 API shapes; MCP format and `/mcp` endpoint; `keyringSnapshot.static.blobId`; TurnTrace 30 d; reactions persistence; guard input; 06 PSC-9 fields; IMAP env var; in-memory demo repos (`02:M12-T70`): resolved by R4 (verify)
+
+## Milestones
+
+### M0 — Foundations
+
+Status: not started · Tasks: 0/23 · Gate: —
+
+- [ ] M0-T1 Monorepo scaffold
+- [ ] M0-T2 Runtime pins & pnpm supply-chain policy
+- [ ] M0-T3 Vitest workspace
+- [ ] M0-T4 Dependency boundaries & lint bans
+- [ ] M0-T5 `BRAND` constant & guard
+- [ ] M0-T6 Shared foundation libraries
+- [ ] M0-T7 Testing primitives
+- [ ] M0-T8 Logger, redaction & `SecretString`
+- [ ] M0-T9 Observability skeleton
+- [ ] M0-T10 Test-hygiene lints
+- [ ] M0-T11 CI workflow & release skeleton
+- [ ] M0-T12 CI security workflows
+- [ ] M0-T13 Renovate policy
+- [ ] M0-T14 Changesets
+- [ ] M0-T15 Names manifest
+- [ ] M0-T16 Repo hygiene & community files
+- [ ] M0-T17 Issue/PR templates, labels, CODEOWNERS
+- [ ] M0-T18 Docs-site skeleton & docs CI
+- [ ] M0-T19 Rename codemod & weekly drill
+- [ ] M0-T20 ADR files
+- [ ] M0-T21 Branch protection, merge queue & CI docs
+- [ ] M0-T22 Naming kickoff (private)
+- [ ] M0-T23 Plan consistency pass
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M1 — Storage & domain core
+
+Status: not started · Tasks: 0/35 · Gate: —
+
+- [ ] M1-T1 `@village/storage` scaffold & pins
+- [ ] M1-T2 Storage/encryption/index spike (SP-1, SP-3)
+- [ ] M1-T3 IDs, clock & canonical JSON
+- [ ] M1-T4 Crypto primitives + SP-2
+- [ ] M1-T5 KeyService & keyring
+- [ ] M1-T6 Recovery-key codec & key-operations library
+- [ ] M1-T7 Data-dir primitives
+- [ ] M1-T8 Database open/init
+- [ ] M1-T9 `SqliteStore`, `NotPromise` & the no-await-in-tx lint
+- [ ] M1-T10 Column helpers & custom types
+- [ ] M1-T11 Schema part A
+- [ ] M1-T12 Schema part B
+- [ ] M1-T13 Search & guard migration
+- [ ] M1-T14 Migration runner & migration tests
+- [ ] M1-T15 Storage test kit
+- [ ] M1-T16 `LabelStore`, `computeEligible` (stub flow), `EligibleLabelSet`
+- [ ] M1-T17 Core repositories
+- [ ] M1-T18 Memory repositories & `MemorySearchPort`
+- [ ] M1-T19 Coordination repositories & `ContextReadModel`
+- [ ] M1-T20 Governance repositories
+- [ ] M1-T21 Turn journal, traces, audit, usage
+- [ ] M1-T22 Outbox repository & state machine
+- [ ] M1-T23 Durable job queue
+- [ ] M1-T24 Scheduler & Temporal schedule evaluator
+- [ ] M1-T25 Blob cipher & blob store
+- [ ] M1-T26 Retention & deletion primitives
+- [ ] M1-T27 Backup library & `VBK1` envelope
+- [ ] M1-T28 Export library
+- [ ] M1-T29 TokenService
+- [ ] M1-T30 `safeFetch`
+- [ ] M1-T31 Secret loading
+- [ ] M1-T32 Bench infrastructure
+- [ ] M1-T33 Perf seed, benches & Pi 5 run
+- [ ] M1-T34 Mutation testing
+- [ ] M1-T35 Storage docs & generated schema reference
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M2 — Model gateway
+
+Status: not started · Tasks: 0/20 · Gate: —
+
+- [ ] M2-T1 Canonical model port types
+- [ ] M2-T2 Capability registry, presets, route resolver
+- [ ] M2-T3 Price tables & cost calculator
+- [ ] M2-T4 Strict JSON-schema converter (single implementation)
+- [ ] M2-T5 Plugin-SDK tool types
+- [ ] M2-T6 Anthropic adapter `run()`
+- [ ] M2-T7 FakeModelGateway & model doubles
+- [ ] M2-T8 Anthropic `structured()`, `countTokens()`, Batches, beta probe
+- [ ] M2-T9 Errors & middleware
+- [ ] M2-T10 FakeProviderServer
+- [ ] M2-T11 OpenAI adapter (Responses API)
+- [ ] M2-T12 OpenAI-compatible local adapter
+- [ ] M2-T13 Google adapter (`generateContent`)
+- [ ] M2-T14 Adapter contract suite
+- [ ] M2-T15 Model telemetry
+- [ ] M2-T16 Egress manifest, Hybrid & Local-only
+- [ ] M2-T17 Catalog canonicalization & `catalogHash`
+- [ ] M2-T18 Model diagnostics API
+- [ ] M2-T19 Live smoke & budget guard v0
+- [ ] M2-T20 Live spike SP-4/SP-5: cache plan, TTL, effort strategy, E-CAT A vs C
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M3 — Channel SDK, simulator, Telegram, ingestion, outbox (vertical slice)
+
+Status: not started · Tasks: 0/57 · Gate: —
+
+- [ ] M3-T1 Channel & onboarding tables
+- [ ] M3-T2 Channel SDK contract, schemas, profiles
+- [ ] M3-T3 RichText AST & parser
+- [ ] M3-T4 Renderers: plain, telegram-html, web-md + measurement
+- [ ] M3-T5 Splitter
+- [ ] M3-T6 Interactions, tokens & choice fallback
+- [ ] M3-T7 Rate limiter, retry, error helpers
+- [ ] M3-T8 TypingManager
+- [ ] M3-T9 Conformance kit & fixture tooling
+- [ ] M3-T10 Renderer & callback safety
+- [ ] M3-T11 Simulator adapter
+- [ ] M3-T12 Runtime copy catalog
+- [ ] M3-T13 CLI skeleton & `village keys`/`version`
+- [ ] M3-T14 HTTP foundation & health endpoints
+- [ ] M3-T15 Composition root, `DomainEventBus`, `Crashpoints`
+- [ ] M3-T16 Ingestion pipeline core & group actor
+- [ ] M3-T17 Engine AdapterHost & adapter context
+- [ ] M3-T18 Ingestion glue for channels; pre-identity, bot & binding gates
+- [ ] M3-T19 Prompt builder & charter v1
+- [ ] M3-T20 TurnTrace writer & debug content
+- [ ] M3-T21 Router core
+- [ ] M3-T22 Name invocation
+- [ ] M3-T23 Tool registry & executor skeleton (stub policy)
+- [ ] M3-T24 Turn engine & agent loop
+- [ ] M3-T25 Coalescing & cancellation
+- [ ] M3-T26 Output pipeline (stub guard)
+- [ ] M3-T27 Outbound dispatcher
+- [ ] M3-T28 Journal, effect templates, recovery, ack check
+- [ ] M3-T29 Presence & continuation
+- [ ] M3-T30 Usage & basic cost guard
+- [ ] M3-T31 EvalHooks
+- [ ] M3-T32 Telegram adapter core
+- [ ] M3-T33 Telegram interactions, polls, commands, ephemeral, deep links
+- [ ] M3-T34 Telegram membership, migration, probes, webhook
+- [ ] M3-T35 Telegram attachments
+- [ ] M3-T36 Control API (min) & control token
+- [ ] M3-T37 Host claim code
+- [ ] M3-T38 Group claim flow, unclaimed policy, onboarding triggers
+- [ ] M3-T39 Web channel adapter (dev auth)
+- [ ] M3-T40 Server lifecycle: boot & graceful shutdown
+- [ ] M3-T41 `village start`/`status`/`doctor` (min) & `migrate status`
+- [ ] M3-T42 `village init` (min: native, Telegram, Anthropic)
+- [ ] M3-T43 Simulation harness core
+- [ ] M3-T44 Scenario DSL v1 (TS)
+- [ ] M3-T45 Process mode & chaos-lite (outbox)
+- [ ] M3-T46 Turn chaos I6/I7
+- [ ] M3-T47 Telegram contract tests & renderer snapshots
+- [ ] M3-T48 `evals-smoke` job & golden v0
+- [ ] M3-T49 B1 ingestion bench
+- [ ] M3-T50 Minimal Dockerfile, `selftest` & packaging CI job
+- [ ] M3-T51 Alpha compose
+- [ ] M3-T52 Edge image pipeline
+- [ ] M3-T53 Docs-as-tests runner
+- [ ] M3-T54 Config & env reference generator
+- [ ] M3-T55 Alpha docs pages
+- [ ] M3-T56 Real-group exit check
+- [ ] M3-T57 Dogfood program
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M4 — Policy core
+
+Status: not started · Tasks: 0/22 · Gate: —
+
+- [ ] M4-T1 Principals & capability catalog
+- [ ] M4-T2 Action registry
+- [ ] M4-T3 Constitution schema & 8 templates
+- [ ] M4-T4 Compiler, `CompiledPolicy`, issues
+- [ ] M4-T5 Semantic diff, privacy delta & constitution API
+- [ ] M4-T6 Charter & group prompt layer
+- [ ] M4-T7 Governance core
+- [ ] M4-T8 `authorize()`
+- [ ] M4-T9 Policy support for extensions
+- [ ] M4-T10 Reference policy model & differential test
+- [ ] M4-T11 Authority oracle & GreedyToolModel
+- [ ] M4-T12 Executor ↔ PolicyEngine
+- [ ] M4-T13 Confirmations end to end
+- [ ] M4-T14 Proposal, amendment & constitution services; `BallotPresenter`
+- [ ] M4-T15 Contested actions → proposals
+- [ ] M4-T16 Template picker & founding admin in the claim flow
+- [ ] M4-T17 Guardian service & claim verification
+- [ ] M4-T18 System authority & deferred intents
+- [ ] M4-T19 Capabilities in the prompt & gated commands
+- [ ] M4-T20 Policy scenario pack v0
+- [ ] M4-T21 Authority red-team v0
+- [ ] M4-T22 Constitution docs & generators
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M5 — Information-flow control & discretion
+
+Status: not started · Tasks: 0/42 · Gate: —
+
+- [ ] M5-T1 Label algebra
+- [ ] M5-T2 Real `computeEligible`
+- [ ] M5-T3 Labeling rules & sensitivity
+- [ ] M5-T4 Audience resolver, roster tracker & channel audience inputs
+- [ ] M5-T5 Requester & audience binding in turns
+- [ ] M5-T6 Constraint catalog v1
+- [ ] M5-T7 IfcGate, `Readable<T>`, `IfcScopedReader`, `TurnLabelTracker`; sealed-type import rule
+- [ ] M5-T8 Tool-result labeling & taint
+- [ ] M5-T9 `ScopedRepositories` facade
+- [ ] M5-T10 Untrusted output labels & external-effect journaling
+- [ ] M5-T11 Membership handlers
+- [ ] M5-T12 Sealed set
+- [ ] M5-T13 `PrivateConstraintPolicy` & approval UX
+- [ ] M5-T14 Declassifier pipeline
+- [ ] M5-T15 Disclosure guard
+- [ ] M5-T16 Guard hook in the turn
+- [ ] M5-T17 URL provenance policy
+- [ ] M5-T18 ContextBuilder integration
+- [ ] M5-T19 Group layer completion
+- [ ] M5-T20 Probe classifier, refusal templates & limiter
+- [ ] M5-T21 DM semantics & relay
+- [ ] M5-T22 Explanation filter
+- [ ] M5-T23 `/why`
+- [ ] M5-T24 Link policy & exfiltration tests
+- [ ] M5-T25 Consent lifecycle
+- [ ] M5-T26 Injection policy
+- [ ] M5-T27 Cross-group isolation & portable profile
+- [ ] M5-T28 Departure deletion & `ExportPolicy`
+- [ ] M5-T29 Host honesty surfaces
+- [ ] M5-T30 Canary system
+- [ ] M5-T31 Egress scanning
+- [ ] M5-T32 IFC property generators
+- [ ] M5-T33 Invariant suite I1–I5 & canary harness; S10/S11 properties
+- [ ] M5-T34 Noninterference twins
+- [ ] M5-T35 LeakyModel & sabotage meta-tests
+- [ ] M5-T36 YAML DSL & red-team generator
+- [ ] M5-T37 Judge framework & leak-audit calibration
+- [ ] M5-T38 Host-surface canary audit
+- [ ] M5-T39 Injection suite v0
+- [ ] M5-T40 Red-team families: inference, exfil, injection, canary
+- [ ] M5-T41 Discretion scenario pack v0
+- [ ] M5-T42 Discretion docs
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M6 — Memory v1
+
+Status: not started · Tasks: 0/33 · Gate: —
+
+- [ ] M6-T1 Memory domain types & zod schemas
+- [ ] M6-T2 Memory config schema & constitution knobs
+- [ ] M6-T3 Search normalization, lexicons, FTS builder, token estimator
+- [ ] M6-T4 Ranking, fusion & packing math
+- [ ] M6-T5 Embedding spaces & local worker
+- [ ] M6-T6 Corpus v0, generator, guidelines, annotator UI, metrics runners, cassettes
+- [ ] M6-T7 Embedding bake-off (SP-6)
+- [ ] M6-T8 Baked model & verified fetcher
+- [ ] M6-T9 Eligible-label-set cache
+- [ ] M6-T10 Hybrid retriever & `MemoryQueryService`
+- [ ] M6-T11 Retrieval tuning
+- [ ] M6-T12 Memory-explorer read queries
+- [ ] M6-T13 Extraction debouncer, cursors, adaptive N, prefilter
+- [ ] M6-T14 Window builder & renderer
+- [ ] M6-T15 Extraction prompt & extractor
+- [ ] M6-T16 Post-processing
+- [ ] M6-T17 Date resolution & chrono/lexicon cross-check
+- [ ] M6-T18 Labels, sensitivity floors, entity registry & aliases
+- [ ] M6-T19 Calibration
+- [ ] M6-T20 Reconcile planner
+- [ ] M6-T21 Plan apply in the actor
+- [ ] M6-T22 Memory proposals
+- [ ] M6-T23 Forget cascade
+- [ ] M6-T24 Memory tools, copy & directed commands
+- [ ] M6-T25 About-me, correct, pin, export
+- [ ] M6-T26 Consolidation via Batches
+- [ ] M6-T27 Re-embedding migration
+- [ ] M6-T28 Memory observability & doctor checks
+- [ ] M6-T29 Extraction eval runner (S4)
+- [ ] M6-T30 Retrieval suite (S5)
+- [ ] M6-T31 B2/B3 benches
+- [ ] M6-T32 Memory-poisoning scenarios
+- [ ] M6-T33 Memory docs
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M7 — Coordination tools & fairness
+
+Status: not started · Tasks: 0/42 · Gate: —
+
+- [ ] M7-T1 Recurrence & ICS library spike (SP-7)
+- [ ] M7-T2 Coordination tables (07 extras)
+- [ ] M7-T3 Time foundations
+- [ ] M7-T4 Recurrence expansion, overrides & series split
+- [ ] M7-T5 Calendar storage verification
+- [ ] M7-T6 Built-ins on the plugin-sdk contract
+- [ ] M7-T7 Coordination schemas, receipts, ChoiceSet, copy system, tone lint; 03 name-alignment checks
+- [ ] M7-T8 Fairness ledger & rollups
+- [ ] M7-T9 Fair assignment algorithm & `FairnessPort`
+- [ ] M7-T10 Calendar domain & tools 1, 3–6
+- [ ] M7-T11 Conflicts & availability (tool 2)
+- [ ] M7-T12 Coordination interaction handlers
+- [ ] M7-T13 ICS serializer, feed tokens, route, tool 9
+- [ ] M7-T14 ICS subscriptions & `.ics` attachments (tools 7–8)
+- [ ] M7-T15 Reminders domain & scheduler (tools 10–12)
+- [ ] M7-T16 Reminder delivery, downtime policy & reliability chaos
+- [ ] M7-T17 Tasks domain & tools 13–18, proof photos
+- [ ] M7-T18 Rotations, swaps, covers & re-entry (fairness core)
+- [ ] M7-T19 Rotation materializer (tool 19)
+- [ ] M7-T20 Swap / trade / give-away (tools 20–21)
+- [ ] M7-T21 Fairness explanations & ledger copy lint
+- [ ] M7-T22 `/chores` load view (tool 22) & tone variants
+- [ ] M7-T23 Ledger visibility & labels
+- [ ] M7-T24 Invisible-work tracking
+- [ ] M7-T25 Lists (tools 23–26), normalization, shopping mode
+- [ ] M7-T26 List auto-capture sink
+- [ ] M7-T27 Polls core & tools 27–30; emulated modes
+- [ ] M7-T28 Telegram native polls & `poll.close`
+- [ ] M7-T29 Proposal hook
+- [ ] M7-T30 Decisions log (tools 34–36), mirrors, permalinks
+- [ ] M7-T31 Memory → coordination intake
+- [ ] M7-T32 Plans (tools 31–33) & planning mode
+- [ ] M7-T33 Surprise secrecy
+- [ ] M7-T34 Catch-up (tools 37–38)
+- [ ] M7-T35 Agenda (tool 39) & `CoordinationContextProvider`
+- [ ] M7-T36 Built-in tool catalog freeze
+- [ ] M7-T37 Coordination commands
+- [ ] M7-T38 Coordination effect templates & `compensate`
+- [ ] M7-T39 Coordination scenario pack & golden GS-01…GS-35
+- [ ] M7-T40 Fairness suite (S7)
+- [ ] M7-T41 Coordination user docs & tool-catalog generator
+- [ ] M7-T42 Naming decision (target) & asset securing
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M8 — Proactivity & digests → 0.1 alpha
+
+Status: not started · Tasks: 0/29 · Gate: —
+
+- [ ] M8-T1 Proactivity tables & attention-ledger queries
+- [ ] M8-T2 Proactivity core
+- [ ] M8-T3 Delivery ledger, outbound classes, quiet hours
+- [ ] M8-T4 Detectors (all 9 types) & sweep
+- [ ] M8-T5 Interjection `route` call
+- [ ] M8-T6 System turns
+- [ ] M8-T7 Evaluate job, bundling, deferral to digests
+- [ ] M8-T8 Interjection rendering
+- [ ] M8-T9 Feedback capture, learning & tools 41–42
+- [ ] M8-T10 Digest service: morning brief, weekly recap, tool 40; plugin digest-section hook
+- [ ] M8-T11 Overdue, poll-closing & stale-step nudges
+- [ ] M8-T12 Budget ladder & notices
+- [ ] M8-T13 Effort & planning classifier tuning
+- [ ] M8-T14 Reply-language hint eval
+- [ ] M8-T15 Local model eval & compact charter
+- [ ] M8-T16 Persona agents
+- [ ] M8-T17 Proactivity suite (S6) & metrics; GS-36…GS-45
+- [ ] M8-T18 Charter behavior evals
+- [ ] M8-T19 Quality suite v1 (S8)
+- [ ] M8-T20 Cost & latency suite (S9)
+- [ ] M8-T21 Chaos nightly
+- [ ] M8-T22 Nightly live pipeline
+- [ ] M8-T23 Human-eval tooling
+- [ ] M8-T24 Upgrade engine v1
+- [ ] M8-T25 Backup ops v1
+- [ ] M8-T26 Alpha docs completeness
+- [ ] M8-T27 Community chat structure
+- [ ] M8-T28 Public alpha flip
+- [ ] M8-T29 0.1 cut
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M9 — Dashboard, HTTP API, auth & CLI wizard
+
+Status: not started · Tasks: 0/41 · Gate: —
+
+- [ ] M9-T1 Auth & dashboard tables; settings repository API
+- [ ] M9-T2 Route metadata, OpenAPI emit, `api-client`
+- [ ] M9-T3 API conventions & rate limiting
+- [ ] M9-T4 HTTP security middleware
+- [ ] M9-T5 AuthService, sessions, cookies, CSRF & auth security
+- [ ] M9-T6 Pairing, magic link & step-up end to end
+- [ ] M9-T7 Web setup, invites, link codes, group claim codes
+- [ ] M9-T8 Host-only settings & ICS listener
+- [ ] M9-T9 Read-model layer & IFC gate
+- [ ] M9-T10 Trace, cost & usage read models
+- [ ] M9-T11 Command path, approvals & command status
+- [ ] M9-T12 Group, member, conversation & chat routes; web chat on real sessions
+- [ ] M9-T13 Constitution & proposal routes
+- [ ] M9-T14 Memory routes
+- [ ] M9-T15 Coordination routes & ICS feeds
+- [ ] M9-T16 Traces, activity, audit, usage, budget, settings & exports routes
+- [ ] M9-T17 Instance (host) routes & probes
+- [ ] M9-T18 SSE hub
+- [ ] M9-T19 Dashboard scaffold
+- [ ] M9-T20 Sign-in screens
+- [ ] M9-T21 Home & onboarding checklist
+- [ ] M9-T22 Chat screen
+- [ ] M9-T23 Members & roles
+- [ ] M9-T24 Constitution editor
+- [ ] M9-T25 Memory explorer
+- [ ] M9-T26 Calendar
+- [ ] M9-T27 Tasks, chores & fairness
+- [ ] M9-T28 Lists, polls & decisions, plans
+- [ ] M9-T29 Activity, audit & traces
+- [ ] M9-T30 Costs & budgets
+- [ ] M9-T31 Settings (group, me, instance)
+- [ ] M9-T32 Full `village init` & deployment generator
+- [ ] M9-T33 Wizard & in-chat disclosures
+- [ ] M9-T34 CLI commands (rest)
+- [ ] M9-T35 Full `doctor`, `/instance/health`, security checks, `--bundle`, `eval replay`
+- [ ] M9-T36 `/metrics`
+- [ ] M9-T37 Playwright suite
+- [ ] M9-T38 API canary probes & contract tests
+- [ ] M9-T39 DAST
+- [ ] M9-T40 Dashboard & API quality gates
+- [ ] M9-T41 Operate docs, OpenAPI/CLI/doctor generators & screenshots
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M10 — More channels
+
+Status: not started · Tasks: 0/24 · Gate: —
+
+- [ ] M10-T1 Matrix spike (SP-8, Matrix part)
+- [ ] M10-T2 Signal spike & poll decision (SP-8, Signal part)
+- [ ] M10-T3 Renderers: discord-md, slack-mrkdwn + blocks, matrix-html, signal-styled
+- [ ] M10-T4 Identity linking
+- [ ] M10-T5 Discord adapter core
+- [ ] M10-T6 Discord interactions, commands, polls
+- [ ] M10-T7 Discord probes, diagnostics & install URL
+- [ ] M10-T8 Discord native polls in coordination
+- [ ] M10-T9 Slack adapter core
+- [ ] M10-T10 Slack interactions, commands, emulated polls, ephemeral, verification, manifest
+- [ ] M10-T11 Slack Block Kit poll emulation & live tallies
+- [ ] M10-T12 Matrix adapter core, E2EE & CLI setup
+- [ ] M10-T13 Matrix polls, reactions, threads, edits, redactions, media; nightly Synapse E2EE
+- [ ] M10-T14 Matrix polls & read anchors in coordination
+- [ ] M10-T15 Signal adapter
+- [ ] M10-T16 Signal CLI helpers & version freshness
+- [ ] M10-T17 Signal polls in coordination
+- [ ] M10-T18 Per-channel capability conformance (runtime)
+- [ ] M10-T19 Wizard & doctor steps for the new channels
+- [ ] M10-T20 Capability-matrix runner
+- [ ] M10-T21 Contract suites & live drift
+- [ ] M10-T22 Platform fault profiles
+- [ ] M10-T23 Cross-adapter CI matrix & nightly live smoke
+- [ ] M10-T24 Host setup guides & quickstarts; Village in the project community
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M11 — Multimodal & email
+
+Status: not started · Tasks: 0/15 · Gate: —
+
+- [ ] M11-T1 Attachment normalization
+- [ ] M11-T2 Platform fetch specifics
+- [ ] M11-T3 Outbound files
+- [ ] M11-T4 Sandbox launcher core & media worker sandbox
+- [ ] M11-T5 whisper.cpp + ffmpeg-mini image stage; `village models`
+- [ ] M11-T6 SP-9: transformers.js Whisper fallback
+- [ ] M11-T7 Multimodal model parts
+- [ ] M11-T8 Media job handlers
+- [ ] M11-T9 Email ingestion (IMAP)
+- [ ] M11-T10 Document windows for PDFs/emails
+- [ ] M11-T11 Media-derived calibration features
+- [ ] M11-T12 Corpus extension: OCR/ASR-noised items (+15%)
+- [ ] M11-T13 Media & email injection fixtures (S3)
+- [ ] M11-T14 Multimodal extraction subset (S4)
+- [ ] M11-T15 Email & media guides
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M12 — Extensibility → 0.5 beta
+
+Status: not started · Tasks: 0/37 · Gate: —
+
+- [ ] M12-T1 Extension & feedback tables
+- [ ] M12-T2 Re-verify external facts; MCP SDK v2 spike
+- [ ] M12-T3 `definePlugin`, `define*` & manifest
+- [ ] M12-T4 RPC protocol & child runtime
+- [ ] M12-T5 Plugin supervisor & sandbox launcher
+- [ ] M12-T6 Brokered network
+- [ ] M12-T7 `PluginToolProvider` & ctx host
+- [ ] M12-T8 Plugin test kit
+- [ ] M12-T9 Installer, approval & hash pinning; `village plugin …`
+- [ ] M12-T10 Extension tools in the registry
+- [ ] M12-T11 Per-group enablement
+- [ ] M12-T12 Jobs, delegations & digest sections
+- [ ] M12-T13 Channel plugins
+- [ ] M12-T14 Skills runtime
+- [ ] M12-T15 Bundled skills content
+- [ ] M12-T16 MCP server core
+- [ ] M12-T17 MCP server security
+- [ ] M12-T18 MCP tokens UX
+- [ ] M12-T19 `@village/mcp-bridge`
+- [ ] M12-T20 MCP client & hardening
+- [ ] M12-T21 Plugin `weather`
+- [ ] M12-T22 Plugin `ics` (opt-in)
+- [ ] M12-T23 Plugin `homeassistant`
+- [ ] M12-T24 Author CLI & plugin template
+- [ ] M12-T25 Curated registry
+- [ ] M12-T26 MCP red-team
+- [ ] M12-T27 Plugin authority tests
+- [ ] M12-T28 Extension security hardening pass
+- [ ] M12-T29 Extension perf benches
+- [ ] M12-T30 Extension docs
+- [ ] M12-T31 Beta guides & generators
+- [ ] M12-T32 Browser-safe in-memory repositories, demo recorder & Tier-2 spike (SP-10)
+- [ ] M12-T33 Name hard-stop verification (contingency)
+- [ ] M12-T34 npm trusted publishing (5 public packages)
+- [ ] M12-T35 Beta channel, HA `village_beta`, Umbrel community store
+- [ ] M12-T36 Private beta program
+- [ ] M12-T37 Beta gate run
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M13 — Evals hardening, performance & cost
+
+Status: not started · Tasks: 0/30 · Gate: —
+
+- [ ] M13-T1 Red-team expansion to full size
+- [ ] M13-T2 Coordination red-team
+- [ ] M13-T3 Memory-poisoning red-team
+- [ ] M13-T4 Guard calibration
+- [ ] M13-T5 Inference & probing hardening
+- [ ] M13-T6 Compiler, confirmation & interaction fuzzing; fuzz campaigns
+- [ ] M13-T7 Declassify precision eval
+- [ ] M13-T8 Corpus v1
+- [ ] M13-T9 Calibration refit per default model
+- [ ] M13-T10 Memory 1.0 gates in nightly CI & regression bot
+- [ ] M13-T11 Trigram FTS for CJK/Thai groups
+- [ ] M13-T12 Proactivity Θ tuning
+- [ ] M13-T13 Localized templates & multilingual date eval
+- [ ] M13-T14 Final cache TTL & effort strategy
+- [ ] M13-T15 E-CAT final (ADR-023)
+- [ ] M13-T16 Local model re-evaluation
+- [ ] M13-T17 Multi-model release run (`quality-gates.yml`)
+- [ ] M13-T18 Perf suite complete & CI latency budgets
+- [ ] M13-T19 Memory performance hardening on Pi 5
+- [ ] M13-T20 Coordination perf benchmarks on Pi 5
+- [ ] M13-T21 Crypto & isolation perf
+- [ ] M13-T22 Pi protocol & `village bench`
+- [ ] M13-T23 Mutation & coverage targets
+- [ ] M13-T24 Judge cycle
+- [ ] M13-T25 Cost publication per preset
+- [ ] M13-T26 Chaos at release level
+- [ ] M13-T27 Red-team scorecard, perf & cost generators; README sync
+- [ ] M13-T28 Local discretion challenge & `village eval challenge`
+- [ ] M13-T29 Fresh-user dry-run round 1 (TTFV)
+- [ ] M13-T30 Child-safety expert review (D-5)
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M14 — Packaging & operations
+
+Status: not started · Tasks: 0/29 · Gate: —
+
+- [ ] M14-T1 Native-module matrix (SP-11) & production image
+- [ ] M14-T2 Multi-arch release pipeline
+- [ ] M14-T3 Image signing & attestations
+- [ ] M14-T4 SBOM & SLSA Build L3 reusable build
+- [ ] M14-T5 Reproducible tarballs
+- [ ] M14-T6 Container & systemd hardening
+- [ ] M14-T7 npm distribution, thin CLI & native mode; `village runtime`
+- [ ] M14-T8 Compose variants
+- [ ] M14-T9 Docker mode orchestration
+- [ ] M14-T10 Upgrade engine v2, recovery mode & downgrade
+- [ ] M14-T11 Upgrade matrix & release DB fixtures
+- [ ] M14-T12 Backup ops v2, weekly `backup.verify` & restore drill
+- [ ] M14-T13 Ops CLI hardening (backup/restore/verify/prune/export/migrate)
+- [ ] M14-T14 Cross-machine restore & key-rotation e2e
+- [ ] M14-T15 `healthcheck`, `update`, `version --check`, `service`, `db checkpoint`
+- [ ] M14-T16 Appliance secrets via web setup (A29)
+- [ ] M14-T17 HA ingress mode
+- [ ] M14-T18 Home Assistant app
+- [ ] M14-T19 Umbrel, CasaOS, Unraid, TrueNAS
+- [ ] M14-T20 systemd & launchd
+- [ ] M14-T21 Release channels, hotfix, notes, downstream, manifest
+- [ ] M14-T22 Container quality stage
+- [ ] M14-T23 Quality-gate integration
+- [ ] M14-T24 Drizzle v1 re-evaluation
+- [ ] M14-T25 Ops docs & runbooks R1–R7
+- [ ] M14-T26 Install & operate docs
+- [ ] M14-T27 Quickstart matrix in nightly CI
+- [ ] M14-T28 Sizing & profiles
+- [ ] M14-T29 Release-readiness gate
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
+
+### M15 — Docs, README, demo & launch → 1.0
+
+Status: not started · Tasks: 0/25 · Gate: —
+
+- [ ] M15-T1 Copy review pass (CLI + dashboard)
+- [ ] M15-T2 Accessibility audit
+- [ ] M15-T3 Dashboard perf polish & stream leader election
+- [ ] M15-T4 YAML completion & hovers; shortcuts sheet; `completion` command
+- [ ] M15-T5 Pseudo-locale & RTL verification
+- [ ] M15-T6 Translation infrastructure
+- [ ] M15-T7 User-facing security & privacy docs
+- [ ] M15-T8 Maintainer runbook & advisory templates
+- [ ] M15-T9 Docs IA completion
+- [ ] M15-T10 Media: GIFs, launch video, captions, social cuts
+- [ ] M15-T11 Final README & package READMEs
+- [ ] M15-T12 Demo Tier 1
+- [ ] M15-T13 Demo Tier 2 (only if SP-10 passed)
+- [ ] M15-T14 Changelog & release-notes pipeline; launch post
+- [ ] M15-T15 Community & governance final
+- [ ] M15-T16 Good-first-issue pipeline
+- [ ] M15-T17 Docs metrics & Umami
+- [ ] M15-T18 Launch kit
+- [ ] M15-T19 Seeding: creators & newsletters
+- [ ] M15-T20 External security review gate
+- [ ] M15-T21 Wizard timing, `host transfer`, installable manifest
+- [ ] M15-T22 Fresh-user dry runs 2–3 & launch rehearsal
+- [ ] M15-T23 1.0 quality report
+- [ ] M15-T24 Go/no-go & launch day
+- [ ] M15-T25 Post-launch 30 days
+
+#### Execution note
+
+_Not written yet._
+
+#### Milestone report
+
+_Not written yet._
