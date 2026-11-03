@@ -1,0 +1,76 @@
+name: Bug report
+description: Something works differently than it should.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Never paste real chat content
+
+        Not yours, and especially not anybody else's. This issue is public and permanent, and a
+        bug report about Comvivo should not itself leak what it is meant to protect.
+
+        `comvivo doctor --bundle` redacts as it collects. If you need to show a conversation, the
+        simulator generates a realistic one.
+
+        **Found a privacy or discretion failure?** Do not file it here —
+        [report it privately](https://github.com/faizannraza/comvivo/security/advisories/new).
+        Comvivo revealing something a member should not have seen is a security issue.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`comvivo --version`, or the commit if you are running from source."
+    validations: { required: true }
+  - type: dropdown
+    id: install
+    attributes:
+      label: How are you running it?
+      options:
+        [
+          Docker,
+          Docker Compose,
+          npm / npx,
+          Home Assistant add-on,
+          Umbrel,
+          CasaOS,
+          Unraid,
+          From source,
+          Other,
+        ]
+    validations: { required: true }
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+      placeholder: "e.g. Ubuntu 24.04 x86_64, macOS 15 arm64, Raspberry Pi 5 (8 GB)"
+    validations: { required: true }
+  - type: textarea
+    id: steps
+    attributes:
+      label: What did you do?
+      description: Enough for somebody else to see the same thing.
+      placeholder: |
+        1. …
+        2. …
+    validations: { required: true }
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect, and what happened instead?
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`comvivo doctor --bundle` output"
+      description: Redacted as it is collected. Paste it here, or attach the file.
+      render: text
+  - type: checkboxes
+    id: confirm
+    attributes:
+      label: Before you file
+      options:
+        - label: I have checked [STATUS.md](https://github.com/faizannraza/comvivo/blob/main/docs/plan/STATUS.md) and this subsystem exists.
+          required: true
+        - label: This report contains no real messages from me or anybody else.
+          required: true

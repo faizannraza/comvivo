@@ -61,7 +61,8 @@
     "changeset": "changeset",
     "changeset:required": "tsx scripts/release/changeset-required.ts",
     "names:check": "tsx scripts/names/check.ts",
-    "names:apply": "tsx scripts/names/apply.ts"
+    "names:apply": "tsx scripts/names/apply.ts",
+    "labels:sync": "tsx scripts/github/sync-labels.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

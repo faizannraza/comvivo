@@ -1,0 +1,23 @@
+name: Documentation problem
+description: Something in the docs is wrong, missing or confusing.
+labels: ["docs", "needs-triage"]
+body:
+  - type: input
+    id: page
+    attributes:
+      label: Which page?
+      description: The URL, or the file path in this repository.
+    validations: { required: true }
+  - type: textarea
+    id: problem
+    attributes:
+      label: What is wrong with it?
+      description: >-
+        "Confusing" is a valid answer and a useful one — if you had to read it twice, so will
+        everybody else. Say where you got stuck.
+    validations: { required: true }
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: What would be better?
+      description: Optional. A rough sentence is plenty; we will do the editing.

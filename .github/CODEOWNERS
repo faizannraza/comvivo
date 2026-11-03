@@ -1,0 +1,47 @@
+# Code owners (`08` §3.15, `11` §3.8.3, `13` §3.F.1).
+#
+# This file says WHO reviews. Branch protection says HOW MANY — "require review from Code Owners"
+# plus a required approval count. The paths below are the ones `08` §3.15 marks as needing **two**
+# maintainer approvals, which cannot be enforced today because there is one maintainer; see
+# `docs/architecture/ci.md` and MAINTAINERS.md. The file is correct now so that the settings
+# change is one switch when a second maintainer arrives, rather than an archaeology exercise.
+#
+# Last match wins, so the protected paths are at the bottom.
+
+# Everything, by default.
+*                                       @faizannraza
+
+# --- Protected: a mistake here means somebody's private message reaches the wrong person --------
+# Information flow and policy. These decide who may know what and who may do what.
+/packages/core/src/ifc/                 @faizannraza
+/packages/core/src/policy/              @faizannraza
+
+# Context building, the outbound guard and the declassifier: the three places where a private item
+# can escape into a reply.
+/packages/engine/src/context/           @faizannraza
+/packages/engine/src/guard/             @faizannraza
+/packages/engine/src/declassifier/      @faizannraza
+/packages/engine/src/tools-executor/    @faizannraza
+
+# --- Protected: cryptography and secrets --------------------------------------------------------
+/packages/storage/src/crypto/           @faizannraza
+/packages/shared/src/crypto/            @faizannraza
+/packages/shared/src/net/               @faizannraza
+# The logger is here because `01` §11.7 — no message or memory content above debug — is enforced
+# by this code and nothing else.
+/packages/shared/src/logger/            @faizannraza
+/packages/shared/src/secrets/           @faizannraza
+/packages/shared/src/observability/     @faizannraza
+
+# --- Protected: authentication ------------------------------------------------------------------
+/apps/server/src/http/auth/             @faizannraza
+
+# --- Protected: the supply chain ----------------------------------------------------------------
+# A workflow runs with a token on this repository; the lockfile and workspace settings decide what
+# code gets installed and what is allowed to run an install script.
+/.github/                               @faizannraza
+/pnpm-lock.yaml                         @faizannraza
+/pnpm-workspace.yaml                    @faizannraza
+/deploy/names.json                      @faizannraza
+/scripts/supply/                        @faizannraza
+/scripts/security/                      @faizannraza

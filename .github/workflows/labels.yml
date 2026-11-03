@@ -1,0 +1,59 @@
+# Keep the repository's labels matching `.github/labels.yml` (`13` §3.F.2).
+#
+# `scripts/github/sync-labels.ts` reconciles rather than replaces: it creates what is missing,
+# updates drifted colours and descriptions, and reports extras **without deleting them**. A label
+# applied to a hundred old issues is somebody's triage work, and a sync job that removes it
+# because it is not in a file is a sync job that eats data.
+#
+# On a pull request it runs `--check`, so a change to the file is visible in review before it is
+# applied — and because a fork's token is read-only, applying there would fail with a confusing
+# permissions error rather than a useful diff.
+name: labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/labels.yml"
+      - "scripts/github/sync-labels.ts"
+  pull_request:
+    paths:
+      - ".github/labels.yml"
+      - "scripts/github/sync-labels.ts"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: labels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: sync
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Labels are an issues-scoped resource.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # Two steps rather than one with an interpolated flag: a shell variable holding "--check"
+      # or "" has to be either unquoted (SC2086) or quoted into an empty argument. An `if:` says
+      # the same thing without the shell being involved.
+      - name: Check labels against the file
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/github/sync-labels.ts --check
+
+      - name: Sync labels
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pnpm exec tsx scripts/github/sync-labels.ts

@@ -1,0 +1,48 @@
+name: Channel request
+description: Support for another chat platform.
+labels: ["feature", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        ### Official APIs only
+
+        Comvivo will not use an unofficial client or scrape a platform, for any platform, ever —
+        it is one of the Protected Promises in
+        [GOVERNANCE.md](https://github.com/faizannraza/comvivo/blob/main/GOVERNANCE.md).
+
+        The reason is concrete rather than principled: an unofficial client gets a household's
+        account **banned**, and that account is how they talk to each other. Losing it is a much
+        worse outcome than not having Comvivo there.
+
+        This rules out WhatsApp and iMessage until they offer an API that fits. Requests for them
+        are closed with this explanation, kindly, and not held against anybody for asking.
+  - type: input
+    id: platform
+    attributes:
+      label: Platform
+    validations: { required: true }
+  - type: input
+    id: api
+    attributes:
+      label: Link to its official bot or integration API
+      description: The vendor's own documentation, not a third-party library.
+    validations: { required: true }
+  - type: textarea
+    id: tos
+    attributes:
+      label: What do its terms say about bots?
+      description: >-
+        Especially about a bot reading group messages, and whether a business account is required.
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes:
+      label: Who uses it, and why does it matter for a household?
+  - type: checkboxes
+    id: official
+    attributes:
+      label: Confirm
+      options:
+        - label: This is an official API, not a reverse-engineered client or a web scraper.
+          required: true

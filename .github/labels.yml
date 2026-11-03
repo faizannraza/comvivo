@@ -1,0 +1,124 @@
+# The label set (`13` §3.F.2). Synced by `.github/workflows/labels.yml`, which runs
+# `scripts/github/sync-labels.ts` — a reconcile, not a wipe: it creates what is missing, updates a
+# colour or description that drifted, and reports extras without deleting them.
+#
+# Not deleting is deliberate. A label applied to a hundred old issues is somebody's triage work,
+# and a sync job that removes it because it is not in this file is a sync job that eats data. The
+# run prints extras so they can be added here or removed by hand.
+#
+# Colours group by family so a crowded issue list is readable at a glance:
+#   kind      blue-grey    what sort of thing this is
+#   area      purple       which part of the product
+#   priority  red → grey   how urgent
+#   status    amber        what it is waiting on
+#   invite    green        a good one to pick up
+#   risk      crimson      privacy or security sensitive
+#   meta      neutral
+
+kind:
+  - name: bug
+    color: "455A64"
+    description: Something works differently than it should
+  - name: feature
+    color: "455A64"
+    description: Something Comvivo should be able to do
+  - name: docs
+    color: "455A64"
+    description: Documentation
+  - name: question
+    color: "455A64"
+    description: A question — usually better in Discussions
+  - name: chore
+    color: "455A64"
+    description: Maintenance, tooling, housekeeping
+
+area:
+  - { name: "core", color: "6A1B9A", description: "The pure core: types, invariants" }
+  - { name: "policy", color: "6A1B9A", description: "Who may do what" }
+  - { name: "ifc", color: "6A1B9A", description: "Information flow: who may know what" }
+  - { name: "memory", color: "6A1B9A", description: "Extraction, retrieval, consolidation" }
+  - { name: "runtime", color: "6A1B9A", description: "Turn engine, router, model gateway" }
+  - { name: "channel:telegram", color: "8E24AA", description: "Telegram adapter" }
+  - { name: "channel:discord", color: "8E24AA", description: "Discord adapter" }
+  - { name: "channel:slack", color: "8E24AA", description: "Slack adapter" }
+  - { name: "channel:matrix", color: "8E24AA", description: "Matrix adapter" }
+  - { name: "channel:signal", color: "8E24AA", description: "Signal adapter" }
+  - { name: "channel:web", color: "8E24AA", description: "Web channel" }
+  - { name: "coordination", color: "6A1B9A", description: "Reminders, calendar, chores, lists" }
+  - { name: "proactivity", color: "6A1B9A", description: "When Comvivo speaks unprompted" }
+  - { name: "dashboard", color: "6A1B9A", description: "The web dashboard" }
+  - { name: "cli", color: "6A1B9A", description: "The command line" }
+  - { name: "packaging", color: "6A1B9A", description: "Docker, npm, add-ons, release" }
+  - { name: "docs-site", color: "6A1B9A", description: "The documentation site itself" }
+  - { name: "evals", color: "6A1B9A", description: "The evaluation harness and suites" }
+  - { name: "plugins", color: "6A1B9A", description: "Plugin host and SDK" }
+  - { name: "mcp", color: "6A1B9A", description: "Model Context Protocol" }
+  - { name: "brand", color: "6A1B9A", description: "Naming, the BRAND constant, the rename drill" }
+
+priority:
+  - { name: "p0", color: "B71C1C", description: "Drop everything" }
+  - { name: "p1", color: "E53935", description: "Next" }
+  - { name: "p2", color: "EF9A9A", description: "Soon" }
+  - { name: "p3", color: "CFD8DC", description: "Someday" }
+
+status:
+  - { name: "needs-triage", color: "F9A825", description: "Nobody has looked yet" }
+  - { name: "needs-repro", color: "F9A825", description: "We cannot reproduce it yet" }
+  - {
+      name: "needs-info",
+      color: "F9A825",
+      description: "Waiting on the reporter — auto-closed after 21 days, with a comment first",
+    }
+  - { name: "accepted", color: "43A047", description: "Agreed, and wanted" }
+  - { name: "blocked", color: "F9A825", description: "Waiting on something else" }
+
+invite:
+  - { name: "good first issue", color: "2E7D32", description: "A good place to start" }
+  - { name: "help wanted", color: "2E7D32", description: "We would welcome a hand with this" }
+  - { name: "size:S", color: "C8E6C9", description: "An hour or two" }
+  - { name: "size:M", color: "C8E6C9", description: "A day or so" }
+  - { name: "size:L", color: "C8E6C9", description: "More than a day — talk to us first" }
+
+risk:
+  - {
+      name: "privacy",
+      color: "AD1457",
+      description: "Touches what a member may know. Two reviewers.",
+    }
+  - { name: "security", color: "AD1457", description: "Security impact. Two reviewers." }
+
+meta:
+  - {
+      name: "launch:install",
+      color: "546E7A",
+      description: "Install friction found during launch triage",
+    }
+  - {
+      name: "launch:docs",
+      color: "546E7A",
+      description: "Documentation gap found during launch triage",
+    }
+  - {
+      name: "docs:external-links",
+      color: "546E7A",
+      description: "A link somewhere else that broke",
+    }
+  - { name: "dogfood", color: "546E7A", description: "Found while running Comvivo for real" }
+  - { name: "dry-run", color: "546E7A", description: "Found during a fresh-user dry run" }
+  - { name: "rfc", color: "546E7A", description: "Needs or has an RFC" }
+  - {
+      name: "no-changeset",
+      color: "546E7A",
+      description: "Deliberately affects nobody running Comvivo",
+    }
+  - {
+      name: "needs-arm64-check",
+      color: "546E7A",
+      description: "A native dependency moved — check it builds on arm64",
+    }
+  - { name: "duplicate", color: "CFD8DC", description: "Already reported" }
+  - {
+      name: "wontfix",
+      color: "CFD8DC",
+      description: "Decided against, with a reason in the thread",
+    }

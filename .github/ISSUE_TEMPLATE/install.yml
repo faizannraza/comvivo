@@ -1,0 +1,58 @@
+name: Install problem
+description: It would not install, or would not start the first time.
+labels: ["bug", "launch:install", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A separate form because install problems are triaged differently: they are nearly always
+        an environment detail, and the project's promise is **install to first useful answer in
+        under five minutes**. If that did not happen for you, that is a bug worth our time.
+  - type: input
+    id: os
+    attributes:
+      label: OS and architecture
+      placeholder: "e.g. Debian 13 arm64, Windows 11 + WSL2, macOS 15 (Apple Silicon)"
+    validations: { required: true }
+  - type: input
+    id: node
+    attributes:
+      label: Node version
+      description: "`node --version`. Not needed for the Docker route."
+      placeholder: v26.13.0
+  - type: dropdown
+    id: method
+    attributes:
+      label: Install method
+      options:
+        [
+          "npx comvivo@latest init",
+          "Docker run",
+          "Docker Compose",
+          "Home Assistant add-on",
+          "Umbrel",
+          "CasaOS",
+          "Unraid",
+          "From source",
+          "Other",
+        ]
+    validations: { required: true }
+  - type: textarea
+    id: error
+    attributes:
+      label: The full error
+      description: All of it, including the lines above the one that looks relevant.
+      render: shell
+    validations: { required: true }
+  - type: textarea
+    id: doctor
+    attributes:
+      label: "`comvivo doctor` output"
+      description: If you got far enough to run it.
+      render: text
+  - type: input
+    id: elapsed
+    attributes:
+      label: How long had you spent before giving up?
+      description: Genuinely useful — the five-minute promise is measured against real attempts.
+      placeholder: "e.g. about 20 minutes"
