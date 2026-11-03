@@ -8,7 +8,7 @@
  * This package is the bottom of the dependency graph (`01` §4): it imports nothing internal, and
  * `.dependency-cruiser.cjs` enforces that.
  *
- * Scaffolded in `M0-T1`; filled in by `M0-T6` (these modules), `M0-T7` (test doubles),
+ * Scaffolded in `M0-T1`; filled in by `M0-T6` (primitives and config), `M0-T7` (test doubles),
  * `M0-T8` (logger, redaction, `SecretString`) and `M0-T9` (observability facades).
  */
 
@@ -64,6 +64,35 @@ export {
   toAppError,
   ValidationError,
 } from './errors.js';
+// --- Logging (M0-T8) ---------------------------------------------------------------------------
+// Four layers protect `01` §11.7's "logs never contain message or memory content above debug":
+// the closed `LogFields` type, the content gate, depth-unlimited field stripping, and scrubbing.
+export {
+  type BufferedLine,
+  contentWarningBanner,
+  createLogger,
+  type FieldValue,
+  FORBIDDEN_FIELD_NAMES,
+  isKnownEvent,
+  LOG_EVENTS,
+  type LogEvent,
+  type LogFields,
+  type LoggedError,
+  type Logger,
+  type LoggerOptions,
+  type LogLevel,
+  LogRingBuffer,
+  MAX_MESSAGE_LENGTH,
+  messageFor,
+  REDACT_PATHS,
+  redactOptions,
+  SCRUBBED,
+  SECRET_PATTERNS,
+  scrubDeep,
+  scrubErrorMessage,
+  scrubSecretShapes,
+  toLoggedError,
+} from './logger/index.js';
 export type { Clock, TimerHandle, Timers } from './ports/clock.js';
 export type { IdGenerator, IdPrefix, TypedId } from './ports/ids.js';
 export type { Rng } from './ports/rng.js';
@@ -81,6 +110,8 @@ export {
   type Result,
   unwrapOr,
 } from './result.js';
+// --- Secrets (M0-T8) ---------------------------------------------------------------------------
+export { isSecretString, REDACTED, SecretString, secret } from './secrets/index.js';
 export {
   type Branded,
   brandedId,

@@ -85,6 +85,7 @@ allowBuilds:
 # Referenced from packages as `"vitest": "catalog:"`. One place to bump.
 catalog:
   fast-check: ^4.10
+  pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2
   zod: ^4.6

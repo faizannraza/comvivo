@@ -846,10 +846,19 @@ exist in the installed tree. Rationale per dependency: `docs/architecture/native
 | zizmor (`zizmor.yml`; GitHub Actions static analysis, SARIF) | PR touching `.github/` | Block on high |
 | OpenSSF Scorecard (`scorecard.yml`) | weekly | Track; target ≥ 8 by 1.0 |
 | Secret scanning + push protection | always (repo setting) | — |
+| Literal-secret guard (`sec.secrets.literals`, `pnpm secrets:check`) | `pnpm verify`, PR, `merge_group` | Block on a contiguous secret-shaped literal in tracked source |
 | Supply-chain policy check (`supply-policy.yml`, `sec.supply.policy`): lockfile frozen; no new `allowBuilds` without CODEOWNERS; no `git+`/tarball deps | PR, `merge_group` | Block |
 | ZAP baseline + API scan (`security-dast.yml`, §3.20) | PR touching `apps/server/**`/`apps/dashboard/**`, weekly, and `workflow_call` from the release | Block on High or Medium unless ignored in `.zap/rules.tsv` with a written justification |
 | Grype image scan (`anchore/scan-action` in `12`'s `release.yml`) | release, edge | Block on a critical vulnerability with a fix available |
 | Jazzer.js fuzz campaigns (`nightly-security.yml`, §3.20) | nightly | Non-blocking until 1.0; crashes become regression tests |
+
+**Secret-shaped test fixtures.** Push protection and the guard above both fire on the *shape* of a credential, and several
+suites need fixtures with exactly those shapes: the scrubber canary (§3.10), `M5`'s red-team scenarios, `M11`'s media and email
+injection corpora. **Assemble such fixtures at runtime from separate string literals** — the code under test receives the identical
+value, because the pieces are joined before they are passed in, while no source file contains the shape. Never resolve the conflict
+by allowlisting a detection or bypassing a block: a bypass is indistinguishable from the same action taken over a real key, and it
+trains the reflex that lets the real one through. `scripts/security/literal-secrets.ts` carries the pattern and the exemption list,
+which is deliberately limited to files that cannot do their job without naming a shape.
 
 **GitHub hardening:**
 - Branch protection on `main` (required checks per `11` §3.8.3, which include the blocking jobs above; 1 review; **2 reviews** for CODEOWNERS security paths: `packages/core/src/{ifc,policy}`, `packages/storage/src/crypto`, `packages/shared/src/{net,crypto,logger}`, `apps/server/src/http/auth`, `.github/`, `pnpm-lock.yaml`, `pnpm-workspace.yaml`).

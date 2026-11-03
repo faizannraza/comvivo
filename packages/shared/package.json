@@ -33,6 +33,7 @@
     "vitest": "catalog:"
   },
   "dependencies": {
+    "pino": "catalog:",
     "pure-rand": "catalog:",
     "temporal-polyfill": "catalog:",
     "typeid-js": "catalog:",

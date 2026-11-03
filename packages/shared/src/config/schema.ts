@@ -241,6 +241,24 @@ export const configSchema = z
         format: z.enum(['pretty', 'json']).default('pretty'),
         /** Logs message and memory CONTENT. Off by default, host-only, announced in-group. */
         debugContent: z.boolean().default(false),
+        /**
+         * File logging, for launchd and WSL where stdout is not captured (`12` §3.11.3).
+         *
+         * **Off by default**, and that is the right default: stdout is captured by Docker,
+         * systemd and every process manager a host is likely to use, so a file is redundant
+         * almost everywhere while being one more place content could end up. When it is on the
+         * file is content-free by construction — `log.content()` writes to stdout only — and is
+         * rotated at 5 x 10 MiB so it cannot fill a Raspberry Pi's SD card. The transport itself
+         * is wired in `M3-T14`.
+         */
+        file: z
+          .object({
+            enabled: z.boolean().default(false),
+            path: z.string().nullable().default(null),
+            maxSizeMib: z.number().int().positive().default(10),
+            keep: z.number().int().positive().default(5),
+          })
+          .prefault({}),
       })
       .prefault({}),
     /** ADR-017: zero telemetry. This fetches a static release manifest, nothing more. */

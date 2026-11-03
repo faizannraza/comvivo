@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Comvivo — the open-source AI that belongs to your group, not to one person.",
+  "description": "Comvivo \u2014 the open-source AI that belongs to your group, not to one person.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -44,16 +44,17 @@
     "test:contract": "vitest run --project contract",
     "test:scenario": "vitest run --project scenario",
     "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run --project unit prop.test",
-    "bench": "node scripts/pending.mjs \"pnpm bench\" M1-T32 \"run the B-suite micro and macro benchmarks and compare against the 01 §11.10 budgets\" \"nothing yet: vitest 5.0.5 does not expose a usable bench API, so M1-T32 chooses the harness (see STATUS Plan changes)\"",
+    "bench": "node scripts/pending.mjs \"pnpm bench\" M1-T32 \"run the B-suite micro and macro benchmarks and compare against the 01 \u00a711.10 budgets\" \"nothing yet: vitest 5.0.5 does not expose a usable bench API, so M1-T32 chooses the harness (see STATUS Plan changes)\"",
     "coverage": "vitest run --coverage",
     "evals:smoke": "turbo run evals:smoke",
     "evals:live": "node scripts/pending.mjs \"pnpm evals:live\" M2-T19 \"run the eval suites against real models, inside the approved budget\" \"pnpm evals:smoke, which uses the deterministic fake gateways\"",
     "dev": "node scripts/pending.mjs \"pnpm dev\" M3-T42 \"run the server and dashboard in watch mode on the simulator channel\" \"pnpm test:watch\"",
-    "db:generate": "node scripts/pending.mjs \"pnpm db:generate\" M1-T14 \"generate a drizzle migration from the schema\" \"nothing — there is no schema until M1\"",
-    "db:migrate": "node scripts/pending.mjs \"pnpm db:migrate\" M1-T14 \"apply pending drizzle migrations to the database\" \"nothing — there is no schema until M1\"",
+    "db:generate": "node scripts/pending.mjs \"pnpm db:generate\" M1-T14 \"generate a drizzle migration from the schema\" \"nothing \u2014 there is no schema until M1\"",
+    "db:migrate": "node scripts/pending.mjs \"pnpm db:migrate\" M1-T14 \"apply pending drizzle migrations to the database\" \"nothing \u2014 there is no schema until M1\"",
     "clean": "turbo run clean && node -e \"for (const p of ['node_modules/.cache','.turbo','reports','.vitest','coverage']) fs.rmSync(p,{recursive:true,force:true})\"",
     "supply:check": "tsx scripts/supply/check-native.ts",
-    "test:dashboard": "vitest run --project dashboard"
+    "test:dashboard": "vitest run --project dashboard",
+    "secrets:check": "tsx scripts/security/check-literal-secrets.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",
