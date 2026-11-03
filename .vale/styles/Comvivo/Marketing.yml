@@ -1,0 +1,20 @@
+# Words that make a sentence sound like a landing page.
+#
+# `simply` and `just` are banned only in the **imperative**, which is the harmful form: "simply run
+# the installer" quietly tells a reader that their difficulty was their own fault. The adverb is
+# fine — "discretion, explained simply" is correct English, and the first version of this rule
+# flagged it, which is exactly how an over-matching rule earns an ignore file.
+extends: existence
+message: "'%s' is marketing language — say what it does instead (apps/docs/STYLE.md)."
+level: error
+ignorecase: true
+tokens:
+  - seamless(ly)?
+  - effortless(ly)?
+  - revolutionary
+  - game.?chang(er|ing)
+  - cutting.edge
+  - blazing(ly)? fast
+  - world.class
+  - easy as
+  - (simply|just) (run|type|add|set|install|open|edit|copy|paste|use|enable|create|click|select|download|point|drop)

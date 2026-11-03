@@ -1,0 +1,14 @@
+# Absolute claims about protection. Comvivo cannot protect a group from the person who runs the
+# server, and `apps/docs/STYLE.md` requires that limit to be stated alongside any promise. A
+# sentence containing one of these is usually a promise that is too strong to be true.
+extends: existence
+message: "'%s' is an absolute claim — state the limit alongside it (apps/docs/STYLE.md honesty rule 1)."
+level: error
+ignorecase: true
+tokens:
+  - (completely|totally|fully|100%) (private|secure|safe)
+  - (never|always) (leaks?|exposes?|shares?)
+  - (unhackable|impenetrable|bulletproof)
+  - (guarantee[sd]?|guaranteeing) (privacy|security|safety)
+  - military.grade
+  - zero.knowledge

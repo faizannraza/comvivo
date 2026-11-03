@@ -1,0 +1,56 @@
+# Link checking (`13` §3.C.4, §5).
+#
+# `starlight-links-validator` already fails the build on a broken **internal** link, at build time,
+# with the source location. lychee covers what it cannot see: external links, and links in the
+# Markdown outside the site — the README, CONTRIBUTING, the plan, the ADRs.
+#
+# Two modes:
+#   `--offline`  internal and relative links only. Runs on every pull request; deterministic.
+#   online       external links too. Runs nightly, because somebody else's site going down is not
+#                a reason to block a contributor's pull request.
+cache = true
+max_cache_age = "2d"
+
+# Be a good citizen: a link checker that hammers a small site is a denial-of-service with good
+# intentions.
+max_concurrency = 8
+timeout = 20
+retry_wait_time = 2
+max_retries = 2
+user_agent = "lychee/comvivo-docs-link-check (+https://github.com/faizannraza/comvivo)"
+
+# 429 is rate limiting, not a broken link.
+accept = ["200..=299", "429"]
+
+exclude_path = [
+  "node_modules",
+  "apps/docs/dist",
+  "apps/docs/.astro",
+  ".vale/styles/Microsoft",
+  ".vale/styles/write-good",
+  "coverage",
+  "reports",
+]
+
+exclude = [
+  # Templates and examples, not addresses.
+  "^https?://(www\\.)?example\\.(com|org|test)",
+  "^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)",
+  "^https?://.*<.*>",
+  "^https?://DOCS_DOMAIN",
+  # Our own future URLs. The domain does not exist yet (owner ask H-7), and the GitHub Pages and
+  # Cloudflare targets are not deployed, so these are correct links to things not yet published.
+  "^https://comvivo\\.dev",
+  "^https://faizannraza\\.github\\.io/comvivo",
+  # Links that require a session, so an anonymous checker always gets a redirect to a login page.
+  "^https://github\\.com/.*/security/advisories/new",
+  "^https://github\\.com/organizations/plan",
+  "^https://github\\.com/.*/discussions/categories/",
+  # Sites that block automated requests outright. Checked by hand when the page citing them
+  # changes; `13` §3.A.3 already records which registries refuse automation.
+  "^https://(tmsearch\\.uspto\\.gov|www\\.tmdn\\.org|branddb\\.wipo\\.int)",
+  "^https://www\\.npmjs\\.com/",
+  "^https://marketplace\\.visualstudio\\.com/",
+  # Anchor-only links are resolved by starlight-links-validator, which understands the site.
+  "^#",
+]

@@ -1,0 +1,58 @@
+# Nightly external link check (`13` §3.C.4).
+#
+# Separate from `docs.yml` because external links fail for reasons that have nothing to do with the
+# pull request in front of you: somebody else's site is down, or rate-limiting, or a redirect
+# changed. Blocking a contributor on that teaches people to ignore red checks.
+#
+# A failure opens an issue labelled `docs:external-links` rather than emailing nobody.
+name: docs-nightly
+
+on:
+  schedule:
+    # 05:37 UTC, after the other nightly jobs.
+    - cron: "37 5 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: docs-nightly
+  cancel-in-progress: false
+
+jobs:
+  links:
+    name: links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      # To open or update the tracking issue.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - id: lychee
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          args: --config lychee.toml --no-progress './**/*.md' './**/*.mdx'
+          output: lychee/out.md
+          # The issue below is the report; failing the job as well would add nothing.
+          fail: false
+
+      - name: Open or update the tracking issue
+        if: ${{ steps.lychee.outputs.exit_code != 0 }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          title="Broken external links"
+          existing="$(gh issue list --state open --label 'docs:external-links' \
+            --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file lychee/out.md
+          else
+            gh issue create --title "$title" --label 'docs:external-links' \
+              --body-file lychee/out.md
+          fi

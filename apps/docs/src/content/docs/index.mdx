@@ -1,0 +1,53 @@
+---
+title: Comvivo
+description: A self-hosted AI assistant that belongs to a group, not to one person. Your household's chat, your machine, your data.
+template: splash
+hero:
+  tagline: |
+    An AI assistant for your family's group chat that belongs to the whole group — and keeps
+    everybody's confidences, including from each other.
+  actions:
+    # These point at the repository on purpose. Every documentation page is still a draft, and
+    # Starlight excludes drafts from a production build — so a hero button to one would be a
+    # button to nothing. The links move to the docs as the pages are written, milestone by
+    # milestone. `starlight-links-validator` catches it if that is forgotten, which is how this
+    # was noticed.
+    - text: Read the plan
+      link: https://github.com/faizannraza/comvivo/tree/main/docs/plan
+      icon: external
+    - text: What exists today
+      link: https://github.com/faizannraza/comvivo/blob/main/docs/plan/STATUS.md
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+:::caution[Comvivo is not finished, and not launched]
+There is no release to install yet. This site exists so the shape of the documentation is agreed
+before any of it is written — **almost every page here is still a placeholder.**
+
+[`STATUS.md`](https://github.com/faizannraza/comvivo/blob/main/docs/plan/STATUS.md) is the live
+record of what actually exists.
+:::
+
+<CardGrid stagger>
+  <Card title="It belongs to the group" icon="approve-check">
+    Not one person's assistant that others can talk to. Comvivo has members with roles, a
+    constitution the group writes together, and actions that run with the authority of whoever
+    asked — never more.
+  </Card>
+  <Card title="Discretion by architecture" icon="seti:lock">
+    A group chat is not one audience. What a teenager tells Comvivo privately does not surface in
+    the kitchen group. That is enforced by an information-flow model with machine-checked
+    invariants, not by asking a model to be careful.
+  </Card>
+  <Card title="Quiet by default" icon="comment">
+    An assistant in a family chat that chatters is an assistant people mute. Comvivo speaks when
+    it is useful, respects quiet hours, and has a budget for how often it may interrupt.
+  </Card>
+  <Card title="Yours, on your machine" icon="laptop">
+    Self-hosted, Apache-2.0, and **zero telemetry** — no analytics, no phone-home, no usage
+    counting, not even opt-in. Export everything, delete anything.
+  </Card>
+</CardGrid>

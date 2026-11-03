@@ -26,3 +26,13 @@ reports/
 # Vite / Astro
 .astro/
 .vite/
+
+# --- Docs site ---------------------------------------------------------------------------------
+# `dist/` and `.astro/` above already cover the built site.
+# lychee's cache and report output.
+.lycheecache
+lychee/
+
+# The Vale style packages in `.vale/styles/{Microsoft,write-good}` are deliberately NOT ignored:
+# they are vendored so CI needs no network and an upstream rule change arrives as a reviewable
+# diff rather than a surprise failure. `vale sync` regenerates them.

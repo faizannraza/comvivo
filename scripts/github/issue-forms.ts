@@ -57,6 +57,88 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** Validate one body item. Separate so `validateIssueForm` stays a flat loop. */
+function validateItem(
+  raw: unknown,
+  at: string,
+  ids: Set<string>,
+  add: (detail: string) => void,
+): void {
+  if (!isRecord(raw)) {
+    add(`${at} is not a mapping`);
+    return;
+  }
+
+  const type = raw['type'];
+  if (typeof type !== 'string') {
+    add(`${at} has no \`type\``);
+    return;
+  }
+  const rule = ITEM_RULES[type];
+  if (rule === undefined) {
+    add(`${at} has an unknown type \`${type}\` (allowed: ${Object.keys(ITEM_RULES).join(', ')})`);
+    return;
+  }
+
+  validateId(raw['id'], at, ids, add);
+
+  if (raw['validations'] !== undefined && !TAKES_VALIDATIONS.has(type)) {
+    add(`${at} is a \`${type}\` and cannot take \`validations\``);
+  }
+
+  const attributes = raw['attributes'];
+  if (!isRecord(attributes)) {
+    add(`${at} (${type}) has no \`attributes\``);
+    return;
+  }
+  for (const key of rule.required) {
+    if (attributes[key] === undefined) add(`${at} (${type}) is missing \`attributes.${key}\``);
+  }
+  for (const key of Object.keys(attributes)) {
+    if (!rule.allowed.includes(key)) add(`${at} (${type}) has an unknown attribute \`${key}\``);
+  }
+
+  if (type === 'dropdown' || type === 'checkboxes') {
+    validateOptions(attributes['options'], at, type, add);
+  }
+}
+
+function validateId(
+  id: unknown,
+  at: string,
+  ids: Set<string>,
+  add: (detail: string) => void,
+): void {
+  if (id === undefined) return;
+  if (typeof id !== 'string' || !ID_PATTERN.test(id)) {
+    add(`${at} has an invalid id ${JSON.stringify(id)}`);
+    return;
+  }
+  if (ids.has(id)) {
+    add(`${at} reuses the id \`${id}\``);
+    return;
+  }
+  ids.add(id);
+}
+
+function validateOptions(
+  options: unknown,
+  at: string,
+  type: string,
+  add: (detail: string) => void,
+): void {
+  if (!Array.isArray(options) || options.length === 0) {
+    add(`${at} (${type}) needs a non-empty \`attributes.options\``);
+    return;
+  }
+  if (type !== 'checkboxes') return;
+  options.forEach((option, index) => {
+    if (!isRecord(option) || typeof option['label'] !== 'string') {
+      add(`${at} option ${String(index)} needs a \`label\``);
+    }
+  });
+}
+
 export function validateIssueForm(file: string, source: string): Problem[] {
   const problems: Problem[] = [];
   const add = (detail: string): void => {
@@ -93,67 +175,7 @@ export function validateIssueForm(file: string, source: string): Problem[] {
 
   const ids = new Set<string>();
   body.forEach((raw, index) => {
-    const at = `body[${String(index)}]`;
-    if (!isRecord(raw)) {
-      add(`${at} is not a mapping`);
-      return;
-    }
-
-    const type = raw['type'];
-    if (typeof type !== 'string') {
-      add(`${at} has no \`type\``);
-      return;
-    }
-    const rule = ITEM_RULES[type];
-    if (rule === undefined) {
-      add(`${at} has an unknown type \`${type}\` (allowed: ${Object.keys(ITEM_RULES).join(', ')})`);
-      return;
-    }
-
-    const id = raw['id'];
-    if (id !== undefined) {
-      if (typeof id !== 'string' || !ID_PATTERN.test(id)) {
-        add(`${at} has an invalid id ${JSON.stringify(id)}`);
-      } else if (ids.has(id)) {
-        add(`${at} reuses the id \`${id}\``);
-      } else {
-        ids.add(id);
-      }
-    }
-
-    if (raw['validations'] !== undefined && !TAKES_VALIDATIONS.has(type)) {
-      add(`${at} is a \`${type}\` and cannot take \`validations\``);
-    }
-
-    const attributes = raw['attributes'];
-    if (!isRecord(attributes)) {
-      add(`${at} (${type}) has no \`attributes\``);
-      return;
-    }
-    for (const key of rule.required) {
-      if (attributes[key] === undefined) {
-        add(`${at} (${type}) is missing \`attributes.${key}\``);
-      }
-    }
-    for (const key of Object.keys(attributes)) {
-      if (!rule.allowed.includes(key)) {
-        add(`${at} (${type}) has an unknown attribute \`${key}\``);
-      }
-    }
-
-    // `options` must be a non-empty list, and checkboxes options are mappings with a label.
-    if (type === 'dropdown' || type === 'checkboxes') {
-      const options = attributes['options'];
-      if (!Array.isArray(options) || options.length === 0) {
-        add(`${at} (${type}) needs a non-empty \`attributes.options\``);
-      } else if (type === 'checkboxes') {
-        options.forEach((option, optionIndex) => {
-          if (!isRecord(option) || typeof option['label'] !== 'string') {
-            add(`${at} option ${String(optionIndex)} needs a \`label\``);
-          }
-        });
-      }
-    }
+    validateItem(raw, `body[${String(index)}]`, ids, add);
   });
 
   return problems;

@@ -356,7 +356,22 @@ module.exports = {
   options: {
     doNotFollow: { path: '(node_modules|/dist/)' },
     exclude: {
-      path: '(/\\.turbo/|/\\.vitest/|^packages/api-client/src/generated/)',
+      /**
+       * The docs site's **build machinery** is excluded, not the site.
+       *
+       * Astro consumes `src/` at build time and emits `dist/`; nothing in `src/` ships, so Astro
+       * and Starlight are correctly devDependencies and `no-dev-dep-in-src` fires on every import
+       * in the config files. `content.config.ts` imports Astro's virtual `astro:content`, which is
+       * unresolvable by design, and `.astro/` is generated.
+       *
+       * Everything else under `apps/docs` stays cruised, because
+       * `docs-site-imports-nothing-internal` is a real rule with a planted fixture
+       * (`test/boundaries/fixtures.int.test.ts`) and excluding the whole app silently disabled it.
+       * The fixture caught that, which is the entire argument for having one.
+       */
+      path:
+        '(/\\.turbo/|/\\.vitest/|^packages/api-client/src/generated/' +
+        '|^apps/docs/\\.astro/|^apps/docs/astro\\.config\\.mjs$|^apps/docs/src/content\\.config\\.ts$)',
     },
     // Type-only imports are architecture too: `import type { Db } from '@comvivo/storage'` couples
     // two packages just as much as a value import, and several §4 rules exist precisely to allow

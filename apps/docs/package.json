@@ -3,28 +3,23 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "The Astro Starlight documentation site.",
+  "description": "The Comvivo documentation site: Astro Starlight.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/faizannraza/comvivo.git",
     "directory": "apps/docs"
   },
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
   "scripts": {
-    "build": "tsc -b",
-    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
-    "test": "vitest run"
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.astro',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\""
   },
   "devDependencies": {
-    "vitest": "catalog:"
+    "astro": "7.4.4",
+    "@astrojs/starlight": "0.42.8",
+    "starlight-links-validator": "0.27.0"
   }
 }

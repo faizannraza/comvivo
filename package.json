@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -62,7 +62,10 @@
     "changeset:required": "tsx scripts/release/changeset-required.ts",
     "names:check": "tsx scripts/names/check.ts",
     "names:apply": "tsx scripts/names/apply.ts",
-    "labels:sync": "tsx scripts/github/sync-labels.ts"
+    "labels:sync": "tsx scripts/github/sync-labels.ts",
+    "docs:build": "pnpm --filter @comvivo/docs build",
+    "docs:dev": "pnpm --filter @comvivo/docs dev",
+    "prose": "bash scripts/ci/check-prose.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

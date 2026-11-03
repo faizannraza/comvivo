@@ -1,0 +1,15 @@
+---
+title: "Forward emails to Comvivo"
+description: "Dedicated IMAP mailbox, untrusted handling, school-letter workflow"
+draft: true
+---
+
+:::caution[Not written yet]
+This page is a placeholder. It is listed in the information architecture (`13` §3.C.3) so
+the shape of the documentation is agreed before any of it is written, and so nothing is
+quietly forgotten.
+:::
+
+**Who this is for:** hosts.
+
+**What it will cover:** Dedicated IMAP mailbox, untrusted handling, school-letter workflow

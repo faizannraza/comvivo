@@ -9,6 +9,10 @@
   "files": {
     "includes": [
       "**",
+      // Vale style rules. The Microsoft and write-good packages are vendored third-party content,
+      // and our own rules in `.vale/styles/Comvivo/` are Vale's file format — Biome reformatting
+      // either would create a diff against upstream for no benefit.
+      "!.vale",
       "!**/*.mdx",
       "!**/*.md",
       "!**/dist",

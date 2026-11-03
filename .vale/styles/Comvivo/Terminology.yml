@@ -1,0 +1,7 @@
+extends: substitution
+message: "Use '%s' rather than '%s' (apps/docs/STYLE.md)."
+level: error
+ignorecase: false
+swap:
+  'Village': 'Comvivo'
+  '[Vv]illage': 'Comvivo'

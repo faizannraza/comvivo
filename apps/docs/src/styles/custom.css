@@ -1,0 +1,29 @@
+/*
+ * Site styling (`13` §3.C.2).
+ *
+ * Deliberately small. Starlight's defaults already meet WCAG 2.2 AA, and every colour overridden
+ * here is one that has to be re-checked for contrast — so only the accent is changed, and it is
+ * checked.
+ */
+:root {
+  /* A muted teal. Checked against Starlight's light and dark surfaces for 4.5:1 on body text and
+     3:1 on large text and UI. */
+  --sl-color-accent-low: #15302e;
+  --sl-color-accent: #2f7d75;
+  --sl-color-accent-high: #a8d8d2;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #d4ece9;
+  --sl-color-accent: #1f5f59;
+  --sl-color-accent-high: #0f2f2c;
+}
+
+/* A draft banner that is impossible to mistake for finished documentation. Every page is a draft
+   during M0, and a reader landing from a search engine deserves to know before they follow
+   instructions that do not work yet. */
+.sl-markdown-content .draft-notice {
+  border-left: 4px solid var(--sl-color-orange);
+  padding: 0.5rem 1rem;
+  background: var(--sl-color-orange-low);
+}

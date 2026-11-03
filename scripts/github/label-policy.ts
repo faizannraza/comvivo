@@ -20,6 +20,24 @@ export interface Label {
   readonly description: string;
 }
 
+/** Validate one entry. Separate so `parseLabels` stays a flat loop over groups. */
+function toLabel(group: string, entry: unknown, seen: Set<string>): Label {
+  const label = entry as Partial<Label>;
+  if (typeof label.name !== 'string' || label.name === '') {
+    throw new Error(`a label in ${group} has no name`);
+  }
+  if (typeof label.color !== 'string' || !/^[0-9A-Fa-f]{6}$/.test(label.color)) {
+    throw new Error(`${label.name} has an invalid colour: ${String(label.color)}`);
+  }
+  if (typeof label.description !== 'string' || label.description === '') {
+    // A label with no description is a label people guess at, and two people guess differently.
+    throw new Error(`${label.name} has no description`);
+  }
+  if (seen.has(label.name)) throw new Error(`${label.name} is declared twice`);
+  seen.add(label.name);
+  return { name: label.name, color: label.color.toUpperCase(), description: label.description };
+}
+
 /** Flatten the grouped file into one list, rejecting malformed entries loudly. */
 export function parseLabels(source: string): Label[] {
   const parsed: unknown = parseYaml(source, { merge: false });
@@ -30,27 +48,7 @@ export function parseLabels(source: string): Label[] {
   const seen = new Set<string>();
   for (const [group, list] of Object.entries(parsed as Record<string, unknown>)) {
     if (!Array.isArray(list)) throw new Error(`group ${group} is not a list`);
-    for (const entry of list) {
-      const label = entry as Partial<Label>;
-      if (typeof label.name !== 'string' || label.name === '') {
-        throw new Error(`a label in ${group} has no name`);
-      }
-      if (typeof label.color !== 'string' || !/^[0-9A-Fa-f]{6}$/.test(label.color)) {
-        throw new Error(`${label.name} has an invalid colour: ${String(label.color)}`);
-      }
-      if (typeof label.description !== 'string' || label.description === '') {
-        // A label with no description is a label people guess at, and two people guess
-        // differently.
-        throw new Error(`${label.name} has no description`);
-      }
-      if (seen.has(label.name)) throw new Error(`${label.name} is declared twice`);
-      seen.add(label.name);
-      labels.push({
-        name: label.name,
-        color: label.color.toUpperCase(),
-        description: label.description,
-      });
-    }
+    for (const entry of list) labels.push(toLabel(group, entry, seen));
   }
   return labels;
 }

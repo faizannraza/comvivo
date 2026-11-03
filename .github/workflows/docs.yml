@@ -1,0 +1,100 @@
+# Documentation CI (`13` §3.C.2, §5).
+#
+# **This workflow holds no secrets.** It runs on `pull_request`, including from forks, so untrusted
+# code must never run with a credential. It builds the site and uploads `dist/` as an artifact;
+# `docs-preview.yml` picks that artifact up on `workflow_run`, where the Cloudflare token lives and
+# where the code being deployed is already built and inert.
+#
+# That split is the whole security design of the preview system. Inverting it — one workflow with
+# `pull_request_target` and a token — is the textbook CI compromise.
+name: docs
+
+on:
+  pull_request:
+    paths:
+      - "apps/docs/**"
+      - ".vale.ini"
+      - ".vale/**"
+      - "lychee.toml"
+      - "*.md"
+      - "docs/**"
+      - ".github/workflows/docs.yml"
+  merge_group:
+  push:
+    branches: [main]
+    paths:
+      - "apps/docs/**"
+      - ".vale.ini"
+      - ".vale/**"
+      - "lychee.toml"
+      - "*.md"
+      - "docs/**"
+
+permissions: {}
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # Vale is pinned by version and verified by checksum. The style packages are vendored in
+      # `.vale/styles/`, so this needs no network and an upstream rule change arrives as a diff.
+      - name: Install Vale
+        run: sudo scripts/ci/install-vale.sh /usr/local/bin
+
+      - name: Prose style
+        run: pnpm run prose
+
+      # The build fails on a broken internal link: `starlight-links-validator` runs in
+      # `astro:build:done`.
+      - name: Build
+        run: pnpm run docs:build
+
+      - name: Offline link check
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          # Offline on a pull request: somebody else's site being down is not a reason to block a
+          # contributor. The online check is `docs-nightly.yml`.
+          args: --offline --config lychee.toml --no-progress './**/*.md' './**/*.mdx'
+          fail: true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: docs-dist
+          path: apps/docs/dist
+          retention-days: 3
+          if-no-files-found: error
+
+      # The pull-request number, so `docs-preview.yml` knows which alias to deploy to. A
+      # `workflow_run` event carries the head SHA but not the PR number.
+      - name: Record the pull-request number
+        if: ${{ github.event_name == 'pull_request' }}
+        env:
+          PR_NUMBER: ${{ github.event.number }}
+        run: |
+          mkdir -p meta
+          echo "$PR_NUMBER" > meta/pr-number
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ github.event_name == 'pull_request' }}
+        with:
+          name: docs-pr-number
+          path: meta/pr-number
+          retention-days: 3
+          if-no-files-found: error
