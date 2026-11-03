@@ -1,7 +1,19 @@
-[Cc]omvivo
-[Ss]tarlight
-[Pp]agefind
-[Aa]stro
+# Words Vale accepts (`13` §5).
+#
+# One plain entry per line, deliberately NOT a character class like `[Cc]omvivo`. The rename
+# codemod replaces the slug by literal match and cannot see a name spelled inside a regex, so a
+# class form survives a rename and every use of the new name then becomes a spelling error. The
+# weekly drill found exactly that.
+#
+# Entries are regexes, so a trailing `?` for an optional plural is fine.
+Comvivo
+comvivo
+Starlight
+starlight
+Pagefind
+pagefind
+Astro
+astro
 pnpm
 Turborepo
 Vitest
@@ -14,7 +26,8 @@ Ollama
 llama\.cpp
 vLLM
 BotFather
-[Hh]omeservers?
+Homeservers?
+homeservers?
 conduwuit
 Synapse
 signal-cli
@@ -28,26 +41,36 @@ CycloneDX
 cosign
 Sigstore
 SLSA
-[Rr]enovate
-[Cc]hangesets?
-[Pp]laywright
+Renovate
+renovate
+Changesets?
+changesets?
+Playwright
+playwright
 Weblate
 Lunaria
 Mermaid
-[Dd]eclassifier
-[Dd]eclassifications?
+Declassifier
+declassifier
+Declassifications?
+declassifications?
 reclassify
-[Uu]nscoped
+Unscoped
+unscoped
 Faizan
 Raza
-[Tt]riagers?
+Triagers?
+triagers?
 Umami
-[Aa]skers?
-[Cc]ookieless
+Askers?
+askers?
+Cookieless
+cookieless
 env
 evals?
 iMessage
-[Pp]aywalled
+Paywalled
+paywalled
 MindRoom
 Nautilo
 LanJAM
