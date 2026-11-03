@@ -61,20 +61,18 @@ jobs:
       - name: Secret-shaped literals
         run: pnpm run secrets:check
 
+      # actionlint has no npm distribution, so the binary is pinned by version AND verified by
+      # checksum (`scripts/ci/install-actionlint.sh`). Installed before `hygiene:check`, which
+      # picks it up from PATH — and which covers what actionlint does not: SHA pinning and
+      # least-privilege tokens.
+      - name: Install actionlint
+        run: sudo scripts/ci/install-actionlint.sh /usr/local/bin
+
       - name: Test hygiene, snapshots and workflows
         run: pnpm run hygiene:check
 
       - name: Plan consistency
         run: pnpm run plan:check
-
-      # actionlint has no npm distribution, so the binary is pinned by version AND verified by
-      # checksum (`scripts/ci/install-actionlint.sh`). `hygiene:check` picks it up from PATH and
-      # covers what actionlint does not: SHA pinning and least-privilege tokens.
-      - name: Install actionlint
-        run: sudo scripts/ci/install-actionlint.sh /usr/local/bin
-
-      - name: Lint workflows
-        run: pnpm run hygiene:check
 
   unit:
     name: unit (${{ matrix.shard }}/3)
@@ -106,13 +104,16 @@ jobs:
           --shard=${{ matrix.shard }}/3
           --coverage
           --reporter=blob
-          --outputFile.blob=.vitest-reports/blob-unit-${{ matrix.shard }}.json
+          --outputFile.blob=reports/vitest/blob-unit-${{ matrix.shard }}.json
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: blob-unit-${{ matrix.shard }}
-          path: .vitest-reports/
+          # Non-hidden on purpose. `upload-artifact` silently excludes dot-directories unless
+          # `include-hidden-files` is set, so `.vitest-reports/` uploaded nothing while the log
+          # said "blob report written to …/.vitest-reports/blob-unit-2.json". Measured in CI.
+          path: reports/vitest/
           retention-days: 3
           if-no-files-found: error
 
@@ -135,13 +136,13 @@ jobs:
           pnpm exec vitest run --project integration --project contract
           --coverage
           --reporter=blob
-          --outputFile.blob=.vitest-reports/blob-integration.json
+          --outputFile.blob=reports/vitest/blob-integration.json
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: ${{ !cancelled() }}
         with:
           name: blob-integration
-          path: .vitest-reports/
+          path: reports/vitest/
           retention-days: 3
           if-no-files-found: error
 
@@ -160,12 +161,12 @@ jobs:
 
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
-          path: .vitest-reports
+          path: reports/vitest
           pattern: blob-*
           merge-multiple: true
 
       - name: Merge reports and enforce thresholds
-        run: pnpm exec vitest run --merge-reports=.vitest-reports --coverage
+        run: pnpm exec vitest run --merge-reports=reports/vitest --coverage
 
       - name: Summarise
         if: ${{ !cancelled() }}

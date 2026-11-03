@@ -83,14 +83,26 @@ if (findings.length === 0) {
 // skipped when not — which is honest, and better than pretending the check ran.
 if (workflows.length > 0) {
   try {
-    execFileSync('actionlint', ['-color=never', ...workflows], { cwd: ROOT, stdio: 'pipe' });
+    // `-no-color` is the flag. `-color=never` is a usage error: `-color` is a boolean meaning
+    // "always colourful". actionlint then exits non-zero having written its usage to **stderr** —
+    // which, with only stdout printed below, produced a CI failure with no message at all. Both
+    // streams are reported now, because a check that fails silently is worse than no check.
+    //
+    // Only workflow files are passed: actionlint treats a composite action as a workflow and
+    // reports its missing `on` and `jobs` sections.
+    execFileSync('actionlint', ['-no-color', ...workflows], { cwd: ROOT, stdio: 'pipe' });
     stdout.write('  actionlint: clean.\n');
   } catch (error) {
-    const failure = error as { status?: number; stdout?: Buffer; code?: string };
+    const failure = error as { status?: number; stdout?: Buffer; stderr?: Buffer; code?: string };
     if (failure.code === 'ENOENT') {
       stdout.write('  actionlint: not installed locally; it runs in the `static` CI job.\n');
     } else {
-      stdout.write(`\nactionlint:\n${failure.stdout?.toString() ?? ''}\n`);
+      const out = failure.stdout?.toString() ?? '';
+      const err = failure.stderr?.toString() ?? '';
+      stdout.write(`\nactionlint:\n${out}${err}`);
+      if (out === '' && err === '') {
+        stdout.write(`actionlint exited ${String(failure.status ?? '?')} with no output.\n`);
+      }
       exit(1);
     }
   }
