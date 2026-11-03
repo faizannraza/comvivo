@@ -1,0 +1,141 @@
+# Release engineering (`12` §3.10.4).
+#
+# At M0 this is the **front half only**: `mode` (select-mode) and `version-pr`, and the version path
+# runs in `--dry-run`. That is deliberate rather than decorative — the two jobs that decide *what*
+# a release is are the ones worth having under review early, and every job after them publishes
+# something irreversible.
+#
+# The full graph from `12` §3.10.4 arrives with its milestone:
+#
+#   mode ─► version-pr                                                            [mode=version]
+#        └► verify (ci.yml) ─► image[amd64|arm64] ─► image-merge ─► image-sign-attest ─┐
+#                           └► npm-pack ─► npm-publish (env npm, id-token) ────────────┴►
+#                              fixtures ─► github-release ─► downstream ─► docs-deploy
+#
+#   M0-T14   `.changeset/` config, the changelog formatter and the changeset-required check
+#   M12-T90  npm trusted publisher, the `npm` environment, provenance
+#   M12      the image build, `build-reusable.yml` (SLSA Build L3), cosign signing, SBOM attestation
+#   M14      `repro.yml`, the Grype release gate
+#
+# Nothing here publishes. There is no `NPM_TOKEN`, no registry login, no `packages: write`, and no
+# `id-token` anywhere in this file — so a mistake in it cannot release anything, which is the
+# property worth keeping while the rest is built.
+name: release
+
+on:
+  push:
+    branches: [main, "release/*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Run the version path without opening or updating a pull request.
+        type: boolean
+        default: true
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TZ: UTC
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  # `select-mode`: decide whether this push should open a version PR, publish a release, or do
+  # nothing. Real logic, running for real — it is pure inspection of the tree and writes nothing.
+  mode:
+    name: mode
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      mode: ${{ steps.select.outputs.mode }}
+      version: ${{ steps.select.outputs.version }}
+      pending: ${{ steps.select.outputs.pending }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # `select-mode` compares against the previous commit to tell a version-PR merge from an
+          # ordinary one, so one parent is not enough.
+          fetch-depth: 2
+
+      - id: select
+        name: Select the release mode
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+
+          version="$(node -p "require('./package.json').version")"
+
+          # Pending changesets mean there is something to release. Before M0-T14 the directory does
+          # not exist, which is itself the answer: nothing to release.
+          pending=0
+          if [ -d .changeset ]; then
+            pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
+          fi
+
+          # A merged version PR has already consumed the changesets, so the next push is the one
+          # that publishes.
+          if [ "$pending" -gt 0 ]; then
+            mode=version
+          elif [ "$EVENT" = "workflow_dispatch" ]; then
+            mode=none
+          else
+            mode=none
+          fi
+
+          {
+            echo "mode=${mode}"
+            echo "version=${version}"
+            echo "pending=${pending}"
+          } >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Release mode"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| mode | \`${mode}\` |"
+            echo "| version | \`${version}\` |"
+            echo "| pending changesets | ${pending} |"
+            echo
+            echo "Publishing is not wired yet — see the task map at the top of \`release.yml\`."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # The version path, always in dry-run at M0. `changesets/action` is SHA-pinned here already so
+  # the dependency is under review from the start rather than arriving with the publish.
+  version-pr:
+    name: version-pr (dry run)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: [mode]
+    if: ${{ needs.mode.outputs.mode == 'version' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Version the workspace, writing nothing back
+        env:
+          PENDING: ${{ needs.mode.outputs.pending }}
+        run: |
+          set -euo pipefail
+          echo "Pending changesets: ${PENDING}"
+          # `changeset version` edits package.json and CHANGELOG.md in the working tree. With no
+          # push and no PR, the run is a preview: the diff is printed and discarded.
+          pnpm exec changeset version
+          echo
+          echo '### Version preview'  >> "$GITHUB_STEP_SUMMARY"
+          echo                        >> "$GITHUB_STEP_SUMMARY"
+          echo '```diff'              >> "$GITHUB_STEP_SUMMARY"
+          git --no-pager diff --stat  >> "$GITHUB_STEP_SUMMARY"
+          echo '```'                  >> "$GITHUB_STEP_SUMMARY"
+          git checkout -- .

@@ -76,9 +76,13 @@ export function findSnapshotViolations(path: string, source: string): Finding[] 
   lines.forEach((text, index) => {
     const line = index + 1;
     const source_ = text.trim();
+    // A matcher quoted inside a string is a test asserting on this check's own output, not a
+    // snapshot. Blanking string literals first is the same treatment `test-hygiene.ts` gives its
+    // rules, and for the same reason: without it, the test suite for this file violates it.
+    const code = text.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""');
 
     for (const matcher of ['toMatchSnapshot', 'toMatchInlineSnapshot']) {
-      if (new RegExp(`\\.${matcher}\\s*\\(`).test(text)) {
+      if (new RegExp(`\\.${matcher}\\s*\\(`).test(code)) {
         findings.push({
           file: path,
           line,
@@ -90,7 +94,7 @@ export function findSnapshotViolations(path: string, source: string): Finding[] 
     }
 
     const fileSnapshot = /\.toMatchFileSnapshot\s*\(\s*(['"`])([^'"`]*)\1/.exec(text);
-    if (/\.toMatchFileSnapshot\s*\(/.test(text)) {
+    if (/\.toMatchFileSnapshot\s*\(/.test(code)) {
       if (!isSnapshotAllowed(path)) {
         findings.push({
           file: path,

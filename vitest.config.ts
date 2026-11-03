@@ -35,9 +35,15 @@ export default defineConfig({
     // what keeps it that way.
     passWithNoTests: true,
 
-    // Locally: readable. In CI: `junit` for the GitHub test summary, `blob` so sharded runs can be
-    // merged with `--merge-reports`, and `json` for the quality trend site.
-    reporters: CI ? ['default', 'junit', 'blob', 'json'] : ['default'],
+    // Locally: readable. In CI: `junit` for the GitHub test summary and `json` for the quality
+    // trend site.
+    //
+    // `blob` is deliberately NOT here. It belongs on the sharded `unit` command in `ci.yml`
+    // (`--reporter=blob`), because Vitest refuses `--merge-reports` while a blob reporter is
+    // configured — "Cannot merge reports when `--reporter=blob` is used. Remove blob reporter from
+    // the config first." Having it in the config made the `coverage` job impossible to write, and
+    // in a way that only showed up once the job existed.
+    reporters: CI ? ['default', 'junit', 'json'] : ['default'],
     // Spread rather than `outputFile: … : undefined`, because `exactOptionalPropertyTypes`
     // distinguishes an absent property from one explicitly set to undefined — and here it is
     // right to.
@@ -68,7 +74,13 @@ export default defineConfig({
       // Every tier that runs in process counts toward coverage, scenarios included — that is how
       // the guarantees are actually exercised (`11` §3.1.4). Vitest 5 removed the `all` option and
       // made that the behaviour, so there is nothing to set.
-      thresholds: COVERAGE_THRESHOLDS,
+      // Thresholds are whole-tree, so a **shard** cannot meet them: each one runs a third of the
+      // files and legitimately covers a third of the code. `ci.yml`'s `unit` shards therefore set
+      // `COMVIVO_COVERAGE_THRESHOLDS=off` and the `coverage` job enforces them once over the
+      // merged reports. Measured, not assumed: with thresholds on, all three shards exit 1.
+      ...(process.env['COMVIVO_COVERAGE_THRESHOLDS'] === 'off'
+        ? {}
+        : { thresholds: COVERAGE_THRESHOLDS }),
       // Vitest 5 removed `all` and `autoUpdate`. The ratchet `11` §3.1.4 asks for is a separate
       // mechanism anyway — `quality/coverage-baseline.json` plus a weekly job that raises it — and
       // is built with the coverage CI job in M0-T11.

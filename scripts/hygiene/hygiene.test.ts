@@ -63,6 +63,26 @@ describe('the snapshot policy', () => {
     expect(rulesIn(findings)).toEqual(['file-snapshot-needs-extension']);
   });
 
+  it('does not flag a matcher quoted inside a string', () => {
+    // Without this, the test above — which quotes `.toMatchFileSnapshot` to check the extension
+    // rule — is itself a violation. Found exactly that way: the finding appeared only once this
+    // file was committed, because the runner enumerated tracked files and had not seen it before.
+    const source = [
+      "it('rejects a bare .snap', () => {",
+      '  const snippet = "expect(x).toMatchSnapshot();";',
+      '  expect(check(snippet)).toHaveLength(1);',
+      '});',
+    ].join('\n');
+    expect(findSnapshotViolations(ENGINE_TEST, source)).toEqual([]);
+  });
+
+  it('still flags a real matcher on a line that also contains a string', () => {
+    const source = "expect(renderThing('a label')).toMatchSnapshot();";
+    expect(rulesIn(findSnapshotViolations(ENGINE_TEST, source))).toEqual([
+      'no-anonymous-snapshots',
+    ]);
+  });
+
   it('allows snapshots exactly where `11` §3.1.10 says', () => {
     for (const path of [
       'packages/channels/sdk/src/render/markdown.test.ts',

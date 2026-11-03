@@ -97,7 +97,7 @@ export function scanFiles(root: string, paths: readonly string[]): Finding[] {
 export function explain(findings: readonly Finding[]): string {
   const lines = findings.map((f) => `  ${f.file}:${String(f.line)}  looks like a ${f.shape}`);
   return [
-    `secrets: ${String(findings.length)} secret-shaped literal(s) in tracked source.`,
+    `secrets: ${String(findings.length)} secret-shaped literal(s) found.`,
     '',
     ...lines,
     '',

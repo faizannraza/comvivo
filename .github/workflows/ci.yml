@@ -1,0 +1,264 @@
+# The PR pipeline (`11` §3.8.2).
+#
+# Job set at M0: static, unit (3 shards), integration, coverage, build, node24, ci-ok. The rest of
+# `11` §3.8.2 — evals-smoke, chaos-lite, bundle-size, e2e-smoke, packaging — arrives with the
+# milestone that builds the thing being checked, each adding itself to `ci-ok`'s `needs`.
+#
+# Hardening per `08` §3.15: `permissions: {}` here, least privilege per job, every third-party
+# action pinned to a full commit SHA, and no `pull_request_target`. `scripts/hygiene/check.ts`
+# enforces all four, and `zizmor.yml` (M0-T12) adds the structural analysis.
+name: ci
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Cancel superseded PR runs; never cancel a merge-queue or main run, because a required check
+  # that was cancelled never reports and the queue stalls waiting for it.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  TZ: UTC
+  COMVIVO_TEST_MODE: "1"
+  TURBO_TELEMETRY_DISABLED: "1"
+  # Turborepo writes a colour-coded summary that is unreadable in log files.
+  FORCE_COLOR: "0"
+
+jobs:
+  static:
+    name: static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Format and fast lint
+        run: pnpm run lint
+
+      - name: Types
+        run: pnpm run typecheck
+
+      - name: Dependency boundaries
+        run: pnpm run depcruise
+
+      - name: Brand literals
+        run: pnpm run brand:check
+
+      - name: Native build policy
+        run: pnpm run supply:check
+
+      - name: Secret-shaped literals
+        run: pnpm run secrets:check
+
+      - name: Test hygiene, snapshots and workflows
+        run: pnpm run hygiene:check
+
+      - name: Plan consistency
+        run: pnpm run plan:check
+
+      # actionlint has no npm distribution, so the binary is pinned by version AND verified by
+      # checksum (`scripts/ci/install-actionlint.sh`). `hygiene:check` picks it up from PATH and
+      # covers what actionlint does not: SHA pinning and least-privilege tokens.
+      - name: Install actionlint
+        run: sudo scripts/ci/install-actionlint.sh /usr/local/bin
+
+      - name: Lint workflows
+        run: pnpm run hygiene:check
+
+  unit:
+    name: unit (${{ matrix.shard }}/3)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      # Thresholds are whole-tree, so a shard cannot meet them — each runs a third of the files and
+      # legitimately covers a third of the code. Measured: with thresholds on, all three shards
+      # exit 1. The `coverage` job enforces them once, over the merged reports.
+      #
+      # `--reporter=blob` is passed here rather than configured, because Vitest refuses
+      # `--merge-reports` while a blob reporter is in the config.
+      - name: Unit tests
+        env:
+          COMVIVO_COVERAGE_THRESHOLDS: "off"
+        run: >
+          pnpm exec vitest run --project unit
+          --shard=${{ matrix.shard }}/3
+          --coverage
+          --reporter=blob
+          --outputFile.blob=.vitest-reports/blob-unit-${{ matrix.shard }}.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-unit-${{ matrix.shard }}
+          path: .vitest-reports/
+          retention-days: 3
+          if-no-files-found: error
+
+  integration:
+    name: integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Integration and contract tests
+        env:
+          COMVIVO_COVERAGE_THRESHOLDS: "off"
+        run: >
+          pnpm exec vitest run --project integration --project contract
+          --coverage
+          --reporter=blob
+          --outputFile.blob=.vitest-reports/blob-integration.json
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: blob-integration
+          path: .vitest-reports/
+          retention-days: 3
+          if-no-files-found: error
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    needs: [unit, integration]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          path: .vitest-reports
+          pattern: blob-*
+          merge-multiple: true
+
+      - name: Merge reports and enforce thresholds
+        run: pnpm exec vitest run --merge-reports=.vitest-reports --coverage
+
+      - name: Summarise
+        if: ${{ !cancelled() }}
+        run: |
+          {
+            echo '### Coverage'
+            echo
+            echo '```'
+            sed -n '1,12p' coverage/coverage-summary.json 2>/dev/null || echo '(no summary written)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 3
+          if-no-files-found: warn
+
+  build:
+    name: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Build
+        run: pnpm run build
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: |
+            packages/*/dist
+            apps/*/dist
+          retention-days: 3
+          if-no-files-found: error
+
+  node24:
+    name: node24
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Node 24 is the supported floor (`01` §14 A1): native modules build there, so a host on the
+      # previous LTS is not stranded. No coverage — this leg is about whether it runs, and the
+      # thresholds are the Node 26 job's business.
+      - uses: ./.github/actions/setup
+        with:
+          node-version: "24"
+
+      - name: Tests on the supported Node floor
+        run: pnpm exec vitest run --project unit --project integration --project contract
+
+      - name: Build on the supported Node floor
+        run: pnpm run build
+
+  # The single required check (`11` §3.8.3). Branch protection names this and nothing else, so the
+  # job list above can change without touching repository settings.
+  #
+  # `if: always()` plus an explicit audit of `needs`, because without the audit a skipped or
+  # cancelled dependency leaves this job green — which is the failure mode that makes a required
+  # check worthless.
+  ci-ok:
+    name: ci-ok
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    needs: [static, unit, integration, coverage, build, node24]
+    if: ${{ always() }}
+    steps:
+      - name: Audit every needed job
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS"
+          failed=$(echo "$NEEDS" | grep -c '"result": "\(failure\|cancelled\)"' || true)
+          skipped=$(echo "$NEEDS" | grep -c '"result": "skipped"' || true)
+          if [ "$failed" -ne 0 ] || [ "$skipped" -ne 0 ]; then
+            echo "ci-ok: ${failed} failed/cancelled and ${skipped} skipped job(s)." >&2
+            echo "No job in ci.yml is skipped by design, so a skip means a dependency failed" >&2
+            echo "earlier or the graph was edited without updating this audit." >&2
+            exit 1
+          fi
+          echo "ci-ok: every needed job succeeded."

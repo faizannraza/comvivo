@@ -1,0 +1,68 @@
+name: Set up the toolchain
+description: >
+  pnpm, Node and a frozen install, plus the Turborepo cache. Checkout happens in the job, because a
+  composite action in this repository cannot run before the repository exists.
+
+inputs:
+  node-version:
+    description: >
+      Node major. Defaults to the contents of `.node-version` (26, the primary target per
+      `01` §14 A1). The `node24` job passes 24 to cover the supported floor.
+    required: false
+    default: ""
+  install:
+    description: Run `pnpm install --frozen-lockfile`.
+    required: false
+    default: "true"
+  turbo-cache:
+    description: Restore and save the Turborepo cache.
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    # pnpm first: `setup-node`'s `cache: pnpm` needs the binary to resolve the store path.
+    # The version comes from `packageManager` in package.json, so it is pinned in one place.
+    # Corepack is not used — it is absent from Node 25 and later (`01` §14 A31).
+    - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      with:
+        run_install: false
+
+    - id: node
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.node-version }}" ]; then
+          echo "version=${{ inputs.node-version }}" >> "$GITHUB_OUTPUT"
+        else
+          echo "version=$(cat .node-version)" >> "$GITHUB_OUTPUT"
+        fi
+
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: ${{ steps.node.outputs.version }}
+        cache: pnpm
+
+    - if: inputs.install == 'true'
+      shell: bash
+      # `--frozen-lockfile` is the point: a lockfile that does not match `package.json` fails here
+      # rather than silently resolving something nobody reviewed (`08` §3.15).
+      run: pnpm install --frozen-lockfile
+
+    # Turborepo's local cache. Keyed by commit so a rerun of the same SHA is a hit, with prefix
+    # restore keys so a new commit still starts from the branch's last build.
+    - if: inputs.turbo-cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .turbo
+        key: turbo-${{ runner.os }}-node${{ steps.node.outputs.version }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-node${{ steps.node.outputs.version }}-
+          turbo-${{ runner.os }}-
+
+    - shell: bash
+      run: |
+        {
+          echo "node     $(node --version)"
+          echo "pnpm     $(pnpm --version)"
+        } >> "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,60 @@
+# Edge builds (`12` §3.10.4).
+#
+# The finished workflow publishes a signed multi-arch `edge` image on every push to `main` and a
+# nightly npm `edge` snapshot when HEAD has moved. Neither is possible yet: there is no Dockerfile
+# until M12 and no publishable package until M12-T90.
+#
+# So at M0 this does the part that is real and useful — build `main` on the supported Node floor
+# and confirm the tree is releasable — and stops. It does not pretend to publish, and it holds no
+# permission that would let it: no `packages: write`, no `id-token`, no registry login.
+#
+#   M12      `deploy/docker/Dockerfile`, `build-reusable.yml`, the signed multi-arch image
+#   M12-T90  the npm `edge` dist-tag
+name: edge
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # 03:47 UTC — after `nightly-deterministic` (02:07) and before `nightly` (03:17) would
+    # contend for runners. `11` §3.8.1 owns those two.
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: edge-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  COMVIVO_TEST_MODE: "1"
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  buildable:
+    name: buildable
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Verify the tree
+        run: pnpm run verify
+
+      - name: Report what edge will publish once it can
+        run: |
+          {
+            echo "### Edge"
+            echo
+            echo "Tree at \`${GITHUB_SHA}\` verifies and builds."
+            echo
+            echo "Image and npm snapshot publishing arrive in M12 — see the task map in"
+            echo "\`.github/workflows/edge.yml\`."
+          } >> "$GITHUB_STEP_SUMMARY"
