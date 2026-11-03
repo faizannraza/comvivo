@@ -78,6 +78,18 @@ export default defineConfig(
     rules: {
       // Keep this config to its one job. Everything stylistic belongs to Biome, and running both
       // would produce contradictory fixes.
+      // A leading underscore marks a parameter kept to satisfy an interface's shape rather than
+      // to be used — `generate(prefix, _brand)` implements `IdGenerator` without needing the brand
+      // at runtime, since it is a phantom type.
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrorsIgnorePattern: '^_',
+          destructuredArrayIgnorePattern: '^_',
+        },
+      ],
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': [

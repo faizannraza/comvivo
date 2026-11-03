@@ -29,10 +29,13 @@
     "test": "vitest run"
   },
   "devDependencies": {
+    "fast-check": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
+    "pure-rand": "catalog:",
     "temporal-polyfill": "catalog:",
+    "typeid-js": "catalog:",
     "yaml": "catalog:",
     "zod": "catalog:"
   }

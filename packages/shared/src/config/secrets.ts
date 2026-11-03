@@ -37,9 +37,9 @@ export const SECRET_NAMES: readonly string[] = [
   'SLACK_APP_TOKEN',
   'MATRIX_ACCESS_TOKEN',
   // Ours
-  BRAND.envPrefix + 'IMAP_PASSWORD',
-  BRAND.envPrefix + 'MASTER_KEY',
-  BRAND.envPrefix + 'PASSPHRASE',
+  `${BRAND.envPrefix}IMAP_PASSWORD`,
+  `${BRAND.envPrefix}MASTER_KEY`,
+  `${BRAND.envPrefix}PASSPHRASE`,
 ];
 
 export type SecretName = (typeof SECRET_NAMES)[number];
