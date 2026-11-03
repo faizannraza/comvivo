@@ -52,3 +52,39 @@ jobs:
         --recursive
         --config=osv-scanner.toml
         ./
+
+  # A stable check name for branch protection.
+  #
+  # `scan-pr` and `scan-all` are mutually exclusive by event: on a pull request only the diff scan
+  # runs, in a merge group only the full scan does. Requiring either by name would stall the other
+  # context forever — GitHub treats a required check that never reports as "pending", not as
+  # "passed". Measured on a real push: `scan-all / osv-scan` succeeded and `scan-pr` was skipped.
+  #
+  # So branch protection requires THIS job, which always runs and audits the two above. Same
+  # pattern as `ci-ok` in `ci.yml`, and for the same reason.
+  osv-ok:
+    name: osv-ok
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    needs: [scan-pr, scan-all]
+    if: ${{ always() }}
+    steps:
+      - name: Audit the scans
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+        run: |
+          set -euo pipefail
+          echo "$NEEDS"
+          failed=$(echo "$NEEDS" | grep -c '"result": "\(failure\|cancelled\)"' || true)
+          ran=$(echo "$NEEDS" | grep -c '"result": "success"' || true)
+          if [ "$failed" -ne 0 ]; then
+            echo "osv-ok: a scan failed." >&2
+            exit 1
+          fi
+          if [ "$ran" -eq 0 ]; then
+            echo "osv-ok: neither scan ran, so nothing was checked." >&2
+            echo "One of scan-pr or scan-all must run for every event." >&2
+            exit 1
+          fi
+          echo "osv-ok: ${ran} scan(s) succeeded."

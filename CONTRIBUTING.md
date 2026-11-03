@@ -94,6 +94,21 @@ Unassigned after 14 days without activity, with no hard feelings.
   one out whole gets your push rejected by GitHub's secret scanning. `pnpm secrets:check` catches
   it first and tells you how.
 
+### What CI runs, and how a change merges
+
+`pnpm verify` is the same set CI runs, in the same order, so a green local run is a green pull
+request. Three steps need a binary that is not an npm package — actionlint, shellcheck and Vale —
+and each reports itself as **skipped** when absent rather than as clean, so you can see what you
+are not covering. `brew install actionlint shellcheck vale` covers all three.
+
+Direct pushes to `main` are blocked. Open a pull request, wait for the checks, then add it to the
+merge queue and it merges itself. **Zero approvals are required today** — the project has one
+maintainer and GitHub does not let an author approve their own pull request — so your change is
+gated on the checks rather than on somebody being awake.
+
+[`docs/architecture/ci.md`](docs/architecture/ci.md) has the full picture: which checks block, why
+`ci-ok` is the only one branch protection names, and the merge-queue settings.
+
 ### Flake policy
 
 A flaky test is one that has passed and failed on the same commit. Required checks run with **zero

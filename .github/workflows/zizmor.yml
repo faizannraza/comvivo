@@ -48,3 +48,35 @@ jobs:
           # `08` §3.15: block on high. Lower-severity findings still reach the Security tab, so
           # they are visible and triageable without gating every pull request on advice.
           min-severity: high
+
+  # A stable check name for branch protection, for the same reason as `osv-ok`.
+  #
+  # `audit` is path-filtered on a pull request — it runs only when `.github/**` changed — so a pull
+  # request that touches nothing there would never report it, and a required check that never
+  # reports blocks the merge forever.
+  zizmor-ok:
+    name: zizmor-ok
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    needs: [audit]
+    if: ${{ always() }}
+    steps:
+      - name: Audit the audit
+        env:
+          RESULT: ${{ needs.audit.result }}
+        run: |
+          set -euo pipefail
+          case "$RESULT" in
+            success)
+              echo "zizmor-ok: the workflows are clean."
+              ;;
+            skipped)
+              # Nothing under `.github/` changed, so there is nothing for zizmor to say.
+              echo "zizmor-ok: no workflow changes in this pull request."
+              ;;
+            *)
+              echo "zizmor-ok: the audit ${RESULT}." >&2
+              exit 1
+              ;;
+          esac
