@@ -18,9 +18,9 @@ import {
   type CurrentBrand,
   findLeftovers,
   isAllowedLeftover,
+  isBinary,
   isFixture,
   isHistory,
-  isTextFile,
   type Leftover,
   rewriteContent,
   rewritePath,
@@ -87,13 +87,14 @@ const skipped: string[] = [];
 // --- Content -----------------------------------------------------------------------------------
 for (const path of tracked) {
   if (shouldSkip(path) || !existsSync(`${ROOT}/${path}`)) continue;
-  if (!isTextFile(path)) {
+  const bytes = readFileSync(`${ROOT}/${path}`);
+  if (isBinary(bytes)) {
     skipped.push(path);
     continue;
   }
   if (isHistory(path) || isFixture(path)) continue;
 
-  const source = readFileSync(`${ROOT}/${path}`, 'utf8');
+  const source = bytes.toString('utf8');
   let next = rewriteContent(source, from, to);
 
   // Two files keep the outgoing names on purpose, so a host who installed the old build is not
@@ -175,9 +176,11 @@ if (!dryRun) {
     .filter((path) => path !== '');
 
   for (const path of after) {
-    if (shouldSkip(path) || !isTextFile(path) || isAllowedLeftover(path)) continue;
+    if (shouldSkip(path) || isAllowedLeftover(path)) continue;
     if (!existsSync(`${ROOT}/${path}`)) continue;
-    leftovers.push(...findLeftovers(path, readFileSync(`${ROOT}/${path}`, 'utf8'), from.slug));
+    const bytes = readFileSync(`${ROOT}/${path}`);
+    if (isBinary(bytes)) continue;
+    leftovers.push(...findLeftovers(path, bytes.toString('utf8'), from.slug));
   }
 }
 

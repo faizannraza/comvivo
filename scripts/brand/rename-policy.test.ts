@@ -7,9 +7,9 @@ import {
   findLeftovers,
   HISTORY,
   isAllowedLeftover,
+  isBinary,
   isFixture,
   isHistory,
-  isTextFile,
   LEFTOVER_ALLOWLIST,
   rewriteContent,
   rewritePath,
@@ -183,36 +183,34 @@ describe('what is rewritten', () => {
   });
 });
 
-describe('isTextFile', () => {
-  it.each([
-    'packages/shared/src/index.ts',
-    'apps/docs/astro.config.mjs',
-    'package.json',
-    'biome.jsonc',
-    'pnpm-workspace.yaml',
-    'osv-scanner.toml',
-    '.vale.ini',
-    'README.md',
-    'apps/docs/src/content/docs/index.mdx',
-    '.vale/styles/config/vocabularies/Comvivo/accept.txt',
-    'scripts/ci/install-vale.sh',
-    'scripts/plan/trace.py',
-    'deploy/docker/Dockerfile',
-    '.env.example',
-    '.gitignore',
-    '.npmrc',
-    '.node-version',
-    'apps/docs/src/styles/custom.css',
-  ])('reads %s as text', (path) => {
-    expect(isTextFile(path)).toBe(true);
+describe('isBinary', () => {
+  it('treats ordinary text as text', () => {
+    for (const text of [
+      'export const x = 1;\n',
+      '# A heading\n\nSome prose.\n',
+      '{"name":"x"}\n',
+      'Comvivo\nCopyright 2026\n',
+      '',
+    ]) {
+      expect(isBinary(Buffer.from(text, 'utf8')), JSON.stringify(text.slice(0, 20))).toBe(false);
+    }
   });
 
-  it.each(['assets/logo.png', 'assets/demo.mp4', 'fonts/inter.woff2', 'a.tar.gz'])(
-    'leaves %s alone',
-    (path) => {
-      expect(isTextFile(path)).toBe(false);
-    },
-  );
+  it('treats a NUL byte as binary', () => {
+    expect(isBinary(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x01]))).toBe(true);
+  });
+
+  it('only looks at the first 8 KiB, so a huge file is cheap', () => {
+    const padded = Buffer.concat([Buffer.alloc(9000, 0x41), Buffer.from([0])]);
+    expect(isBinary(padded)).toBe(false);
+  });
+
+  it('decides by content, not by extension', () => {
+    // The whole reason for this function. `NOTICE` has no extension, and the first version of the
+    // codemod classified it as binary from its name — skipping it in the rewrite **and** in the
+    // leftover report, which then said "no leftovers" about a file it had never read.
+    expect(isBinary(Buffer.from('Comvivo\nCopyright 2026 The Comvivo Authors\n'))).toBe(false);
+  });
 });
 
 describe('addLegacyBrand', () => {

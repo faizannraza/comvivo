@@ -59,7 +59,9 @@ export const HISTORY: readonly RegExp[] = [
   /^docs\/adr\//,
   /^docs\/plan\/STATUS\.md$/,
   /(^|\/)CHANGELOG\.md$/,
-  /^\.changeset\/[^/]+\.md$/,
+  // Changeset entries are a record of a release. `README.md` is not one — it explains how to
+  // write a changeset and names the packages, so it must follow the rename.
+  /^\.changeset\/(?!README\.md$)[^/]+\.md$/,
 ];
 
 /**
@@ -81,57 +83,24 @@ export const SKIP: readonly RegExp[] = [
   /^\.vale\/styles\/(Microsoft|write-good)\//,
 ];
 
-/** Extensions the codemod will read as text. Anything else is left alone. */
-const TEXT = new Set([
-  'ts',
-  'tsx',
-  'mts',
-  'cts',
-  'js',
-  'mjs',
-  'cjs',
-  'jsx',
-  'json',
-  'jsonc',
-  'json5',
-  'yaml',
-  'yml',
-  'toml',
-  'ini',
-  'md',
-  'mdx',
-  'txt',
-  'html',
-  'css',
-  'scss',
-  'svg',
-  'sh',
-  'bash',
-  'py',
-  'sql',
-  'env',
-  'example',
-  'astro',
-  'vue',
-  'dockerfile',
-  'editorconfig',
-  'gitattributes',
-  'gitignore',
-  'npmrc',
-  'node-version',
-]);
-
-export function isTextFile(path: string): boolean {
-  const base = path.split('/').pop() ?? '';
-  if (base.toLowerCase() === 'dockerfile' || base.toLowerCase().startsWith('dockerfile.')) {
-    return true;
+/**
+ * Whether a file is binary, decided by **content** rather than by extension.
+ *
+ * An extension allowlist was the first attempt and it had the failure mode this project keeps
+ * finding: `NOTICE` has no extension, so it was classified as binary, skipped by the rewrite —
+ * **and skipped by the leftover report**, which used the same filter. The report then said "no
+ * leftovers" about a file it had never looked at.
+ *
+ * A NUL byte in the first few kilobytes is the standard heuristic and the one `git` itself uses.
+ * It cannot miss a text file, which is the direction that matters here: a false "binary" is a
+ * silent gap, while a false "text" would at worst rewrite nothing in a file with no matches.
+ */
+export function isBinary(sample: Buffer | Uint8Array): boolean {
+  const limit = Math.min(sample.length, 8192);
+  for (let i = 0; i < limit; i += 1) {
+    if (sample[i] === 0) return true;
   }
-  if (base.startsWith('.') && !base.slice(1).includes('.')) {
-    // `.gitignore`, `.npmrc`, `.node-version`, `.editorconfig`.
-    return TEXT.has(base.slice(1).toLowerCase());
-  }
-  const ext = base.includes('.') ? (base.split('.').pop() ?? '') : '';
-  return TEXT.has(ext.toLowerCase());
+  return false;
 }
 
 export function shouldSkip(path: string): boolean {
