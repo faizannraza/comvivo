@@ -48,3 +48,9 @@ jobs:
 
       - name: Secret-shaped literals
         run: pnpm run secrets:check
+
+      # Renovate's own validator, in Renovate's own image, pinned by digest. It is not a
+      # devDependency because our `trustPolicy: no-downgrade` refuses it — see the reasoning in
+      # `scripts/ci/validate-renovate.sh`.
+      - name: Renovate config
+        run: pnpm run renovate:check

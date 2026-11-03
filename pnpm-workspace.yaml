@@ -83,6 +83,29 @@ allowBuilds:
 # Shared dependency versions
 # ---------------------------------------------------------------------------
 # Referenced from packages as `"vitest": "catalog:"`. One place to bump.
+# --- Security overrides -------------------------------------------------------------------------
+# Transitive dependencies forced to a patched version because the direct dependency has not
+# released a fix. Each entry needs the advisory, what the vulnerability is, and why this specific
+# version. Remove an entry the moment the parent ships a range that covers it.
+#
+# OSV-Scanner found both of these on the first run of `osv.yml` (M0-T12), which is the clearest
+# evidence the workflow does what it claims.
+overrides:
+  # GHSA-w5hq-g745-h8pq - missing buffer bounds check in uuid v3/v5/v6 when `buf` is provided.
+  # Vulnerable `< 11.1.1`; `typeid-js@1.2.0` is the latest release and pins `uuid: ^10.0.0`, so
+  # there is no upstream fix to wait for.
+  #
+  # This one SHIPS: `typeid-js` is a runtime dependency of `@comvivo/shared`, so the code reaches a
+  # host's machine. 11.1.1 rather than the current 14.x because it is the smallest patched step -
+  # `typeid-js` was written against uuid 10's API, and jumping three majors would risk breaking id
+  # generation for no additional security. The cross-checks in `deterministic-ids.test.ts` parse
+  # our ids with typeid-js's own parser, so a behavioural change fails the suite rather than ships.
+  uuid: ^11.1.1
+  # GHSA-g3hv-75wg-m249 - denial of service via glob-parts amplification. Vulnerable `< 11.0.1`.
+  # Reached only through the eslint toolchain, so it is dev-only: a linter that can be slowed down
+  # by a crafted glob is not a product risk. Fixed anyway, because the fix is a version bump.
+  minimatch: ^11.0.1
+
 catalog:
   fast-check: ^4.10
   pino: ^10.4

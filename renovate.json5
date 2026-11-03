@@ -1,0 +1,158 @@
+// Renovate policy (`08` §3.15, SD-18).
+//
+// One file. `12` §3.10.4 spelled it `renovate.json`; `08` §3.15 says `renovate.json5`, and JSON5
+// wins because these rules need the reasons written next to them — a dependency policy nobody
+// understands gets widened the first time it is inconvenient.
+//
+// The governing idea is the chalk/debug and Shai-Hulud timeline: compromised packages were
+// published, used, and caught within hours to days. Nothing here races that window. Every update
+// waits three days, matching `minimumReleaseAge: 4320` in `pnpm-workspace.yaml`, so a worm's
+// publish has been noticed and yanked before it can reach a lockfile.
+{
+  $schema: 'https://docs.renovatebot.com/renovate-schema.json',
+
+  extends: [
+    'config:recommended',
+    // Rewrites `uses: owner/repo@v4` to a SHA with the tag in a trailing comment. The repository
+    // setting `sha_pinning_required` and `scripts/hygiene/workflow-policy.ts` both refuse an
+    // unpinned action, so without this every Actions update would arrive broken.
+    'helpers:pinGitHubActionDigests',
+    ':semanticCommits',
+    ':dependencyDashboard',
+  ],
+
+  timezone: 'Etc/UTC',
+
+  // Weekly, Monday early UTC. A dependency bot that opens pull requests continuously trains
+  // everybody to stop reading them, which is the opposite of the point.
+  schedule: ['* 0-6 * * 1'],
+
+  // Three days, matching pnpm's own `minimumReleaseAge: 4320`. If these two ever disagree,
+  // Renovate proposes versions that `pnpm install` then refuses, and CI fails on the bot's own
+  // pull request.
+  minimumReleaseAge: '3 days',
+
+  // Hold a release until Renovate's own checks on it have passed, rather than merging on the
+  // registry's word alone.
+  internalChecksFilter: 'strict',
+
+  // Enough to review in one sitting.
+  prConcurrentLimit: 5,
+  prHourlyLimit: 2,
+
+  // Bump the range in `package.json` rather than only the lockfile, so what a fresh clone resolves
+  // matches what CI tested.
+  rangeStrategy: 'bump',
+
+  postUpdateOptions: ['pnpmDedupe'],
+  configMigration: true,
+
+  // Monthly refresh of transitive pins, which is where a known-vulnerable sub-dependency otherwise
+  // sits for months behind an unchanged direct range.
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ['* 0-6 1 * *'],
+  },
+
+  osvVulnerabilityAlerts: true,
+  dependencyDashboardOSVVulnerabilitySummary: 'unresolved',
+
+  // A known vulnerability is the one case where waiting is the larger risk, so security updates
+  // skip both the delay and the weekly window. They still go through CI and review.
+  vulnerabilityAlerts: {
+    enabled: true,
+    minimumReleaseAge: null,
+    schedule: [],
+    labels: ['security'],
+  },
+
+  packageRules: [
+    {
+      // GitHub Actions digests are the only thing that auto-merges.
+      //
+      // `08` §3.15 also allows devDependencies to auto-merge after green CI, and that is NOT done
+      // here, because the same section makes `pnpm-lock.yaml` a CODEOWNERS path requiring two
+      // security reviews. Every devDependency bump changes the lockfile, so auto-merging one would
+      // either need the review waived or would simply never merge. The two rules conflict and the
+      // CODEOWNERS requirement is the stronger control, so it wins. An Actions digest bump touches
+      // no lockfile, which is exactly why this one is safe to automate.
+      matchManagers: ['github-actions'],
+      groupName: 'github actions digests',
+      automerge: true,
+      automergeType: 'pr',
+      platformAutomerge: true,
+      commitMessageTopic: 'the {{depName}} action',
+    },
+    {
+      // Runtime dependencies: never automatic. These reach a host's machine.
+      matchDepTypes: ['dependencies'],
+      automerge: false,
+      labels: ['dependencies', 'runtime'],
+      // One pull request each, so a review is about one package rather than a wall of diffs.
+      groupName: null,
+    },
+    {
+      matchDepTypes: ['devDependencies'],
+      automerge: false,
+      labels: ['dependencies', 'dev'],
+    },
+    {
+      // TypeScript is pinned to 6.x on purpose (ADR-025, `01` §14 A31): typescript-eslint declares
+      // a peer of `typescript >=4.8.4 <6.1.0`, and TS 7 support is closed `not_planned` upstream
+      // pending a stable TS 7 compiler API. The four type-aware rules that `01` §11.1 and §11.3
+      // make non-negotiable exist only there. A TS 7 pull request would be red and unmergeable,
+      // so it should never be opened.
+      matchPackageNames: ['typescript'],
+      allowedVersions: '<7',
+      labels: ['dependencies', 'toolchain'],
+    },
+    {
+      // `@types/node` tracks the **supported floor**, not the primary target. The floor is Node
+      // 24.11 (`01` §14 A1); typing against 26 would let us call APIs that do not exist on a
+      // host's Node 24 and find out at runtime on their machine rather than in CI.
+      matchPackageNames: ['@types/node'],
+      allowedVersions: '<25',
+      labels: ['dependencies', 'toolchain'],
+    },
+    {
+      // Tool families that must move together. typescript-eslint's packages share a version, and
+      // Vitest's coverage provider is tied to the runner's internals.
+      matchPackageNames: [
+        'typescript-eslint',
+        '@typescript-eslint/**',
+        'eslint',
+        '@eslint/**',
+      ],
+      groupName: 'eslint',
+      labels: ['dependencies', 'toolchain'],
+    },
+    {
+      matchPackageNames: ['vitest', '@vitest/**'],
+      groupName: 'vitest',
+      labels: ['dependencies', 'toolchain'],
+    },
+    {
+      matchPackageNames: ['@biomejs/**', 'turbo', 'tsx', 'jiti'],
+      groupName: 'build toolchain',
+      labels: ['dependencies', 'toolchain'],
+    },
+    {
+      // Native modules get their own pull request, always. A rebuild on a Raspberry Pi is where
+      // these break, and `08` §3.15's `allowBuilds` map has to be checked against the new version.
+      matchPackageNames: [
+        'better-sqlite3',
+        'onnxruntime-node',
+        '@matrix-org/matrix-sdk-crypto-nodejs',
+        'sqlite-vec',
+      ],
+      groupName: null,
+      labels: ['dependencies', 'native'],
+      addLabels: ['needs-arm64-check'],
+    },
+    {
+      // Pin every GitHub Action to a digest even on a first-time addition.
+      matchManagers: ['github-actions'],
+      pinDigests: true,
+    },
+  ],
+}

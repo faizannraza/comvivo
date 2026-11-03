@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -56,7 +56,8 @@
     "test:dashboard": "vitest run --project dashboard",
     "secrets:check": "tsx scripts/security/check-literal-secrets.ts",
     "hygiene:check": "tsx scripts/hygiene/check.ts",
-    "supply:lockfile": "tsx scripts/supply/check-lockfile.ts"
+    "supply:lockfile": "tsx scripts/supply/check-lockfile.ts",
+    "renovate:check": "bash scripts/ci/validate-renovate.sh"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",
