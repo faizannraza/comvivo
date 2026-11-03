@@ -224,7 +224,7 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
 
 #### 3.1.10 Snapshot-testing policy
 
-- Snapshots are allowed **only for rich-text renderers**: `packages/channels/sdk/src/render/**` and each adapter's `render*.test.ts`. Use `toMatchFileSnapshot` with a real file extension (`.telegram.html`, `.discord.md`, `.slack.mrkdwn`) so reviewers read diffs as rendered markup.
+- Snapshots are allowed **only for rich-text renderers**: `packages/channels/sdk/src/render/**`, each adapter's `render*.test.ts`, and an adapter's `render/` **directory** (added at `M0-T10`: an adapter with several renderers organises them in a folder, and the allowlist is about where renderers live rather than how their files are named). Use `toMatchFileSnapshot` with a real file extension (`.telegram.html`, `.discord.md`, `.slack.mrkdwn`) so reviewers read diffs as rendered markup; `.snap` is refused even inside the allowlist, because it is the thing being replaced.
 - Everywhere else, assert explicit fields. `scripts/check-snapshot-policy.ts` fails CI on `toMatchSnapshot`, `toMatchInlineSnapshot` or `toMatchFileSnapshot` outside the allowed globs.
 - Snapshots are updated locally with `-u` and need CODEOWNERS approval (`@village/channels`). CI never writes snapshots; a missing snapshot fails.
 - Golden transcripts (§3.5) are a separate, curated mechanism with normalized IDs. They are not Vitest snapshots.
@@ -234,6 +234,7 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
 - **Definition.** A flaky test has passed and failed on the same commit.
 - **Zero retries in required checks** (`retry: 0`). The only exception is tag `live`, which gets 2 retries, and only for classified transport errors.
 - **Detection.** `nightly-deterministic.yml` runs `flake-hunt`: unit, integration and deterministic scenarios 5 times each with `--sequence.shuffle` and a fresh `FC_SEED`. Inconsistent results auto-file a `flaky-test` issue with the seed, order and logs.
+- **Skips carry a task id.** A skipped or `todo` test needs `// skip(<task-id>): <reason>` on the line above — e.g. `// skip(M5-T12): blocked on the outbound guard landing`. `scripts/hygiene/check.ts` fails on an unjustified skip during a milestone and, with `--gate`, on **any** skip, which is `CLAUDE.md` §8's bar at a milestone gate. The distinction matters: mid-milestone a skip is a scheduling decision, and at the gate it is unfinished work.
 - **Quarantine.** Add tag `flaky`. Required jobs filter out `flaky`; nightly still runs those tests.
   - At most **10** tests may be quarantined at once.
   - Each has a **14-day SLA**: fix it or delete it (owner approval).

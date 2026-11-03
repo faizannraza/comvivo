@@ -1,0 +1,34 @@
+import { afterEach, describe, expect, it } from 'vitest';
+import { createServer } from 'node:http';
+import { tmpdir } from 'node:os';
+
+let cachedEngine;
+
+describe.only('the turn engine', () => {
+  it.skip('resumes after a restart', () => {
+    expect(true).toBe(true);
+  });
+
+  it.todo('handles a budget exhaustion mid-turn');
+
+  it('waits for the outbox to drain', async () => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(outbox.pending).toBe(0);
+  });
+
+  it('serves the dashboard', async () => {
+    const server = createServer();
+    server.listen(7777);
+  });
+
+  it('writes a database', () => {
+    const dir = tmpdir();
+    expect(dir).toBeTruthy();
+  });
+
+  it('is occasionally slow', { retry: 3 }, () => {
+    expect(fetchSomething()).toBeTruthy();
+  });
+});
+
+fdescribe('another suite', () => {});

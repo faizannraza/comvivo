@@ -1,0 +1,26 @@
+name: CI
+on:
+  pull_request_target:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  static:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.16.1
+      - name: Greet the contributor
+        run: echo "Thanks for ${{ github.event.pull_request.title }}"
+
+  build:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    timeout-minutes: 20
+    steps:
+      - uses: ./.github/actions/setup
+      - run: pnpm build

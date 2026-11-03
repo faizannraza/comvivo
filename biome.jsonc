@@ -137,6 +137,32 @@
       }
     },
     {
+      // Files that assemble SECRET-SHAPED fixtures from separate string literals.
+      //
+      // `08` §3.15: the scrubber and the red-team suites need fixtures with the exact shapes they
+      // must catch, and writing one out whole gets the commit rejected by GitHub push protection
+      // (which happened, at M0-T8). The fix is to join the pieces at runtime, so the code under
+      // test receives the identical value while no source file contains the shape.
+      //
+      // `useTemplate` is therefore wrong in these files by construction: `'xoxb' + '-'` is not a
+      // clumsy concatenation to be tidied into a template literal, it is the mechanism. Scoped to
+      // the two files that do this today plus M5's and M11's fixture directories, rather than
+      // disabled for tests generally.
+      "includes": [
+        "packages/shared/src/logger/scrub.test.ts",
+        "scripts/security/literal-secrets.test.ts",
+        "packages/evals/src/suites/redteam/**",
+        "**/__fixtures__/**"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "useTemplate": "off"
+          }
+        }
+      }
+    },
+    {
       "includes": [
         "**/*.test.ts",
         "**/*.int.test.ts",

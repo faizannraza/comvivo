@@ -1,0 +1,15 @@
+import { describe, expect, it } from 'vitest';
+
+describe('policy decisions', () => {
+  it('records the decision', () => {
+    expect(decide(request)).toMatchSnapshot();
+  });
+
+  it('records the decision inline', () => {
+    expect(decide(request)).toMatchInlineSnapshot(`{ "kind": "allow" }`);
+  });
+
+  it('records the whole engine output', async () => {
+    await expect(render(turn)).toMatchFileSnapshot('./__snapshots__/turn.snap');
+  });
+});

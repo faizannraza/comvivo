@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -54,7 +54,8 @@
     "clean": "turbo run clean && node -e \"for (const p of ['node_modules/.cache','.turbo','reports','.vitest','coverage']) fs.rmSync(p,{recursive:true,force:true})\"",
     "supply:check": "tsx scripts/supply/check-native.ts",
     "test:dashboard": "vitest run --project dashboard",
-    "secrets:check": "tsx scripts/security/check-literal-secrets.ts"
+    "secrets:check": "tsx scripts/security/check-literal-secrets.ts",
+    "hygiene:check": "tsx scripts/hygiene/check.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

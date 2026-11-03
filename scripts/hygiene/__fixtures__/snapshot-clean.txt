@@ -1,0 +1,9 @@
+import { describe, expect, it } from 'vitest';
+
+describe('policy decisions', () => {
+  it('allows a request from an admin', () => {
+    const decision = decide(request);
+    expect(decision.kind).toBe('allow');
+    expect(decision.reason).toBe('role:admin');
+  });
+});

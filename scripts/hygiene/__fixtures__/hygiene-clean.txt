@@ -1,0 +1,30 @@
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { VirtualClock } from '@comvivo/shared/testing';
+
+describe('the turn engine', () => {
+  // skip(M5-T12): blocked on the outbound guard landing; the fixture is already written.
+  it.skip('blocks a declassified reply', () => {
+    expect(true).toBe(true);
+  });
+
+  it('fires a reminder at the right local hour', () => {
+    const clock = new VirtualClock('2026-07-01T08:00:00Z');
+    clock.advance({ hours: 2 });
+    expect(clock.now().toString()).toContain('10:00');
+  });
+
+  it('serves the dashboard on an ephemeral port', async () => {
+    const server = createServer();
+    server.listen(0);
+    const { port } = server.address();
+    expect(port).toBeGreaterThan(0);
+  });
+
+  it('writes a database into its own directory', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'comvivo-'));
+    expect(dir).toContain('comvivo-');
+  });
+});

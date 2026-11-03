@@ -106,6 +106,7 @@ export function explain(findings: readonly Finding[]): string {
     'If it is a test fixture — which it usually is — assemble it at runtime from separate string',
     'literals instead of writing it out whole:',
     '',
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: sample code printed for the author to copy; the placeholders must stay literal.
     "    const token = `xoxb${'-'}${['1234567890', '0987654321', body].join('-')}`;",
     '',
     'The code under test still receives the exact shape, because the pieces are joined before it is',
