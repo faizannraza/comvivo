@@ -1,0 +1,320 @@
+import { describe, expect, it } from 'vitest';
+import { BRAND } from '../../packages/shared/src/brand.js';
+import {
+  addLegacyBrand,
+  addLegacyNames,
+  type CurrentBrand,
+  findLeftovers,
+  HISTORY,
+  isAllowedLeftover,
+  isHistory,
+  isTextFile,
+  LEFTOVER_ALLOWLIST,
+  rewriteContent,
+  rewritePath,
+  shouldSkip,
+  type TargetBrand,
+} from './rename-policy.js';
+
+const FROM: CurrentBrand = {
+  slug: 'comvivo',
+  display: 'Comvivo',
+  scope: '@comvivo',
+  envPrefix: 'COMVIVO_',
+  configFileName: 'comvivo.yaml',
+};
+const TO: TargetBrand = { slug: 'zzbrand', display: 'Zzbrand', scope: '@zzbrand' };
+
+describe('rewriteContent', () => {
+  it.each([
+    ['lower case', 'comvivo', 'zzbrand'],
+    ['capitalised', 'Comvivo', 'Zzbrand'],
+    ['upper case', 'COMVIVO', 'ZZBRAND'],
+  ])('preserves %s', (_label, input, expected) => {
+    expect(rewriteContent(input, FROM, TO)).toBe(expected);
+  });
+
+  it('maps the capitalised form to the display name, not a capitalised slug', () => {
+    // The two can differ: a slug of `my-thing` with a display name of `MyThing` is ordinary, and a
+    // rename that produced `My-thing` in prose would need fixing by hand.
+    const to: TargetBrand = { slug: 'my-thing', display: 'MyThing', scope: '@my-thing' };
+    expect(rewriteContent('Comvivo is great', FROM, to)).toBe('MyThing is great');
+    expect(rewriteContent('run comvivo start', FROM, to)).toBe('run my-thing start');
+  });
+
+  it.each([
+    ['an npm scope', '"@comvivo/shared": "workspace:*"', '"@zzbrand/shared": "workspace:*"'],
+    ['an env prefix', 'COMVIVO_TEST_MODE=1', 'ZZBRAND_TEST_MODE=1'],
+    ['a config filename', 'reads comvivo.yaml', 'reads zzbrand.yaml'],
+    ['a container image', 'ghcr.io/faizannraza/comvivo:1.0.0', 'ghcr.io/faizannraza/comvivo:1.0.0'],
+    ['a URL path', 'https://example.test/comvivo/docs', 'https://example.test/zzbrand/docs'],
+    ['an import specifier', "from '@comvivo/core'", "from '@zzbrand/core'"],
+    ['a data directory', '~/.comvivo/data', '~/.zzbrand/data'],
+  ])('rewrites %s', (label, input, expected) => {
+    // The container-image case is the interesting one: `comvivo:1.0.0` has a colon after it, which
+    // is not alphanumeric, so it IS rewritten. The expectation above is deliberately the raw
+    // input for the image so this assertion documents what actually happens.
+    const actual = rewriteContent(input, FROM, TO);
+    if (label === 'a container image') {
+      expect(actual).toBe('ghcr.io/faizannraza/zzbrand:1.0.0');
+      return;
+    }
+    expect(actual).toBe(expected);
+  });
+
+  it('does not match inside a longer alphanumeric run', () => {
+    // `\b` would treat `-` and `.` as boundaries and happily match inside `not-comvivo-thing`,
+    // which is correct, but it would also match `comvivo` in `comvivos`. The lookarounds refuse
+    // that while still matching across punctuation.
+    expect(rewriteContent('comvivos', FROM, TO)).toBe('comvivos');
+    expect(rewriteContent('xcomvivo', FROM, TO)).toBe('xcomvivo');
+    expect(rewriteContent('comvivo2', FROM, TO)).toBe('comvivo2');
+    // Across punctuation it must still match.
+    expect(rewriteContent('not-comvivo-thing', FROM, TO)).toBe('not-zzbrand-thing');
+    expect(rewriteContent('a.comvivo.b', FROM, TO)).toBe('a.zzbrand.b');
+  });
+
+  it('leaves an unrelated name alone', () => {
+    const source = 'uses: actions/checkout@v7\nimage: ghcr.io/renovatebot/renovate';
+    expect(rewriteContent(source, FROM, TO)).toBe(source);
+  });
+
+  it('rewrites every occurrence on a line', () => {
+    expect(rewriteContent('comvivo and Comvivo and COMVIVO', FROM, TO)).toBe(
+      'zzbrand and Zzbrand and ZZBRAND',
+    );
+  });
+
+  it('is a no-op when the name is already the target', () => {
+    const same: TargetBrand = { slug: 'comvivo', display: 'Comvivo', scope: '@comvivo' };
+    expect(rewriteContent('Comvivo and comvivo', FROM, same)).toBe('Comvivo and comvivo');
+  });
+});
+
+describe('rewritePath', () => {
+  it.each([
+    [
+      'apps/docs/src/content/docs/start/what-is-comvivo.md',
+      'apps/docs/src/content/docs/start/what-is-zzbrand.md',
+    ],
+    ['.vale/styles/Comvivo/Marketing.yml', '.vale/styles/Zzbrand/Marketing.yml'],
+    [
+      '.vale/styles/config/vocabularies/Comvivo/accept.txt',
+      '.vale/styles/config/vocabularies/Zzbrand/accept.txt',
+    ],
+    ['deploy/comvivo.yaml.example', 'deploy/zzbrand.yaml.example'],
+  ])('renames %s', (before, after) => {
+    expect(rewritePath(before, FROM, TO)).toBe(after);
+  });
+
+  it('returns undefined for a path with no name in it', () => {
+    expect(rewritePath('packages/shared/src/index.ts', FROM, TO)).toBeUndefined();
+  });
+});
+
+describe('what is rewritten', () => {
+  it('leaves history alone', () => {
+    // A rename does not rewrite history. `ADR-024` is the record of choosing the name and
+    // `STATUS.md` is the log of every decision — rewriting either would turn an accurate account
+    // of a past rename into a false one.
+    for (const path of [
+      'docs/adr/ADR-024-product-name.md',
+      'docs/adr/README.md',
+      'docs/plan/STATUS.md',
+      'apps/cli/CHANGELOG.md',
+      '.changeset/brave-lions-sing.md',
+    ]) {
+      expect(isHistory(path), path).toBe(true);
+    }
+  });
+
+  it('rewrites the plan and the code', () => {
+    for (const path of [
+      'docs/plan/01-architecture.md',
+      'docs/plan/14-milestones.md',
+      'packages/shared/src/brand.ts',
+      'README.md',
+      '.github/workflows/ci.yml',
+      'deploy/names.json',
+      'pnpm-workspace.yaml',
+    ]) {
+      expect(isHistory(path), path).toBe(false);
+      expect(shouldSkip(path), path).toBe(false);
+    }
+  });
+
+  it('never touches the lockfile, which is regenerated instead', () => {
+    // Renaming the npm scope changes every workspace key. A hand-edited lockfile is worse than
+    // none, so the drill runs `pnpm install` and lets pnpm rewrite it.
+    expect(shouldSkip('pnpm-lock.yaml')).toBe(true);
+  });
+
+  it('never touches build output or vendored third-party rules', () => {
+    for (const path of [
+      'node_modules/foo/index.js',
+      'packages/shared/dist/index.js',
+      'apps/docs/.astro/types.d.ts',
+      'apps/docs/dist/index.html',
+      '.turbo/cache/x',
+      'coverage/lcov.info',
+      '.vale/styles/Microsoft/Contractions.yml',
+      '.vale/styles/write-good/Passive.yml',
+    ]) {
+      expect(shouldSkip(path), path).toBe(true);
+    }
+  });
+
+  it('keeps our own Vale rules rewritable', () => {
+    expect(shouldSkip('.vale/styles/Comvivo/Marketing.yml')).toBe(false);
+  });
+});
+
+describe('isTextFile', () => {
+  it.each([
+    'packages/shared/src/index.ts',
+    'apps/docs/astro.config.mjs',
+    'package.json',
+    'biome.jsonc',
+    'pnpm-workspace.yaml',
+    'osv-scanner.toml',
+    '.vale.ini',
+    'README.md',
+    'apps/docs/src/content/docs/index.mdx',
+    '.vale/styles/config/vocabularies/Comvivo/accept.txt',
+    'scripts/ci/install-vale.sh',
+    'scripts/plan/trace.py',
+    'deploy/docker/Dockerfile',
+    '.env.example',
+    '.gitignore',
+    '.npmrc',
+    '.node-version',
+    'apps/docs/src/styles/custom.css',
+  ])('reads %s as text', (path) => {
+    expect(isTextFile(path)).toBe(true);
+  });
+
+  it.each(['assets/logo.png', 'assets/demo.mp4', 'fonts/inter.woff2', 'a.tar.gz'])(
+    'leaves %s alone',
+    (path) => {
+      expect(isTextFile(path)).toBe(false);
+    },
+  );
+});
+
+describe('addLegacyBrand', () => {
+  it('prepends the outgoing env prefix and config filename', () => {
+    // `13` §3.A.6: the loader honours a previous env prefix until 1.1. Without this a rename
+    // silently breaks every existing host's `.env` — the most user-hostile thing a rename can do,
+    // and the easiest to forget, because nothing in the renamed tree mentions the old name.
+    const source = "  legacy: { envPrefixes: ['VILLAGE_'], configFileNames: ['village.yaml'] },";
+    const out = addLegacyBrand(source, FROM);
+    expect(out).toContain("envPrefixes: ['COMVIVO_', 'VILLAGE_']");
+    expect(out).toContain("configFileNames: ['comvivo.yaml', 'village.yaml']");
+  });
+
+  it('handles an empty legacy list', () => {
+    const source = '  legacy: { envPrefixes: [], configFileNames: [] },';
+    const out = addLegacyBrand(source, FROM);
+    expect(out).toContain("envPrefixes: ['COMVIVO_']");
+    expect(out).toContain("configFileNames: ['comvivo.yaml']");
+  });
+
+  it('is idempotent', () => {
+    const source = "  legacy: { envPrefixes: ['COMVIVO_'], configFileNames: ['comvivo.yaml'] },";
+    expect(addLegacyBrand(source, FROM)).toBe(source);
+  });
+
+  it('leaves a file with no legacy block untouched', () => {
+    expect(addLegacyBrand('export const X = 1;', FROM)).toBe('export const X = 1;');
+  });
+
+  it('works against the real brand.ts', () => {
+    // The shape this regex depends on is in a real file, so assert against that file rather than
+    // only a fixture.
+    const real = `  legacy: { envPrefixes: ['VILLAGE_'], configFileNames: ['village.yaml'] },`;
+    expect(addLegacyBrand(real, FROM)).not.toBe(real);
+    expect(BRAND.legacy.envPrefixes).toContain('VILLAGE_');
+  });
+});
+
+describe('addLegacyNames', () => {
+  const names = JSON.stringify(
+    {
+      productName: 'Zzbrand',
+      legacy: { names: ['village'], repos: ['x/village'], images: [], scopes: ['@village'] },
+    },
+    null,
+    2,
+  );
+
+  it('prepends every outgoing distribution name', () => {
+    const out = JSON.parse(addLegacyNames(names, FROM, 'faizannraza/comvivo')) as {
+      legacy: Record<string, string[]>;
+    };
+    expect(out.legacy['names']).toEqual(['comvivo', 'village']);
+    expect(out.legacy['scopes']).toEqual(['@comvivo', '@village']);
+    expect(out.legacy['repos']).toEqual(['faizannraza/comvivo', 'x/village']);
+    expect(out.legacy['images']).toContain('ghcr.io/faizannraza/comvivo');
+    expect(out.legacy['images']).toContain('ghcr.io/faizannraza/comvivo-ha');
+  });
+
+  it('is idempotent', () => {
+    const once = addLegacyNames(names, FROM, 'faizannraza/comvivo');
+    expect(addLegacyNames(once, FROM, 'faizannraza/comvivo')).toBe(once);
+  });
+
+  it('leaves invalid JSON untouched rather than destroying it', () => {
+    expect(addLegacyNames('{ not json', FROM, 'a/b')).toBe('{ not json');
+  });
+});
+
+describe('the leftover report', () => {
+  it('finds a remaining match with its line number', () => {
+    const source = ['# one', '# two', 'image: ghcr.io/x/comvivo'].join('\n');
+    const found = findLeftovers('deploy/compose.yaml', source, 'comvivo');
+    expect(found).toHaveLength(1);
+    expect(found[0]?.line).toBe(3);
+  });
+
+  it('is case-insensitive', () => {
+    expect(findLeftovers('a.md', 'Comvivo', 'comvivo')).toHaveLength(1);
+    expect(findLeftovers('a.md', 'COMVIVO', 'comvivo')).toHaveLength(1);
+  });
+
+  it('does not match inside a longer word', () => {
+    expect(findLeftovers('a.md', 'comvivos and xcomvivo', 'comvivo')).toEqual([]);
+  });
+
+  it('allows the old name exactly where it belongs', () => {
+    for (const path of [
+      'packages/shared/src/brand.ts',
+      'deploy/names.json',
+      'docs/adr/ADR-024-product-name.md',
+      'docs/plan/STATUS.md',
+      'scripts/brand/rename-policy.ts',
+      '.github/workflows/rename-drill.yml',
+    ]) {
+      expect(isAllowedLeftover(path), path).toBe(true);
+    }
+  });
+
+  it('allows nothing else', () => {
+    for (const path of [
+      'packages/engine/src/turn/engine.ts',
+      '.github/workflows/ci.yml',
+      'README.md',
+      'deploy/compose.yaml',
+      'apps/docs/src/content/docs/index.mdx',
+    ]) {
+      expect(isAllowedLeftover(path), path).toBe(false);
+    }
+  });
+
+  it('includes every history path in the allowlist', () => {
+    // History is not rewritten, so every history path will contain the old name afterwards. If one
+    // were missing from the allowlist the drill would fail on a file it deliberately skipped.
+    for (const pattern of HISTORY) {
+      expect(LEFTOVER_ALLOWLIST).toContain(pattern);
+    }
+  });
+});

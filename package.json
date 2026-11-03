@@ -65,7 +65,8 @@
     "labels:sync": "tsx scripts/github/sync-labels.ts",
     "docs:build": "pnpm --filter @comvivo/docs build",
     "docs:dev": "pnpm --filter @comvivo/docs dev",
-    "prose": "bash scripts/ci/check-prose.sh"
+    "prose": "bash scripts/ci/check-prose.sh",
+    "brand:rename": "tsx scripts/brand/rename.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

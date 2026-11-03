@@ -1,0 +1,122 @@
+# The weekly rename drill (`13` §3.A.6).
+#
+# Renames the whole tree to `zzbrand` in a scratch checkout and runs the full verify plus the docs
+# build. It must be green.
+#
+# Why this exists: the product name has already changed twice
+# (`docs/adr/ADR-024-product-name.md`), and a trademark letter would change it again on somebody
+# else's schedule. The codemod is exactly the kind of tool that rots silently — every new package,
+# workflow, manifest or Vale vocabulary is a surface it does not yet know about, and nothing fails
+# until the day the rename is actually needed and urgent.
+#
+# A drill that runs only when needed is not a drill.
+name: rename-drill
+
+on:
+  schedule:
+    # 06:53 UTC Sunday. Nothing else runs then.
+    - cron: "53 6 * * 0"
+  workflow_dispatch:
+  # Also on a change to the codemod itself, so a change to the rename machinery is tested by the
+  # rename it performs.
+  pull_request:
+    paths:
+      - "scripts/brand/**"
+      - "packages/shared/src/brand.ts"
+      - "deploy/names.json"
+      - ".github/workflows/rename-drill.yml"
+
+permissions: {}
+
+concurrency:
+  group: rename-drill-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  TURBO_TELEMETRY_DISABLED: "1"
+  ASTRO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  drill:
+    name: drill
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # To open the tracking issue on failure.
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Vale and actionlint are part of `pnpm verify` through `hygiene:check` and `prose`. Both
+      # report themselves as skipped when absent rather than passing silently, so installing them
+      # is what makes the drill's verify equivalent to the real one.
+      - name: Install actionlint
+        run: sudo scripts/ci/install-actionlint.sh /usr/local/bin
+
+      - name: Install Vale
+        run: sudo scripts/ci/install-vale.sh /usr/local/bin
+
+      - name: Rename everything to zzbrand
+        run: pnpm exec tsx scripts/brand/rename.ts --to zzbrand --display Zzbrand
+
+      # The lockfile is regenerated rather than rewritten: renaming the npm scope changes every
+      # workspace key, and a hand-edited lockfile is worse than none.
+      - name: Install with the renamed workspace
+        run: pnpm install --no-frozen-lockfile
+
+      - name: Verify
+        run: pnpm verify
+
+      - name: Build the docs site
+        run: pnpm --filter @zzbrand/docs build
+
+      - name: Confirm the rename actually happened
+        # A drill that passed because the codemod did nothing would be the worst possible outcome:
+        # green, and completely uninformative.
+        run: |
+          set -euo pipefail
+          slug="$(node -p "require('./packages/shared/package.json').name")"
+          if [ "$slug" != "@zzbrand/shared" ]; then
+            echo "rename-drill: the workspace is still called ${slug}; the codemod did nothing." >&2
+            exit 1
+          fi
+          if ! grep -q "'COMVIVO_'" packages/shared/src/brand.ts; then
+            echo "rename-drill: BRAND.legacy does not list the outgoing env prefix." >&2
+            echo "A rename that drops it silently breaks every existing host's .env (13 §3.A.6)." >&2
+            exit 1
+          fi
+          echo "rename-drill: renamed to ${slug}, legacy prefix retained."
+
+      - name: Open or update the tracking issue
+        if: ${{ failure() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="Rename drill failed"
+          body="The weekly rename drill failed: ${RUN_URL}
+
+          The codemod in \`scripts/brand/rename.ts\` no longer renames the whole tree cleanly. This
+          is not urgent today and will be the day it matters, which is the point of the drill.
+
+          Usually one of two things:
+
+          - **A leftover match outside the allowlist.** The report names the file and line. Some
+            new surface holds the name — a workflow, a manifest, a vocabulary, a path. Teach the
+            codemod about it in \`scripts/brand/rename-policy.ts\`.
+          - **Verify failed after the rename.** Something depends on the name in a way the codemod
+            rewrote inconsistently. The run log has the failing check."
+          existing="$(gh issue list --state open --label brand --search "$title in:title" \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label brand --body "$body"
+          fi
