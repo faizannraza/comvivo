@@ -52,6 +52,28 @@ describe('step 1: quoted content', () => {
 });
 
 describe('step 2: URLs', () => {
+  it('catches a Telegram token through the shape patterns alone, with no URL step', () => {
+    // A regression test for a pattern that could never fire on the form it was written for.
+    //
+    // The pattern was `\b\d{6,12}:…`, and Telegram's URL is `/bot<id>:<secret>/sendMessage` — so
+    // the first digit is preceded by the `t` of `bot`, two word characters with no boundary
+    // between them. `scrubErrorMessage` hid it by reducing URLs before reaching the shapes, so
+    // every test passed; `scrubSecretShapes` is exported and used on its own by
+    // `observability/attributes.ts`, where nothing runs first. Found by that consumer, not by
+    // reading this file.
+    const token = `${'123456789'}:${'AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw'}`;
+    const scrubbed = scrubSecretShapes(`401 from /bot${token}/sendMessage`);
+    expect(scrubbed).not.toContain(token);
+    expect(scrubbed).toContain(SCRUBBED);
+  });
+
+  it('still refuses to match the tail of a longer digit run', () => {
+    // The property `\b` was there for. A 16-digit id followed by a colon is not a Telegram token,
+    // and matching its last 12 digits would scrub an identifier while leaving the first four.
+    const notAToken = `1234567890123456:${'A'.repeat(40)}`;
+    expect(scrubSecretShapes(`id ${notAToken}`)).toContain('1234567890123456');
+  });
+
   it('removes the Telegram bot-token path segment', () => {
     // Telegram's API URL IS the credential. Any HTTP error that quotes its own URL publishes it,
     // which makes this the most important URL case in the product.

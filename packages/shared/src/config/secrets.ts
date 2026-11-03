@@ -40,6 +40,10 @@ export const SECRET_NAMES: readonly string[] = [
   `${BRAND.envPrefix}IMAP_PASSWORD`,
   `${BRAND.envPrefix}MASTER_KEY`,
   `${BRAND.envPrefix}PASSPHRASE`,
+  // The bearer token for `/metrics` (`11` §3.10.3). A scrape is an activity profile of a
+  // household, so the endpoint answers loopback or this token and 404s everything else — which
+  // means in Docker, where Prometheus is outside the container, the token is the only way in.
+  `${BRAND.envPrefix}METRICS_TOKEN`,
 ];
 
 export type SecretName = (typeof SECRET_NAMES)[number];

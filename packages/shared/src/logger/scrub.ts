@@ -54,9 +54,17 @@ export const SECRET_PATTERNS: readonly { readonly name: string; readonly pattern
   { name: 'slack-app-token', pattern: /\bxapp-[A-Za-z0-9-]{10,}/g },
 
   // --- Platform tokens -------------------------------------------------------------------------
-  // Telegram: `<bot-id>:<secret>`. This is the one that hides inside a URL, which is why the URL
-  // step runs before the shape steps.
-  { name: 'telegram-token', pattern: /\b\d{6,12}:[A-Za-z0-9_-]{30,}/g },
+  // Telegram: `<bot-id>:<secret>`.
+  //
+  // The lookbehind, rather than `\b`, is load-bearing. Telegram's URL is
+  // `/bot<id>:<secret>/sendMessage`, so the token's first digit is preceded by the `t` of `bot` —
+  // two word characters, which means there is no word boundary there and `\b\d{6,12}` could never
+  // match the one form this token actually takes in the wild. `scrubErrorMessage` hid that for a
+  // while by rewriting URLs before reaching the shape patterns, but `scrubSecretShapes` is exported
+  // and used on its own (telemetry attributes, `observability/attributes.ts`), where there is no
+  // URL step to save it. `(?<!\d)` keeps the property `\b` was there for — not matching the tail
+  // of a longer digit run — while allowing a letter immediately before.
+  { name: 'telegram-token', pattern: /(?<!\d)\d{6,12}:[A-Za-z0-9_-]{30,}/g },
   // Discord: three dot-separated base64url segments.
   {
     name: 'discord-token',

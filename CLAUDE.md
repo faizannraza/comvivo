@@ -51,7 +51,7 @@ Start every session, and every time you resume after a context compaction, by re
 - **Dependency boundaries** are enforced by dependency-cruiser (`01` §4 as amended by §14 A11). Never weaken a rule to make an import work; fix the design.
 - **Platform rules:** official platform APIs only. Never use unofficial WhatsApp or iMessage clients. No scraping. Zero telemetry.
 - **Copy is product.** Bot messages, tool descriptions and the behavior charter live in versioned template files, not inline strings.
-- `01-architecture.md` §14 (amendments A1–A30) overrides any older text that conflicts with it.
+- `01-architecture.md` §14 (amendments A1–A32) overrides any older text that conflicts with it.
 
 ## 3. Anthropic / model API rules
 

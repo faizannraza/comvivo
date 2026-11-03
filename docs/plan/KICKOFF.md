@@ -17,7 +17,7 @@ You are taking Village from a finished plan to a finished, published, production
 - CLAUDE.md is the binding working agreement, and it survives context compaction. Follow it exactly, and re-read it plus docs/plan/STATUS.md whenever you resume.
 - docs/plan/ is the source of truth.
   - 00 is the vision.
-  - 01 is the normative architecture; its §14 amendments A1–A30 override older text.
+  - 01 is the normative architecture; its §14 amendments A1–A32 override older text.
   - 02–13 are the subsystem specs.
   - 14 holds the 504 canonical tasks with acceptance criteria, gates, demo scripts and cut-lines.
   - 15 holds risks, spikes and the decisions now delegated to you.

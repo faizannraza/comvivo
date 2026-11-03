@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Cross-cutting primitives: branded ids, typed errors, Result helpers, zod utilities, the redacting logger, the config loader, the BRAND constant, and the Clock/IdGenerator/Rng ports.",
+  "description": "Cross-cutting primitives: branded ids, typed errors, Result helpers, zod utilities, the redacting logger, the config loader, the tracing and metrics facades, the BRAND constant, and the Clock/IdGenerator/Rng ports.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -14,6 +14,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./observability": {
+      "types": "./dist/observability/index.d.ts",
+      "default": "./dist/observability/index.js"
     },
     "./testing": {
       "types": "./dist/testing/index.d.ts",

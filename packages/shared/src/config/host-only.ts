@@ -75,6 +75,12 @@ export const HOST_ONLY_PATHS: readonly string[] = [
   // after 24 hours (08 §5), and it is never an admin's call.
   'logging.debugContent',
 
+  // --- Where telemetry goes (A14: egress destinations) ----------------------------------------
+  // An OTLP endpoint is a place bytes leave for. Setting one from a session or the database would
+  // be an exfiltration primitive wearing an observability hat, and the metrics endpoint changes
+  // who can reach the process at all.
+  'observability.*',
+
   // --- Phoning home ---------------------------------------------------------------------------
   // ADR-017 is zero telemetry. The update check is opt-in, read-only, and host-only.
   'updates.*',

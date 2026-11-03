@@ -261,6 +261,46 @@ export const configSchema = z
           .prefault({}),
       })
       .prefault({}),
+    /**
+     * Tracing and metrics (`11` §3.10.2–§3.10.3). Both off by default.
+     *
+     * Not telemetry in the sense ADR-017 forbids: nothing is sent to us or to anyone else. These
+     * switches point at a collector the **host** runs, on the host's own machine, and with both
+     * off nothing is loaded at all. The whole subtree is host-only (A14): an OTLP endpoint is an
+     * egress destination, so being able to set one from a session would be an exfiltration
+     * primitive.
+     *
+     * Content never appears in either channel, by construction rather than by configuration —
+     * `Attributes` makes a GenAI content attribute a compile error and `FORBIDDEN_LABEL_NAMES`
+     * keeps member identifiers out of a scrape. There is deliberately no key that would enable
+     * content capture, and `OTEL_INSTRUMENTATION_GENAI_CAPTURE_CONTENT` is ignored.
+     */
+    observability: z
+      .object({
+        otel: z
+          .object({
+            enabled: z.boolean().default(false),
+            /** OTLP **HTTP** endpoint, e.g. `http://localhost:4318`. Required when enabled. */
+            endpoint: z.url().nullable().default(null),
+            /** Parent-based sampler ratio. 1.0 is right on a single host: the volume is low. */
+            sampleRatio: z.number().min(0).max(1).default(1),
+          })
+          .prefault({}),
+        metrics: z
+          .object({
+            enabled: z.boolean().default(false),
+            /**
+             * Add a `group` label to the handful of metrics that declare one.
+             *
+             * Off by default because it multiplies those series by the number of groups, and `11`
+             * §8 budgets about 5,000 series in total. On, it answers the one question a host
+             * actually asks of a multi-group instance: which group is spending the money.
+             */
+            perGroupLabels: z.boolean().default(false),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
     /** ADR-017: zero telemetry. This fetches a static release manifest, nothing more. */
     updates: z.object({ check: z.boolean().default(false) }).prefault({}),
   })

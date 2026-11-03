@@ -1,7 +1,7 @@
 # 14 — Milestones & Execution Plan
 
 > Status: **normative for task numbering and order** (`01` §14 A20). Subsystem specs `02`–`13` stay authoritative for design detail. Where this file and a spec disagree on *what* to build, the spec wins and this file is corrected. Where they disagree on *when* or *in what order*, this file wins.
-> Built from: `00`, `01` (incl. §14 A1–A30), `02`–`13` §10 (plus their §9/§11 where needed), `15`, `CLAUDE.md` and the review logs `_review/R1`–`R3`. Snapshot date: 2026-11-01.
+> Built from: `00`, `01` (incl. §14 A1–A32), `02`–`13` §10 (plus their §9/§11 where needed), `15`, `CLAUDE.md` and the review logs `_review/R1`–`R3`. Snapshot date: 2026-11-01.
 > Live progress lives in [`STATUS.md`](STATUS.md). This file changes only through §0.5.
 
 ---

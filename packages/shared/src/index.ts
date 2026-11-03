@@ -10,6 +10,14 @@
  *
  * Scaffolded in `M0-T1`; filled in by `M0-T6` (primitives and config), `M0-T7` (test doubles),
  * `M0-T8` (logger, redaction, `SecretString`) and `M0-T9` (observability facades).
+ *
+ * Two subpaths are deliberately **not** re-exported here:
+ *
+ *  - `@comvivo/shared/testing` — virtual clock, seeded RNG, deterministic ids. Keeping them off
+ *    the main barrel is what stops a test double reaching a production path.
+ *  - `@comvivo/shared/observability` — the tracing and metrics facades. A package that emits
+ *    telemetry should say so in its imports, and the span and metric catalogs are large enough
+ *    that folding them in would make this barrel the biggest module in the graph.
  */
 
 export { assertNever } from './assert-never.js';
