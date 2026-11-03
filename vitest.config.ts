@@ -85,6 +85,7 @@ export default defineConfig({
             'packages/**/src/**/*.test.ts',
             'apps/*/src/**/*.test.ts',
             'scripts/**/*.test.ts',
+            'test/**/*.test.ts',
           ],
           exclude: [...COMMON_EXCLUDE, ...NON_UNIT, 'apps/dashboard/**'],
         },
@@ -95,7 +96,11 @@ export default defineConfig({
           name: 'integration',
           // Forks: these load native modules (SQLCipher, sqlite-vec, onnxruntime).
           pool: 'forks',
-          include: ['packages/**/src/**/*.int.test.ts', 'apps/*/src/**/*.int.test.ts'],
+          include: [
+            'packages/**/src/**/*.int.test.ts',
+            'apps/*/src/**/*.int.test.ts',
+            'test/**/*.int.test.ts',
+          ],
           testTimeout: 30_000,
         },
       },
@@ -104,7 +109,7 @@ export default defineConfig({
           ...sharedTest,
           name: 'contract',
           pool: 'forks',
-          include: ['packages/**/src/**/*.contract.test.ts'],
+          include: ['packages/**/src/**/*.contract.test.ts', 'test/**/*.contract.test.ts'],
         },
       },
       {

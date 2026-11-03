@@ -22,7 +22,14 @@
  * fixtures that prove every rule bites land in **M0-T4**.
  */
 import { defineConfig, globalIgnores } from 'eslint/config';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import {
+  CORE_PURITY_RULES,
+  FETCH_ALLOWED_GLOBS,
+  FETCH_BAN,
+  SECURITY_RULES,
+} from './scripts/lint/rules.js';
 
 export default defineConfig(
   globalIgnores([
@@ -34,6 +41,7 @@ export default defineConfig(
     '**/reports/**',
     'packages/api-client/src/generated/**',
     'apps/docs/.astro/**',
+    'test/fixtures/**',
   ]),
   {
     // Parse every TypeScript file with the TypeScript parser, whether or not it is in a project.
@@ -41,7 +49,20 @@ export default defineConfig(
     // back to espree and fails on the first `as`.
     name: 'comvivo/ts-parser',
     files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
-    languageOptions: { parser: tseslint.parser },
+    languageOptions: {
+      parser: tseslint.parser,
+      // Globals must be declared or several rules go quiet rather than failing: `no-implied-eval`
+      // only fires when `setTimeout` resolves to a known global, so without this it reports
+      // nothing at all. Found by the ban test in `test/boundaries/lint-bans.int.test.ts` — a lint
+      // rule that is configured but inert is the worst kind of guard.
+      globals: { ...globals.node, ...globals.es2024 },
+    },
+  },
+  {
+    // The dashboard runs in a browser, not in Node.
+    name: 'comvivo/dashboard-globals',
+    files: ['apps/dashboard/**/*.{ts,tsx}'],
+    languageOptions: { globals: { ...globals.browser, ...globals.es2024 } },
   },
   {
     name: 'comvivo/type-aware',
@@ -80,6 +101,30 @@ export default defineConfig(
         { allowNumber: false, allowString: false, allowNullableObject: false },
       ],
     },
+  },
+  {
+    // `01` §4 and §11.4: core is deterministic and side-effect-free. Clock, ids and randomness are
+    // injected ports. Rule definitions live in `scripts/lint/rules.ts`, shared with the tests that
+    // prove each ban bites (`test/boundaries/lint-bans.test.ts`).
+    name: 'comvivo/core-purity',
+    files: ['packages/core/**/*.ts'],
+    ignores: ['**/*.test.ts', '**/testing/**'],
+    rules: CORE_PURITY_RULES,
+  },
+  {
+    // `08` §3.20: code-execution and injection paths with no legitimate use here.
+    name: 'comvivo/security-bans',
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
+    rules: SECURITY_RULES,
+  },
+  {
+    // `08` PSC-8: everything must reach the network through `safeFetch`, which applies the egress
+    // allowlist. The equivalent *import* restrictions are in `.dependency-cruiser.cjs`; this covers
+    // the `fetch` global, which dependency-cruiser cannot see.
+    name: 'comvivo/guarded-egress',
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
+    ignores: [...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
+    rules: FETCH_BAN,
   },
   {
     // Doubles and fixtures legitimately need looser typing than production code.
