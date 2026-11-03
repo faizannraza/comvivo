@@ -1203,7 +1203,9 @@ export interface Brand {
   readonly botDefaultAliases: readonly string[]; // router name-invocation defaults (05)
   readonly repo: { readonly owner: string; readonly name: string };
   readonly urls: { readonly site: string; readonly docs: string; readonly demo: string;
-                   readonly discord: string; readonly security: string; readonly releaseManifest: string };
+                   readonly community: string;   // renamed from `discord` by D-7: GitHub Discussions is the
+                                                 // guaranteed baseline, and a chat space is additive
+                   readonly security: string; readonly releaseManifest: string };
   readonly emails: { readonly security: string; readonly conduct: string };
   readonly legacy: { readonly envPrefixes: readonly string[]; readonly configFileNames: readonly string[] };
 }

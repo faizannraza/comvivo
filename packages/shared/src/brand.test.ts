@@ -7,6 +7,57 @@
 import { describe, expect, it } from 'vitest';
 import { BRAND, envVar, legacyEnvVars } from './brand.js';
 
+/**
+ * Every field `13` §4.1 requires, so a rename cannot quietly drop one. Listed literally rather
+ * than derived from the object, because deriving it from `BRAND` would make the test vacuous.
+ */
+const REQUIRED_FIELDS = [
+  'codename',
+  'displayName',
+  'slug',
+  'cliName',
+  'npmCliPackage',
+  'npmScope',
+  'envPrefix',
+  'configFileName',
+  'dataDirName',
+  'containerImage',
+  'botDefaultName',
+  'botDefaultAliases',
+  'repo',
+  'urls',
+  'emails',
+  'legacy',
+] as const;
+
+const REQUIRED_URLS = ['site', 'docs', 'demo', 'community', 'security', 'releaseManifest'] as const;
+
+describe('BRAND satisfies the 13 §4.1 contract', () => {
+  it.each(REQUIRED_FIELDS)('has %s', (field) => {
+    expect(BRAND).toHaveProperty(field);
+    expect(BRAND[field], `${field} is empty`).toBeTruthy();
+  });
+
+  it.each(REQUIRED_URLS)('has urls.%s', (key) => {
+    expect(BRAND.urls).toHaveProperty(key);
+  });
+
+  it('has no field the contract does not name, so nothing creeps in unreviewed', () => {
+    expect(Object.keys(BRAND).sort()).toEqual([...REQUIRED_FIELDS].sort());
+  });
+
+  it('names both halves of the repository, which is what moves when the org is created', () => {
+    expect(BRAND.repo.owner).toBeTruthy();
+    expect(BRAND.repo.name).toBeTruthy();
+  });
+
+  it('gives a contactable address for security and conduct', () => {
+    for (const [role, address] of Object.entries(BRAND.emails)) {
+      expect(address, `${role} address is not an address`).toMatch(/^[^@\s]+@[^@\s]+\.[^@\s]+$/);
+    }
+  });
+});
+
 describe('BRAND', () => {
   it('has a slug that is safe in a URL, an npm name, a container tag and a file name', () => {
     expect(BRAND.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
