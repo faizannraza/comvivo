@@ -1,0 +1,46 @@
+Comvivo
+Copyright 2026 The Comvivo Authors
+
+This product includes software developed as part of the Comvivo project
+(https://github.com/faizannraza/comvivo).
+
+Licensed under the Apache License, Version 2.0 (the "License"); you may not
+use this file except in compliance with the License. You may obtain a copy of
+the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+License for the specific language governing permissions and limitations under
+the License.
+
+--------------------------------------------------------------------------------
+Third-party components
+--------------------------------------------------------------------------------
+
+Comvivo's distributed artifacts bundle third-party software. Each release
+carries a CycloneDX SBOM listing every component with its licence, attested
+alongside the image and the npm package, so this file does not attempt to
+duplicate it.
+
+Components whose licences require more than attribution are listed here
+explicitly:
+
+  whisper.cpp              MIT
+    Speech-to-text, bundled with the voice-note transcription feature.
+
+  FFmpeg                   LGPL-2.1-or-later
+    Media decoding. Comvivo links FFmpeg dynamically and publishes the
+    corresponding source for the exact version shipped as a release asset
+    (ffmpeg-<version>-source.tar.xz), together with the configure flags used,
+    which is the LGPL source offer.
+
+  Baked embedding model
+    Shipped as a machine-learning-model component in the SBOM with its own
+    licence recorded there.
+
+These entries are populated and verified by the release pipeline
+(see docs/architecture/release.md). Before 1.0 the list may be incomplete;
+the SBOM attached to each release is authoritative.

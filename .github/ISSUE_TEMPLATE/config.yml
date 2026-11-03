@@ -1,0 +1,21 @@
+# Blank issues are disabled (`13` §3.F.2): a form gets us the version, the deployment and the
+# configuration, which is most of triage. The contact links below cover everything a blank issue
+# would otherwise be used for.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability (private)
+    url: https://github.com/faizannraza/comvivo/security/advisories/new
+    about: >-
+      Never open a public issue for a vulnerability. This includes discretion failures — Comvivo
+      revealing something a member should not have seen is a security issue, not a bug report.
+  - name: Ask a question
+    url: https://github.com/faizannraza/comvivo/discussions/categories/q-a
+    about: Questions are answered in Discussions, where the next person with the same one can find it.
+  - name: Suggest an idea
+    url: https://github.com/faizannraza/comvivo/discussions/categories/ideas
+    about: Ideas start as a discussion. If it needs a design decision, it becomes an RFC.
+  - name: What is built so far
+    url: https://github.com/faizannraza/comvivo/blob/main/docs/plan/STATUS.md
+    about: >-
+      Comvivo is pre-1.0 and unannounced. Before filing a bug, check whether the subsystem exists
+      yet — for most of the product today the honest answer is "not built".

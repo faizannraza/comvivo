@@ -1,0 +1,17 @@
+# DCO GitHub App configuration.
+#
+# Every commit needs a `Signed-off-by:` line (`git commit -s`), certifying that the author wrote
+# the change or has the right to submit it under Apache-2.0 — https://developercertificate.org.
+#
+# There is no CLA and no copyright assignment. The DCO asks contributors to confirm they may
+# contribute what they are contributing; a CLA asks them to hand over rights. For a project whose
+# whole pitch is that it belongs to the people running it, the second would be the wrong shape.
+#
+# `allowRemediationCommits` lets a contributor who forgot `-s` fix it with a follow-up commit
+# instead of rewriting a branch they may have already shared. Rebasing published history is a bad
+# habit to require of somebody making their first contribution.
+require:
+  members: true
+allowRemediationCommits:
+  individual: true
+  thirdParty: false
