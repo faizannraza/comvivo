@@ -10,6 +10,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { argv, exit, stdout } from 'node:process';
+import { validateChooserConfig, validateIssueForm } from '../github/issue-forms.js';
 import { type Finding, type Rule, report } from './finding.js';
 import { findSnapshotViolations, SNAPSHOT_RULES } from './snapshot-policy.js';
 import { findHygieneViolations, HYGIENE_RULES, isTestFile } from './test-hygiene.js';
@@ -49,6 +50,7 @@ const read = (path: string): string | undefined => {
 const sources = tracked.filter((path) => /\.tsx?$/.test(path) && !path.includes('/__fixtures__/'));
 const workflows = tracked.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path));
 const shellScripts = tracked.filter((path) => path.endsWith('.sh'));
+const issueForms = tracked.filter((path) => /^\.github\/ISSUE_TEMPLATE\/[^/]+\.ya?ml$/.test(path));
 
 /** `1 workflow`, `3 workflows`. Tool output is copy too. */
 function count(n: number, noun: string): string {
@@ -73,14 +75,55 @@ for (const path of workflows) {
   if (source !== undefined) findings.push(...findWorkflowViolations(path, source));
 }
 
-const ALL_RULES: readonly Rule[] = [...SNAPSHOT_RULES, ...HYGIENE_RULES, ...WORKFLOW_RULES];
+/**
+ * Issue forms, validated against GitHub's own schema.
+ *
+ * A malformed form **fails silently** — GitHub drops it from the chooser and reports nothing. The
+ * GraphQL `issueTemplates` field covers only legacy Markdown templates (verified by control:
+ * `vitejs/vite` has four YAML forms and that field reports zero), so there is no way to ask
+ * GitHub whether a form parsed. This is the only check there is.
+ */
+for (const path of issueForms) {
+  const source = read(path);
+  if (source === undefined) continue;
+  const basename = path.split('/').pop() ?? '';
+  const found =
+    basename === 'config.yml'
+      ? validateChooserConfig(path, source)
+      : validateIssueForm(path, source);
+  for (const problem of found) {
+    findings.push({
+      file: problem.file,
+      line: 1,
+      rule: 'issue-form-schema',
+      message: problem.detail,
+      source: '',
+    });
+  }
+}
+
+const ISSUE_FORM_RULE: Rule = {
+  id: 'issue-form-schema',
+  summary: "Issue forms must match GitHub's schema.",
+  rationale:
+    'A malformed form is dropped from the chooser silently — no error, no API signal. The only ' +
+    'way anybody finds out is that the option is missing when they try to file an issue.',
+};
+
+const ALL_RULES: readonly Rule[] = [
+  ...SNAPSHOT_RULES,
+  ...HYGIENE_RULES,
+  ...WORKFLOW_RULES,
+  ISSUE_FORM_RULE,
+];
 
 stdout.write(report('hygiene', ALL_RULES, findings));
 
 if (findings.length === 0) {
   stdout.write(
     `  ${count(testFiles, 'test file')}, ${count(workflows.length, 'workflow')}, ` +
-      `${count(shellScripts.length, 'shell script')}` +
+      `${count(shellScripts.length, 'shell script')}, ` +
+      `${count(issueForms.length, 'issue form')}` +
       `${gate ? ', gate mode (no skips allowed)' : ''}.\n`,
   );
 }
