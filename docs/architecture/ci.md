@@ -94,9 +94,24 @@ What *is* enforced today and does not need a second person:
 - no force pushes, no branch deletion;
 - squash is the only merge method.
 
-## The merge queue
+## The merge queue — configured, not yet enabled
 
-Configured per `11` §3.8.3:
+**The merge queue cannot be turned on yet.** `comvivo` is a user-owned repository, and GitHub's
+merge queue requires an organisation. Measured rather than assumed: `POST /repos/.../rulesets` with
+a `merge_queue` rule returns
+
+```
+422 Validation Failed — Invalid rule 'merge_queue':
+```
+
+with an empty detail, on every parameter combination tried — alone, alongside the `pull_request`
+rule, with `MERGE` instead of `SQUASH`, and with enforcement both active and disabled. A complete
+parameter set is accepted by the schema and then rejected as a rule, which is what a feature gate
+looks like rather than a bad request.
+
+It becomes available when the repository moves into the `comvivo` organisation — owner ask **H-6**
+in `docs/plan/STATUS.md`, which is already the highest-priority one. The settings below are the
+ones to apply then, per `11` §3.8.3:
 
 | Setting | Value | Why |
 |---|---|---|
@@ -106,10 +121,15 @@ Configured per `11` §3.8.3:
 | Only merge non-failing pull requests | on | A failing entry is removed rather than taking the batch down with it |
 | Status-check timeout | 45 minutes | p95 for `ci.yml` is budgeted at 20 minutes (`11` §8), so this is generous and still bounded |
 
-**Every required workflow triggers on `merge_group`.** Without that the required checks never
-report in the queue and it stalls — which is the single most common way a merge queue is
-misconfigured. `ci.yml`, `codeql.yml`, `osv.yml`, `dependency-review.yml`, `supply-policy.yml` and
-`zizmor.yml` all carry the trigger.
+**Every required workflow already triggers on `merge_group`**, so the queue will work the day it
+is switched on. Without that the required checks never report inside the queue and it stalls, which
+is the single most common way a merge queue is misconfigured. `ci.yml`, `codeql.yml`, `osv.yml`,
+`dependency-review.yml`, `supply-policy.yml` and `zizmor.yml` all carry the trigger.
+
+Until the queue exists, **"require branches to be up to date before merging" is on**. That is the
+manual equivalent: it forces a rebase onto `main` before merging, which is the property the queue
+would otherwise guarantee by building each entry on top of the branch. It is deliberately *off* in
+the queue configuration above, because there the queue owns that job.
 
 Wildcard branch patterns are deliberately not used, per `11` §3.8.3.
 
