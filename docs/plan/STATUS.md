@@ -87,6 +87,43 @@ on 2026-11-01. In priority order:
 4. **Handles**: X `@comvivo`, Mastodon `@comvivo@fosstodon.org`, LinkedIn `/company/comvivo`, and — once the
    domain exists — the self-verifying Bluesky **domain handle** `@comvivo.dev`. All verified free.
 
+**Re-verified 2026-11-03 (`M0-T15`).** Still free, checked against the registries directly rather than from memory:
+`comvivo`, `create-comvivo`, `@comvivo/server`, `@comvivo/plugin-sdk` and `@comvivo/channel-sdk` all return **404**
+from `registry.npmjs.org`, and `github.com/comvivo` returns **404**. This also **resolves the blocking finding in
+`12` §3.1**: the unscoped name under the old codename was taken, which meant `npx <name> init` could not ship. It is
+free under Comvivo, so the one-command install works as `00` §3.7 promises.
+
+**Draft issue, ready to file.** Copy this into a new issue on `faizannraza/comvivo` — I cannot create accounts or
+file on your behalf. Title: **Reserve the Comvivo distribution names**.
+
+```markdown
+Every name in `deploy/names.json` is still unregistered as of 2026-11-03. Securing them is the only
+squatting risk in the project, because the repository is public and the name is decided
+(ADR-024).
+
+Nothing here needs code. Each item is an account action only you can perform.
+
+- [ ] **GitHub organisation `comvivo`** — <https://github.com/organizations/plan> → Free.
+      This also claims `ghcr.io/comvivo`, the container namespace the release pipeline publishes to.
+      Then transfer this repository into the org (Settings → Danger Zone → Transfer). GitHub keeps
+      redirects, and `BRAND.repo` plus `deploy/names.json` are the only lines that change —
+      `pnpm names:check` fails until both are updated, and `pnpm names:apply` does the rewrite.
+- [ ] **npm organisation `comvivo`** — `npm login`, then `npm org create comvivo`. Free for public
+      packages. This claims the `@comvivo` scope.
+- [ ] **Unscoped `comvivo`** and **`create-comvivo`** — needed for `npx comvivo@latest init` and
+      `npm create comvivo`, which are the documented install paths.
+- [ ] **Defensive `convivo` and `create-convivo`** — English-first speakers reach for `con-`.
+- [ ] **Enable "Require 2FA and disallow tokens"** on the npm organisation. The release pipeline
+      uses OIDC trusted publishing and holds no `NPM_TOKEN`, so this costs nothing and closes the
+      stolen-token path entirely.
+
+**Do not publish placeholder packages.** npm discourages name squatting, and `13` §3.A.4 says real
+alpha builds ship at M8. Claiming the org and the scope reserves the namespace without publishing.
+
+**Timing note for npm trusted publishing (`M12-T90`):** the first publish must happen within two
+days of configuring the trusted publisher, so configure that at M12, not now.
+```
+
 **Also worth doing, but not blocking:** the formal trademark registers could not be searched without a human. Every one
 refused automated access — USPTO's search is an interactive SPA with no documented wordmark field, TSDR needs an API
 key, EUIPO/TMview sits behind a WAF, WIPO behind a proof-of-work challenge, UKIPO behind a CAPTCHA. **Trademarkia
@@ -154,6 +191,9 @@ Every significant delegated decision, with its rationale. Architectural decision
 | 2026-11-03 | M0-T8 | `11` §3.10.1 | `log.content()` writes through a **separate pino instance with no redaction**, rather than the main one | The spec already requires a separate destination ("never writes to the log file, only to stdout"), and the implementation forces the issue: the redaction that protects the normal channel strips exactly the fields `content()` exists to show. Two instances means the normal channel's protections can never be loosened to accommodate the debug one — found when the redaction layer correctly blocked the deliberate content path |
 | 2026-11-03 | M0-T8 | `11` §3.10.1 | Added **depth-unlimited forbidden-field stripping** as a third layer, keyed off `FORBIDDEN_FIELD_NAMES`, and listed every redact path twice (bare and `*.`-prefixed) | pino's `*` matches exactly **one** segment, so `*.text` never matches a top-level `text` — which is the most likely shape of the mistake the layer exists to catch. Found by a test, not by reading: a root-level `text` field was reaching the output. The strip pass also makes the documented forbidden list enforcement rather than documentation |
 | 2026-11-03 | M0-T8 | `11` §3.10.1, `01` §10 | Added `logging.file.{enabled,path,maxSizeMib,keep}` to the config schema, **off by default**, 5 × 10 MiB | The AC requires "file rotation off by default" and the key did not exist. Off is the right default: stdout is captured by Docker, systemd and every process manager a host is likely to use, so a file is redundant almost everywhere while being one more place content could land. The transport itself is wired in `M3-T14` |
+| 2026-11-03 | M0-T15 | `12` §3.1 | **The blocking finding in `12` §3.1 is resolved by the rename.** Re-verified against the registries: `comvivo`, `create-comvivo` and every `@comvivo/*` package return 404 from npm, and `github.com/comvivo` returns 404 | The spec records that the unscoped name under the old codename was taken (v0.8.0, "the official TypeScript library for the Village API"), which meant `npx <name> init` could not ship and `00` §3.7's one-command install was blocked. Free under Comvivo. Checked directly rather than carried forward from the naming decision, because `12` §3.1 states it as blocking and a stale "it was free on Sunday" is not evidence |
+| 2026-11-03 | M0-T15 | `12` §3.1 | `scripts/names/{check,apply}.mjs` built as TypeScript, and the manifest carries an explicit **`legacy`** block that `check` refuses and `apply` rewrites | A codemod that inferred our names by shape would also rewrite `ghcr.io/renovatebot/renovate` — asserted in the tests. An explicit list of what we used to be called cannot, and it is what makes `13` §3.A.6's weekly drill a one-command operation rather than a hunt. Word-boundary matching so `villager` and `my-village-thing` are left alone, longest-term-first so `ghcr.io/…/village-ha` is rewritten before the bare name. Proven end to end on a planted compose file: check fails naming each line, `apply --check` previews, `apply` rewrites three references and leaves the third-party image untouched, a second `apply` is a no-op, and check then passes |
+| 2026-11-03 | M0-T15 | `12` §3.1 | The manifest is **excluded from its own scan** | It declares the legacy names, so scanning it finds every one of them. The first run reported six findings against `deploy/names.json` itself — obvious once stated, invisible until run |
 | 2026-11-03 | M0-T14 | `12` §3.10.1 | **`privatePackages: false` is not expressible for this monorepo.** Changesets refuses the tree with six "Invalid tree" errors — `comvivo`, `@comvivo/server` and `@comvivo/plugin-sdk` each depend on skipped private packages (`@comvivo/shared`, `@comvivo/storage`, `@comvivo/tools`). Changed to `privatePackages: { version: true, tag: false }` | The spec's intent — private workspaces get no tags and are never published — is preserved exactly. What is not expressible is `version: false`, because a published package cannot be bumped when a private dependency it bundles changes. The private versions are internal bookkeeping that never leaves the repository; `12` §3.10.4's `npm-pack` check (no `workspace:` in a packed manifest) is what makes that safe, since the published manifests do not list these dependencies at all |
 | 2026-11-03 | M0-T14 | `12` §3.10.1 | **Four packages flipped to non-private** with `publishConfig: { access: public, provenance: true }`: `comvivo`, `@comvivo/server`, `@comvivo/plugin-sdk`, `@comvivo/channel-sdk`. The other 20 workspaces stay private | `12` §3.10.1 designates exactly these four as published, and `M0-T1` had scaffolded everything private — so the `fixed` group and the independent SDK versioning were inert. Accidental-publish risk is covered by there being no publish path and no npm credential anywhere in the repository (`release.yml` holds no `id-token` or registry login), with the trusted publisher arriving at `M12-T90` |
 | 2026-11-03 | M0-T14 | `12` §3.10.1 | `scripts/release/changeset-required.mjs` built as `changeset-policy.ts` + `changeset-required.ts`; the changelog formatter **stays `.mjs`** | Changesets loads the changelog module itself at run time, so that one cannot be TypeScript. Our own check can be, and is, matching every other guard in this tree — a pure policy module with 36 tests plus a thin runner. Also: the formatter makes **no network call**, unlike `@changesets/changelog-github`, which resolves pull requests through the API and fails without a token. A formatter that cannot run on a contributor's laptop is one that gets replaced by hand-editing; `tools/release/notes.ts` (M12) adds the pull-request links where a token genuinely exists |
@@ -236,7 +276,7 @@ State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; 
 
 ### M0 — Foundations
 
-Status: in progress · Tasks: 16/23 · Gate: —
+Status: in progress · Tasks: 17/23 · Gate: —
 
 - [x] M0-T1 Monorepo scaffold — 24 packages/apps; `pnpm verify` green in 6s on Node 26.13.0 **and** 24.22.2; 27 modules / 0 depcruise violations; 18 tests — ae5b2e1
 - [x] M0-T2 Runtime pins & pnpm supply-chain policy — policy **observed working live**: rejected `eslint@10.14.0` as too fresh, then a clean resolution chose 10.13.0 and `dependency-cruiser@18.7.0` unaided (evidence: `docs/architecture/evidence/m0-t2-minimum-release-age.md`); 15 policy tests
@@ -252,7 +292,7 @@ Status: in progress · Tasks: 16/23 · Gate: —
 - [x] M0-T12 CI security workflows — six workflows (CodeQL with the `actions` language as well as `javascript-typescript`, OSV in diff and full-tree variants, dependency-review, zizmor, Scorecard, supply-policy), `osv-scanner.toml` with no entries, and `scripts/supply/lockfile-policy.ts` blocking `git+`/`github:`/tarball/`file:`/`link:` specifiers and git or tarball lockfile resolutions (25 tests, half of them false-positive cases). **Measured: 7 of 8 workflows green first time; `osv` failed with two true positives**, since fixed. `sha_pinning_required` enabled at the platform level
 - [x] M0-T13 Renovate policy — `renovate.json5` with `minimumReleaseAge: '3 days'` matching pnpm's own 4320 minutes, `internalChecksFilter: 'strict'`, a weekly window, monthly `lockFileMaintenance`, digest pinning, and **auto-merge limited to GitHub Actions digests** (the spec's devDep auto-merge contradicts its own CODEOWNERS lockfile rule — see Plan changes). Guards the two pins that would otherwise be silently bumped into breakage: `typescript <7` (ADR-025) and `@types/node <25` (the supported floor, not the primary target). Validated `--strict` as a repository config in Renovate's own digest-pinned image, because our `trustPolicy` refuses the npm package
 - [x] M0-T14 Changesets — `.changeset/config.json` with the `comvivo`/`@comvivo/server` **fixed** group and independently versioned SDKs, a changelog formatter that groups by type (`breaking:`, `security:`, `upgrade:` first, because somebody skimming a release note stops at the first section that does not concern them) and makes no network call, and a `changeset-required` check with a visible `no-changeset` waiver label. Three spec corrections, all found by running it: `privatePackages: false` is not expressible here, four packages had to stop being private for the mechanism to exist at all, and `changeset status` rejects the tree in a way the config sketch could not show. 64 tests here, **799 total**
-- [ ] M0-T15 Names manifest
+- [x] M0-T15 Names manifest — `deploy/names.json` as the single source of truth for every published name, cross-checked against `BRAND` field by field (they are one decision stored twice, and the failure mode when they drift is a release published under a name the software does not answer to), plus `names:check`/`names:apply` with an explicit `legacy` block. **Resolved `12` §3.1's blocking finding**: the unscoped name is free under Comvivo, so `npx comvivo@latest init` ships. The ready-to-file reservation issue is in H-6 above. 31 tests here, **830 total**
 - [ ] M0-T16 Repo hygiene & community files
 - [ ] M0-T17 Issue/PR templates, labels, CODEOWNERS
 - [ ] M0-T18 Docs-site skeleton & docs CI

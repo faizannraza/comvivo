@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -59,7 +59,9 @@
     "supply:lockfile": "tsx scripts/supply/check-lockfile.ts",
     "renovate:check": "bash scripts/ci/validate-renovate.sh",
     "changeset": "changeset",
-    "changeset:required": "tsx scripts/release/changeset-required.ts"
+    "changeset:required": "tsx scripts/release/changeset-required.ts",
+    "names:check": "tsx scripts/names/check.ts",
+    "names:apply": "tsx scripts/names/apply.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",
@@ -77,6 +79,7 @@
     "typescript-eslint": "^8.72",
     "vite": "^8.3",
     "vitest": "^5.0",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "zod": "catalog:"
   }
 }

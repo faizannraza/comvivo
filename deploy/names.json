@@ -1,0 +1,58 @@
+{
+  "$comment": [
+    "The single source of truth for every published name (`12` \u00a73.1).",
+    "",
+    "`pnpm names:check` fails on any disagreement between this file, the BRAND constant in",
+    "packages/shared/src/brand.ts, the workspace package names, and the references in deploy/** and",
+    ".github/**. `pnpm names:apply` rewrites those references from this file.",
+    "",
+    "Availability re-verified 2026-11-03 (M0-T15): `comvivo`, `create-comvivo` and every",
+    "`@comvivo/*` package return 404 from the npm registry, and github.com/comvivo returns 404. The",
+    "blocking finding in `12` \u00a73.1 \u2014 that the unscoped name was taken, so `npx <name> init` could",
+    "not ship \u2014 does not apply to Comvivo and is resolved by the rename (ADR-024).",
+    "",
+    "`org` is the owner account until the `comvivo` GitHub organisation and npm organisation exist;",
+    "that is owner ask H-6 in STATUS.md. The mirror repositories below do not exist yet either \u2014",
+    "they are the targets `12` \u00a73.8 creates, named here so they are named once."
+  ],
+  "productName": "Comvivo",
+  "org": "faizannraza",
+  "repo": "faizannraza/comvivo",
+  "npm": {
+    "cli": "comvivo",
+    "scope": "@comvivo",
+    "createPackage": "create-comvivo"
+  },
+  "images": {
+    "main": "ghcr.io/faizannraza/comvivo",
+    "ha": "ghcr.io/faizannraza/comvivo-ha",
+    "dockerHub": null
+  },
+  "ha": {
+    "repo": "faizannraza/comvivo-home-assistant",
+    "slug": "comvivo",
+    "betaSlug": "comvivo_beta"
+  },
+  "umbrel": {
+    "communityStoreRepo": "faizannraza/comvivo-umbrel-store",
+    "storeId": "comvivo",
+    "officialAppId": "comvivo",
+    "port": 7777
+  },
+  "casaos": {
+    "storeRepo": "faizannraza/comvivo-casaos-store",
+    "appId": "io.github.faizannraza.comvivo"
+  },
+  "unraid": {
+    "templateRepo": "faizannraza/unraid-templates"
+  },
+  "docsUrl": "https://faizannraza.github.io/comvivo",
+  "releaseManifestUrl": "https://faizannraza.github.io/comvivo/release-manifest.json",
+  "legacy": {
+    "$comment": "Distribution names this project has used before. `names:check` fails if any appears; `names:apply` rewrites them. This is what makes the weekly rename drill (13 \u00a73.A.6, M0-T19) a one-command operation rather than a hunt.",
+    "names": ["village"],
+    "repos": ["faizannraza/village"],
+    "images": ["ghcr.io/faizannraza/village", "ghcr.io/faizannraza/village-ha"],
+    "scopes": ["@village"]
+  }
+}
