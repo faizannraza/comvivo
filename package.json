@@ -52,10 +52,11 @@
     "db:generate": "node scripts/pending.mjs \"pnpm db:generate\" M1-T14 \"generate a drizzle migration from the schema\" \"nothing \u2014 there is no schema until M1\"",
     "db:migrate": "node scripts/pending.mjs \"pnpm db:migrate\" M1-T14 \"apply pending drizzle migrations to the database\" \"nothing \u2014 there is no schema until M1\"",
     "clean": "turbo run clean && node -e \"for (const p of ['node_modules/.cache','.turbo','reports','.vitest','coverage']) fs.rmSync(p,{recursive:true,force:true})\"",
-    "supply:check": "tsx scripts/supply/check-native.ts",
+    "supply:check": "tsx scripts/supply/check-native.ts && pnpm run supply:lockfile",
     "test:dashboard": "vitest run --project dashboard",
     "secrets:check": "tsx scripts/security/check-literal-secrets.ts",
-    "hygiene:check": "tsx scripts/hygiene/check.ts"
+    "hygiene:check": "tsx scripts/hygiene/check.ts",
+    "supply:lockfile": "tsx scripts/supply/check-lockfile.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

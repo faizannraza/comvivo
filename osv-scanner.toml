@@ -1,0 +1,23 @@
+# OSV-Scanner triage (`08` §3.15).
+#
+# Every entry needs three things, and the build rejects an entry missing any of them:
+#
+#   - `id`      the advisory being ignored;
+#   - `reason`  why it does not reach us, in enough detail that somebody else can check the claim;
+#   - `ignoreUntil`  a date, never "indefinitely".
+#
+# The expiry is the part that matters. A permanent ignore is a decision nobody revisits, and the
+# usual reason for ignoring an advisory — "the vulnerable code path is not reachable from our use"
+# — stops being true the moment somebody calls the function differently. An expiry turns it back
+# into a question.
+#
+# There are no entries. That is the preferred state: the first move on an advisory is to upgrade or
+# remove the dependency, and triage is for when neither is possible yet.
+
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2026-12-01
+# reason = """
+# Reachability: the advisory is in <package>'s <function>, which we never call — <path> uses only
+# <other function>. Verified by <how>. Upstream fix tracked in <link>.
+# """

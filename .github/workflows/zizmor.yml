@@ -1,0 +1,50 @@
+# zizmor — static analysis of the workflows themselves (`08` §3.15).
+#
+# Runs on any change under `.github/`, which is where the blast radius lives: a workflow runs with a
+# token, on this repository, with whatever secrets it can reach. zizmor knows the GitHub Actions
+# threat model specifically — template injection, excessive permissions, credential persistence,
+# cache poisoning, impostor commits — and finds the structural versions of problems that
+# `workflow-policy.ts` only catches one line at a time.
+#
+# All three layers are deliberate and none replaces the others:
+#   actionlint          syntax, expressions, runner labels, shellcheck over `run:` blocks
+#   workflow-policy.ts  SHA pinning, `permissions: {}`, timeouts, `pull_request_target`
+#   zizmor              the Actions threat model, with data flow
+name: zizmor
+
+on:
+  pull_request:
+    paths:
+      - ".github/**"
+  merge_group:
+  push:
+    branches: [main]
+    paths:
+      - ".github/**"
+
+permissions: {}
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # The action uploads SARIF to the Security tab (`advanced-security` defaults to true).
+      security-events: write
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: zizmorcore/zizmor-action@45d7276c9ca790aabd705e31ca99c6185c3e76dd # v0.8.1
+        with:
+          # `08` §3.15: block on high. Lower-severity findings still reach the Security tab, so
+          # they are visible and triageable without gating every pull request on advice.
+          min-severity: high

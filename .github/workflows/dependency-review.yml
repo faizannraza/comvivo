@@ -1,0 +1,48 @@
+# Dependency review (`08` §3.15).
+#
+# Reviews what a pull request **adds**, before it merges: a dependency with a known high-severity
+# advisory, or a licence we cannot ship under. This is the only security check that runs before the
+# dependency is ever installed, which is the point — OSV and CodeQL tell you about code that is
+# already in the lockfile.
+#
+# The licence list is not legal advice and is deliberately narrow: Apache-2.0 (`LICENSE`) is
+# incompatible with the strong copyleft family for a distributed binary, and a self-hosted product
+# that ships a Docker image is distributing.
+name: dependency-review
+
+on:
+  pull_request:
+  merge_group:
+
+permissions: {}
+
+concurrency:
+  group: dependency-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: review
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      # Needed to read the dependency graph diff for the pull request.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          # Strong copyleft and the Server Side Public Licence. A dependency under any of these
+          # would change what a host is allowed to do with their own deployment.
+          deny-licenses: >-
+            AGPL-1.0-only, AGPL-1.0-or-later, AGPL-3.0-only, AGPL-3.0-or-later,
+            GPL-2.0-only, GPL-2.0-or-later, GPL-3.0-only, GPL-3.0-or-later,
+            SSPL-1.0, BUSL-1.1, CC-BY-NC-4.0, CC-BY-NC-SA-4.0
+          # Results go to the step summary. `11` §3.8.2: never a PR comment, because a fork PR's
+          # token is read-only and the step would fail for an outside contributor.
+          comment-summary-in-pr: never

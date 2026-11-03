@@ -1,0 +1,54 @@
+# OSV-Scanner (`08` §3.15).
+#
+# Two modes, and the distinction matters. On a pull request the reusable PR workflow scans the
+# **diff**, so a vulnerability that already exists on `main` does not block unrelated work — which
+# is what keeps the check from being routinely overridden. The nightly run scans the whole tree, so
+# an advisory published today is found tomorrow without anybody touching the dependency.
+#
+# Triage lives in `osv-scanner.toml`, and every entry there carries an expiry date.
+name: osv
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  schedule:
+    # 04:41 UTC daily. OSV records appear continuously; a dependency that was clean at merge time
+    # is not clean forever.
+    - cron: "41 4 * * *"
+
+permissions: {}
+
+concurrency:
+  group: osv-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  scan-pr:
+    # The diff scan, on pull requests only.
+    if: ${{ github.event_name == 'pull_request' }}
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable-pr.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      scan-args: |-
+        --recursive
+        --config=osv-scanner.toml
+        ./
+
+  scan-all:
+    # The full scan: merge queue, `main`, and nightly.
+    if: ${{ github.event_name != 'pull_request' }}
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@b1d267aea5211fa648d9d442fa64b90dbdcbdd36 # v2.7.0
+    with:
+      scan-args: |-
+        --recursive
+        --config=osv-scanner.toml
+        ./

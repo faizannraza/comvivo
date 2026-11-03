@@ -1,0 +1,59 @@
+# CodeQL (`08` §3.15).
+#
+# Two languages. `javascript-typescript` is the obvious one; `actions` analyses the workflow files
+# themselves and is the complement to zizmor — CodeQL finds data-flow problems across a workflow,
+# zizmor knows the GitHub Actions threat model, and `workflow-policy.ts` enforces the two settings
+# that decide what a compromised dependency can reach.
+#
+# `security-extended` rather than the default suite: the default is tuned for low noise on any
+# repository, and the extra queries are worth triaging on a codebase whose whole job is deciding
+# who may read what.
+name: codeql
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  schedule:
+    # 05:11 UTC Monday. Weekly, because CodeQL's query packs update independently of our code, so
+    # a tree that was clean last month can have a new finding without a commit.
+    - cron: "11 5 * * 1"
+
+permissions: {}
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      # Writing the analysis back to the Security tab is the whole point.
+      security-events: write
+      # CodeQL reads workflow run metadata to attribute `actions` findings.
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, actions]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@52cf1852265d99e9bea071b03366fc777a602909 # codeql-bundle-v2.27.4
+        with:
+          languages: ${{ matrix.language }}
+          queries: security-extended
+
+      # No build step. TypeScript is analysed from source, and `actions` has nothing to build —
+      # which also means CodeQL never runs our build scripts, so a malicious dependency cannot use
+      # this job as an execution path.
+      - uses: github/codeql-action/analyze@52cf1852265d99e9bea071b03366fc777a602909 # codeql-bundle-v2.27.4
+        with:
+          category: /language:${{ matrix.language }}

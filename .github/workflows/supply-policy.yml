@@ -1,0 +1,50 @@
+# Supply-chain policy (`08` §3.15, `sec.supply.policy`).
+#
+# Four rules, all about where code comes from and what it is allowed to run:
+#
+#   1. the lockfile is frozen — it agrees with the manifests, or the install fails;
+#   2. every dependency resolves from the registry, with no `git+`, tarball, `file:` or `link:`;
+#   3. `allowBuilds` matches `08` §3.15 exactly, so an unlisted install script hard-fails;
+#   4. no ONNX Runtime CUDA artefacts, which would silently add ~2 GB to an image.
+#
+# Rules 2–4 run as `pnpm supply:check`, which is also in `pnpm verify`, so a contributor sees them
+# before pushing. This workflow is what makes them a **required check** that cannot be skipped.
+#
+# `pnpm-workspace.yaml` is a CODEOWNERS security path, which is how "no new `allowBuilds` without
+# CODEOWNERS" is enforced: changing the allowlist means editing both that file and the expected set
+# in `scripts/supply/native-policy.ts`, and both require the security review.
+name: supply-policy
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: supply-policy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  policy:
+    name: policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The frozen-lockfile check is the install itself: `./.github/actions/setup` runs
+      # `pnpm install --frozen-lockfile`, which fails if the lockfile and the manifests disagree.
+      - uses: ./.github/actions/setup
+
+      - name: Dependency sources, install scripts and native artefacts
+        run: pnpm run supply:check
+
+      - name: Secret-shaped literals
+        run: pnpm run secrets:check
