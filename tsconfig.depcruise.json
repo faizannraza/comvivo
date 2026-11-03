@@ -8,7 +8,6 @@
     "declarationMap": false,
     "sourceMap": false,
     "incremental": false,
-    "isolatedDeclarations": false,
     "types": ["node"],
     "baseUrl": ".",
     "paths": {

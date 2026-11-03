@@ -1,0 +1,256 @@
+/**
+ * The configuration schema.
+ *
+ * A note on `.prefault({})` versus `.default({})`: in zod v4 `.default()` takes the **output**
+ * type, so an absent object would have to be given every field already filled in. `.prefault()`
+ * supplies the value as **input** and then parses it, which is what lets the inner `.default()`s
+ * cascade — and it is why `parseConfig({})` returns a complete configuration rather than failing.
+ *
+ * ADR-014 and `01` §10 define the surface; `08` §5 adds the security keys. This is the **skeleton**
+ * `M0-T6` is scoped to: the keys that exist today, validated properly. `M9` generates the full
+ * reference from this schema, and each subsystem extends its own namespace as it lands — so the
+ * schema grows by addition, and the generated docs cannot drift from it.
+ *
+ * Everything is `.default()`ed, so a host with an empty `comvivo.yaml` gets a working instance and
+ * `parseConfig({})` returns the complete default configuration. That is what makes "install to
+ * first useful answer in under five minutes" (`00` §3.7) achievable: nothing is required up front
+ * except a model key and a bot token, both of which are secrets and live in the environment.
+ */
+import { BRAND } from '../brand.js';
+import { z } from '../zod.js';
+
+/** A port a host may bind. 0 means "pick a free one", which the test harness relies on. */
+const port = z.number().int().min(0).max(65_535);
+
+const instance = z
+  .object({
+    /** Shown in the dashboard chrome and in the bot's introduction. */
+    name: z.string().min(1).max(80).default(`Our ${BRAND.displayName}`),
+    /** Database, blobs, keys, backups and logs all live under here. */
+    dataDir: z.string().min(1).default('./data'),
+    /** Needed only for ICS feeds and shareable dashboard links; otherwise loopback is enough. */
+    publicUrl: z.url().nullable().default(null),
+  })
+  .prefault({});
+
+const models = z
+  .object({
+    preset: z.enum(['best', 'balanced', 'economy', 'local', 'custom']).default('best'),
+    /** Per-route overrides. Shape is owned by `05` and validated there; opaque here. */
+    routes: z.record(z.string(), z.unknown()).prefault({}),
+    local: z
+      .object({
+        baseUrl: z.url().default('http://localhost:11434/v1'),
+        model: z.string().nullable().default(null),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+const channels = z
+  .object({
+    telegram: z.object({ enabled: z.boolean().default(false) }).prefault({}),
+    discord: z.object({ enabled: z.boolean().default(false) }).prefault({}),
+    slack: z.object({ enabled: z.boolean().default(false) }).prefault({}),
+    matrix: z
+      .object({
+        enabled: z.boolean().default(false),
+        homeserverUrl: z.url().nullable().default(null),
+      })
+      .prefault({}),
+    signal: z
+      .object({
+        enabled: z.boolean().default(false),
+        cliUrl: z.url().default('http://localhost:8080'),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+const dashboard = z
+  .object({
+    /** Loopback by default. Changing it is host-only, because it changes who can reach the UI. */
+    bind: z.string().min(1).default('127.0.0.1'),
+    port: port.default(7777),
+    publicUrl: z.url().nullable().default(null),
+    allowedHosts: z.array(z.string()).default([]),
+    /** `false`, `true`, or the CIDRs whose `X-Forwarded-*` headers are honoured (`09` §3.9.6). */
+    trustProxy: z.union([z.boolean(), z.array(z.string())]).default(false),
+    tls: z
+      .object({
+        certFile: z.string().nullable().default(null),
+        keyFile: z.string().nullable().default(null),
+      })
+      .prefault({}),
+    allowInsecureLan: z.boolean().default(false),
+    ingress: z
+      .object({
+        enabled: z.boolean().default(false),
+        port: port.default(8099),
+        allowFrom: z.array(z.string()).default(['172.30.32.2']),
+      })
+      .prefault({}),
+    sessions: z
+      .object({
+        idleHours: z.number().int().positive().default(12),
+        absoluteDays: z.number().int().positive().default(7),
+        rotateHours: z.number().int().positive().default(24),
+        recentAuthMinutes: z.number().int().positive().default(10),
+      })
+      .prefault({}),
+    auth: z
+      .object({
+        pairingCodes: z.boolean().default(true),
+        pairingCodeTtlMinutes: z.number().int().min(1).max(60).default(10),
+        /** `auto` = loopback only; `https` = also over HTTPS, an explicit opt-in (A9). */
+        magicLinks: z.enum(['auto', 'https', 'off']).default('auto'),
+        magicLinkTtlMinutes: z.number().int().min(2).max(10).default(10),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+const privacy = z
+  .object({
+    /** A constitution may shorten this; only the host may raise the ceiling below (S13). */
+    messageRetentionDays: z.number().int().min(1).default(90),
+    maxMessageRetentionDays: z.number().int().min(1).default(365),
+    logRetentionDays: z.number().int().min(1).default(14),
+    encryptAtRest: z.boolean().default(true),
+    localOnly: z.boolean().default(false),
+    sensitiveRoutesLocal: z.boolean().default(false),
+  })
+  .prefault({});
+
+const traces = z
+  .object({
+    /** Manifests only, never content (`01` §14, the TurnTrace retention resolution). */
+    retentionDays: z.number().int().min(7).max(365).default(30),
+    captureModelIO: z.boolean().default(false),
+  })
+  .prefault({});
+
+const network = z
+  .object({
+    egress: z
+      .object({
+        /** Exact `host:port` entries. The allowlist that makes invariant I5 real. */
+        allowPrivate: z.array(z.string()).default([]),
+        allowHttpHosts: z.array(z.string()).default([]),
+        defaultTimeoutMs: z.number().int().positive().default(10_000),
+        defaultMaxBytes: z.number().int().positive().default(10_485_760),
+      })
+      .prefault({}),
+  })
+  .prefault({});
+
+const outbound = z
+  .object({
+    linkPreviews: z.enum(['off', 'allowlisted']).default('off'),
+    allowedLinkDomains: z.array(z.string()).default([]),
+    maxMentionsPerMessage: z.number().int().min(0).default(5),
+  })
+  .prefault({});
+
+/**
+ * The full configuration.
+ *
+ * `.strict()` on every object is deliberate: a typo in a key name must be an error, not a silently
+ * ignored setting. A host who writes `dashbord:` and gets a working-but-wrong instance has been
+ * failed by us, and "I set that and it did nothing" is among the worst bug reports to receive.
+ */
+export const configSchema = z
+  .object({
+    instance,
+    models,
+    embeddings: z
+      .object({
+        provider: z.enum(['local', 'openai', 'voyage', 'google', 'ollama']).default('local'),
+        model: z.string().default('multilingual-e5-small'),
+      })
+      .prefault({}),
+    transcription: z
+      .object({
+        provider: z.enum(['local', 'openai', 'groq', 'deepgram']).default('local'),
+        model: z.string().default('whisper-base'),
+      })
+      .prefault({}),
+    channels,
+    email: z
+      .object({
+        enabled: z.boolean().default(false),
+        imap: z
+          .object({
+            host: z.string().nullable().default(null),
+            port: port.default(993),
+            user: z.string().nullable().default(null),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
+    dashboard,
+    ics: z
+      .object({ bind: z.string().nullable().default(null), port: port.default(7778) })
+      .prefault({}),
+    privacy,
+    traces,
+    network,
+    outbound,
+    budgets: z
+      .object({
+        /** `auto` uses the per-preset defaults in `01` §14 A3. */
+        preset: z.literal('auto').default('auto'),
+        monthlyUsd: z.number().positive().nullable().default(null),
+        dailyUsd: z.number().positive().nullable().default(null),
+      })
+      .prefault({}),
+    backups: z
+      .object({
+        enabled: z.boolean().default(true),
+        keep: z.number().int().positive().default(14),
+      })
+      .prefault({}),
+    security: z
+      .object({
+        keys: z
+          .object({
+            store: z.enum(['keyfile', 'keychain', 'file', 'env', 'passphrase']).default('keyfile'),
+            keyfilePath: z.string().default('./data/keys/master.key'),
+            keychainService: z.string().default(BRAND.slug),
+          })
+          .prefault({}),
+      })
+      .prefault({}),
+    plugins: z
+      .object({
+        runner: z.enum(['process', 'docker']).default('process'),
+        /** May be `false` only outside production, and `doctor` says so loudly (`08` §5). */
+        requireApproval: z.boolean().default(true),
+      })
+      .prefault({}),
+    mcp: z
+      .object({
+        server: z
+          .object({ http: z.object({ enabled: z.boolean().default(false) }).prefault({}) })
+          .prefault({}),
+      })
+      .prefault({}),
+    logging: z
+      .object({
+        level: z.enum(['trace', 'debug', 'info', 'warn', 'error', 'fatal']).default('info'),
+        format: z.enum(['pretty', 'json']).default('pretty'),
+        /** Logs message and memory CONTENT. Off by default, host-only, announced in-group. */
+        debugContent: z.boolean().default(false),
+      })
+      .prefault({}),
+    /** ADR-017: zero telemetry. This fetches a static release manifest, nothing more. */
+    updates: z.object({ check: z.boolean().default(false) }).prefault({}),
+  })
+  .strict();
+
+export type Config = z.output<typeof configSchema>;
+
+/** The complete default configuration, as a host with an empty file would get. */
+export function defaultConfig(): Config {
+  return configSchema.parse({});
+}

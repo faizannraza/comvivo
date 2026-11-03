@@ -84,6 +84,9 @@ allowBuilds:
 # ---------------------------------------------------------------------------
 # Referenced from packages as `"vitest": "catalog:"`. One place to bump.
 catalog:
+  zod: ^4.6
+  yaml: ^2.9
+  temporal-polyfill: ^1.0
   vitest: ^5.0
   "@vitest/coverage-v8": ^5.0
   "@types/node": ^24.9

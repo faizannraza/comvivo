@@ -45,7 +45,15 @@
         // `noPropertyAccessFromIndexSignature` (tsconfig.base.json) *requires* `process.env['FOO']`,
         // because `process.env` is an index signature. The two rules contradict each other, and the
         // TypeScript one is the valuable half: it makes a typo in an env var name a compile error.
-        "noExcessiveCognitiveComplexity": "warn",
+        // Threshold raised from the default 15. Configuration parsing is branchy by nature — a
+        // loader that reads a file, an env file, the real environment and the database, each with its
+        // own failure mode, sits around 16-17 with every branch earning its place. Splitting further
+        // would trade readable code for artificial indirection. 20 keeps the rule biting on genuinely
+        // tangled functions.
+        "noExcessiveCognitiveComplexity": {
+          "level": "warn",
+          "options": { "maxAllowedComplexity": 20 }
+        },
         "useLiteralKeys": "off"
       },
       "correctness": {
@@ -140,13 +148,17 @@
       "linter": {
         "rules": {
           "suspicious": {
-            // OFF, deliberately. Biome reads declared variables from `.env` files, which are gitignored
-            // here (they hold secrets), so the rule cannot work in CI and only fires locally for people
-            // who happen to have a `.env`. The authoritative declaration of every variable is the zod
-            // config schema in `@comvivo/shared/config` (`01` §11.2, ADR-014), and `M3-T54` generates the
-            // env reference from it — a stronger guard than this rule, and one that cannot drift.
             "noExplicitAny": "off",
-            "noConsole": "off"
+            "noConsole": "off",
+            // A test that plants a literal `${...}` is usually asserting that the parser does NOT
+            // interpolate it, so the placeholder has to stay literal for the test to mean anything.
+            "noTemplateCurlyInString": "off"
+          },
+          "style": {
+            // A test knows its own fixture is present. `leafFor('dashboard.port')!` reads better
+            // than threading an optional through every assertion, and a wrong assumption fails
+            // loudly on the next line anyway.
+            "noNonNullAssertion": "off"
           }
         }
       }
