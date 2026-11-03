@@ -38,7 +38,7 @@ Two of the security workflows have jobs that run on some events and not others:
 |---|---|---|
 | `osv.yml` | `scan-pr` | pull request only — scans the diff |
 | `osv.yml` | `scan-all` | merge group, `main`, nightly — scans everything |
-| `zizmor.yml` | `audit` | pull requests that touch `.github/**`, and every merge group |
+| `zizmor.yml` | `audit` | every pull request and merge group; `push` to `main` only when `.github/**` changed |
 
 Requiring any of those by name would stall the context where it does not run. Measured on a real
 push: `scan-all / osv-scan` succeeded and `scan-pr` reported `skipped`.
@@ -46,6 +46,13 @@ push: `scan-all / osv-scan` succeeded and `scan-pr` reported `skipped`.
 So each of those workflows ends in an **aggregator with a stable name** — `osv-ok`, `zizmor-ok` —
 that always runs and audits the conditional jobs beneath it. `osv-ok` additionally fails if
 *neither* scan ran, because "nothing was checked" must not look like "nothing was wrong".
+
+**An aggregator fixes job-level conditionality, not workflow-level triggering.** `zizmor.yml`
+originally filtered its `pull_request` trigger on `.github/**`, so a pull request touching nothing
+there did not start the workflow at all — `zizmor-ok` never reported either, and the required check
+would have blocked forever. The filter is off the `pull_request` trigger for that reason and stays
+on `push`, where nothing is gated. Worth knowing before adding a `paths` filter to any workflow
+whose checks are required.
 
 ## Required checks
 

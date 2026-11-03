@@ -12,10 +12,15 @@
 #   zizmor              the Actions threat model, with data flow
 name: zizmor
 
+# No `paths` filter on `pull_request`: a **workflow** that does not trigger reports no check at
+# all, and `zizmor-ok` is a required check — an aggregator fixes job-level conditionality, not
+# workflow-level triggering. A pull request touching nothing under `.github/` would otherwise
+# block forever on a check that was never going to run. zizmor audits a handful of YAML files in
+# seconds, so running it always costs nothing worth saving.
+#
+# `push` keeps the filter, because pushes to `main` are not gated on checks.
 on:
   pull_request:
-    paths:
-      - ".github/**"
   merge_group:
   push:
     branches: [main]
