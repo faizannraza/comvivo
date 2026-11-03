@@ -37,6 +37,24 @@ export interface TargetBrand {
  * accurate account of a past rename into a false one, and the leftover report would then be empty
  * for the wrong reason.
  */
+/**
+ * Files whose content names **both sides** of a rename as test data.
+ *
+ * `rename-policy.test.ts` asserts that `comvivo` becomes `zzbrand`. Rewriting it during a rename
+ * turns every one of those assertions into a no-op comparing a name to itself — the test then
+ * passes while testing nothing, or fails confusingly, which is what the drill found.
+ *
+ * Exempting it is correct rather than a workaround: the functions under test take an arbitrary
+ * source and target, so `comvivo → zzbrand` remains a valid case no matter what the product ends
+ * up being called. The data is not a reference to the current brand; it is a pair of example
+ * strings.
+ */
+export const FIXTURES: readonly RegExp[] = [/^scripts\/brand\/[^/]+\.test\.ts$/];
+
+export function isFixture(path: string): boolean {
+  return FIXTURES.some((pattern) => pattern.test(path));
+}
+
 export const HISTORY: readonly RegExp[] = [
   /^docs\/adr\//,
   /^docs\/plan\/STATUS\.md$/,
@@ -168,6 +186,7 @@ export interface Leftover {
  */
 export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   ...HISTORY,
+  ...FIXTURES,
   // `BRAND.legacy` and `names.json.legacy` keep the previous names on purpose, so a host who
   // installed the old build is not stranded (`13` §3.A.6, legacy compatibility).
   /^packages\/shared\/src\/brand\.ts$/,

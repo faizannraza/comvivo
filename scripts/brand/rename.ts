@@ -18,6 +18,7 @@ import {
   type CurrentBrand,
   findLeftovers,
   isAllowedLeftover,
+  isFixture,
   isHistory,
   isTextFile,
   type Leftover,
@@ -90,7 +91,7 @@ for (const path of tracked) {
     skipped.push(path);
     continue;
   }
-  if (isHistory(path)) continue;
+  if (isHistory(path) || isFixture(path)) continue;
 
   const source = readFileSync(`${ROOT}/${path}`, 'utf8');
   let next = rewriteContent(source, from, to);

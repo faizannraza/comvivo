@@ -7,6 +7,7 @@ import {
   findLeftovers,
   HISTORY,
   isAllowedLeftover,
+  isFixture,
   isHistory,
   isTextFile,
   LEFTOVER_ALLOWLIST,
@@ -126,6 +127,19 @@ describe('what is rewritten', () => {
     ]) {
       expect(isHistory(path), path).toBe(true);
     }
+  });
+
+  it('leaves its own fixtures alone', () => {
+    // This very file asserts that `comvivo` becomes `zzbrand`. Rewriting it during a rename turns
+    // each of those assertions into a no-op comparing a name to itself. Found by the drill, which
+    // reported four failures here after renaming.
+    expect(isFixture('scripts/brand/rename-policy.test.ts')).toBe(true);
+    expect(isFixture('scripts/brand/check.test.ts')).toBe(true);
+    // Not the source files: their doc comments should follow the product's name.
+    expect(isFixture('scripts/brand/rename-policy.ts')).toBe(false);
+    expect(isFixture('scripts/brand/rename.ts')).toBe(false);
+    // And not some other test that merely lives elsewhere.
+    expect(isFixture('scripts/hygiene/hygiene.test.ts')).toBe(false);
   });
 
   it('rewrites the plan and the code', () => {
