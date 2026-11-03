@@ -57,10 +57,13 @@
     "secrets:check": "tsx scripts/security/check-literal-secrets.ts",
     "hygiene:check": "tsx scripts/hygiene/check.ts",
     "supply:lockfile": "tsx scripts/supply/check-lockfile.ts",
-    "renovate:check": "bash scripts/ci/validate-renovate.sh"
+    "renovate:check": "bash scripts/ci/validate-renovate.sh",
+    "changeset": "changeset",
+    "changeset:required": "tsx scripts/release/changeset-required.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",
+    "@changesets/cli": "^3.0.3",
     "@types/node": "^24.9",
     "@vitest/coverage-v8": "^5.0",
     "dependency-cruiser": "^18.7",

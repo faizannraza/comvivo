@@ -1,7 +1,6 @@
 {
   "name": "@comvivo/server",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "The composition root: dependency wiring, the Hono HTTP API, worker loops and process lifecycle.",
   "license": "Apache-2.0",
@@ -41,5 +40,9 @@
   },
   "devDependencies": {
     "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

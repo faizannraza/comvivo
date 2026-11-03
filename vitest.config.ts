@@ -97,6 +97,9 @@ export default defineConfig({
             'packages/**/src/**/*.test.ts',
             'apps/*/src/**/*.test.ts',
             'scripts/**/*.test.ts',
+            // `12` §3.10.4 puts release tooling in `tools/` — the changelog formatter, the notes
+            // composer — and its grouping logic is exactly the kind of thing that needs tests.
+            'tools/**/*.test.ts',
             'test/**/*.test.ts',
           ],
           exclude: [...COMMON_EXCLUDE, ...NON_UNIT, 'apps/dashboard/**'],

@@ -234,6 +234,34 @@ jobs:
       - name: Build on the supported Node floor
         run: pnpm run build
 
+  changeset:
+    name: changeset
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The check diffs against the merge base, which needs the base branch's history.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # The job runs on every event but the check only applies to a pull request, so this is a
+      # **step** condition rather than a job one. `ci-ok` treats any skipped job as a failure —
+      # deliberately, because that is what stops a silently-skipped required check — so a job that
+      # skipped itself on `push` would turn the aggregator red on `main`.
+      - name: Changeset required?
+        if: ${{ github.event_name == 'pull_request' }}
+        run: pnpm run changeset:required
+
+      - name: Not applicable
+        if: ${{ github.event_name != 'pull_request' }}
+        run: |
+          echo "changeset: only checked on a pull request." >> "$GITHUB_STEP_SUMMARY"
+
   # The single required check (`11` §3.8.3). Branch protection names this and nothing else, so the
   # job list above can change without touching repository settings.
   #
@@ -245,7 +273,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions: {}
-    needs: [static, unit, integration, coverage, build, node24]
+    needs: [static, unit, integration, coverage, build, node24, changeset]
     if: ${{ always() }}
     steps:
       - name: Audit every needed job

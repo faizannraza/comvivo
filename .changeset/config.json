@@ -1,0 +1,20 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@4/schema.json",
+  "changelog": [
+    "./tools/changelog/index.mjs",
+    {
+      "repo": "faizannraza/comvivo"
+    }
+  ],
+  "commit": false,
+  "access": "public",
+  "baseBranch": "main",
+  "fixed": [["comvivo", "@comvivo/server"]],
+  "linked": [],
+  "updateInternalDependencies": "patch",
+  "privatePackages": {
+    "version": true,
+    "tag": false
+  },
+  "format": "auto"
+}

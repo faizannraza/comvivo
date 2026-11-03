@@ -1,7 +1,6 @@
 {
   "name": "@comvivo/plugin-sdk",
   "version": "0.0.0",
-  "private": true,
   "type": "module",
   "description": "The public, semver-stable API third parties build against: tool, channel and skill definitions.",
   "license": "Apache-2.0",
@@ -31,5 +30,9 @@
   },
   "devDependencies": {
     "vitest": "catalog:"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }
