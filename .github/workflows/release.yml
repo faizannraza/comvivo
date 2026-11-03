@@ -132,10 +132,11 @@ jobs:
           # `changeset version` edits package.json and CHANGELOG.md in the working tree. With no
           # push and no PR, the run is a preview: the diff is printed and discarded.
           pnpm exec changeset version
-          echo
-          echo '### Version preview'  >> "$GITHUB_STEP_SUMMARY"
-          echo                        >> "$GITHUB_STEP_SUMMARY"
-          echo '```diff'              >> "$GITHUB_STEP_SUMMARY"
-          git --no-pager diff --stat  >> "$GITHUB_STEP_SUMMARY"
-          echo '```'                  >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo '### Version preview'
+            echo
+            echo '```diff'
+            git --no-pager diff --stat
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           git checkout -- .

@@ -48,6 +48,12 @@ const read = (path: string): string | undefined => {
 
 const sources = tracked.filter((path) => /\.tsx?$/.test(path) && !path.includes('/__fixtures__/'));
 const workflows = tracked.filter((path) => /^\.github\/workflows\/[^/]+\.ya?ml$/.test(path));
+const shellScripts = tracked.filter((path) => path.endsWith('.sh'));
+
+/** `1 workflow`, `3 workflows`. Tool output is copy too. */
+function count(n: number, noun: string): string {
+  return `${String(n)} ${noun}${n === 1 ? '' : 's'}`;
+}
 
 const findings: Finding[] = [];
 let testFiles = 0;
@@ -73,7 +79,8 @@ stdout.write(report('hygiene', ALL_RULES, findings));
 
 if (findings.length === 0) {
   stdout.write(
-    `  ${String(testFiles)} test files, ${String(workflows.length)} workflows` +
+    `  ${count(testFiles, 'test file')}, ${count(workflows.length, 'workflow')}, ` +
+      `${count(shellScripts.length, 'shell script')}` +
       `${gate ? ', gate mode (no skips allowed)' : ''}.\n`,
   );
 }
@@ -102,6 +109,35 @@ if (workflows.length > 0) {
       stdout.write(`\nactionlint:\n${out}${err}`);
       if (out === '' && err === '') {
         stdout.write(`actionlint exited ${String(failure.status ?? '?')} with no output.\n`);
+      }
+      exit(1);
+    }
+  }
+}
+
+/**
+ * shellcheck on our own `.sh` files.
+ *
+ * actionlint already runs shellcheck on every workflow `run:` block — which is how SC2129 in
+ * `release.yml` was caught, after it had passed locally where shellcheck was not installed. A
+ * standalone script is not a workflow, so nothing was checking `install-actionlint.sh`: the one
+ * file in the tree whose job is to verify a download. `12` §9's `packaging` job adds hadolint and
+ * shellcheck over the deploy scripts; this covers ours now, at the same cost.
+ */
+if (shellScripts.length > 0) {
+  try {
+    execFileSync('shellcheck', ['--color=never', ...shellScripts], { cwd: ROOT, stdio: 'pipe' });
+    stdout.write('  shellcheck: clean.\n');
+  } catch (error) {
+    const failure = error as { status?: number; stdout?: Buffer; stderr?: Buffer; code?: string };
+    if (failure.code === 'ENOENT') {
+      stdout.write('  shellcheck: not installed locally; it runs in the `static` CI job.\n');
+    } else {
+      const out = failure.stdout?.toString() ?? '';
+      const err = failure.stderr?.toString() ?? '';
+      stdout.write(`\nshellcheck:\n${out}${err}`);
+      if (out === '' && err === '') {
+        stdout.write(`shellcheck exited ${String(failure.status ?? '?')} with no output.\n`);
       }
       exit(1);
     }
