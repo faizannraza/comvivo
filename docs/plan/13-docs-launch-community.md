@@ -421,7 +421,7 @@ Legend: **G** = generated (§3.C.4 rule 4); **A** = audience (H host, M member, 
 | Path | Title | Content | A |
 |---|---|---|---|
 | `/` | Home | Splash page: one-liner, demo launcher, three pillars (belongs to the group · discretion by architecture · quiet by default), quickstart tabs, who it's for, links to Privacy & Trust | all |
-| `/start/what-is-village/` | What is Village? | The group-owned agent in two minutes: what it does, what it isn't (not a SaaS, not WhatsApp, not a moderator) | H, M |
+| `/start/what-is-comvivo/` | What is Village? | The group-owned agent in two minutes: what it does, what it isn't (not a SaaS, not WhatsApp, not a moderator) | H, M |
 | `/start/quickstart/` | Quickstart | Pick a path (npx, Docker, HA, Umbrel/CasaOS); prerequisites; what you'll have in five minutes | H |
 | `/start/quickstart/telegram/` | Quickstart: Telegram | BotFather token, privacy mode, adding the bot to a group, first question; ≤5 minutes; troubleshooting box | H |
 | `/start/quickstart/discord/` | Quickstart: Discord | Create the application and bot, enable the Message Content intent, invite URL with least-privilege permissions, first question | H |
@@ -440,7 +440,7 @@ Legend: **G** = generated (§3.C.4 rule 4); **A** = audience (H host, M member, 
 |---|---|---|---|
 | `/members/welcome/` | Village joined your group: what now? | What it sees, what it remembers, how to say "forget that", how to turn memory off, how DMs work | M |
 | `/members/privacy/` | Your privacy in a Village group | The promise in plain words, including the host caveat and model-provider caveat | M |
-| `/members/talking-to-village/` | Talking to Village | Reminders, lists, chores, catch-up, "why did you say that?", "what do you know about me?" | M |
+| `/members/talking-to-comvivo/` | Talking to Village | Reminders, lists, chores, catch-up, "why did you say that?", "what do you know about me?" | M |
 | `/members/for-parents-and-kids/` | Kids and teens | Child and teen roles, guardian approvals, what parents can and can't see | M |
 
 **Concepts** (`/concepts/`)
@@ -800,7 +800,7 @@ Thanks, <name>
 | 07:00 | Overnight check: GitHub, npm, GHCR, Cloudflare status; quickstart smoke on 3 paths | REL |
 | 11:00 | War room opens (private Discord channel). Status check of all systems. Re-run demo smoke on phones | IC |
 | 12:00 | Repo metadata final: description, topics, website, social preview. Pin the "Welcome, start here" Discussion. Check the README on the GitHub mobile app | DOC |
-| 13:30 | Launch blog post live (`/blog/introducing-village/`). Announcements Discussion posted. Discord invite opened | COM |
+| 13:30 | Launch blog post live (`/blog/introducing-comvivo/`). Announcements Discussion posted. Discord invite opened | COM |
 | **14:00** | **Show HN submitted** by AUTH (lead maintainer, established account). URL = the GitHub repo | AUTH |
 | 14:02 | AUTH posts the first comment, written by hand from the §3.E.10 skeleton | AUTH |
 | 14:05 | Maintainers post on X, Bluesky, Mastodon and LinkedIn, linking the repo or blog, **never the HN URL**, and never asking for votes or stars | All |

@@ -58,6 +58,16 @@ describe('the information architecture', () => {
     expect(pages.length).toBeGreaterThan(100);
   });
 
+  it('has no legacy codename in a page path', () => {
+    // Content was already checked; **paths** were not, and two shipped with the old codename —
+    // `/start/what-is-village/` and `/members/talking-to-village/` — straight out of the plan's own
+    // IA table. A page path is a URL somebody bookmarks, so it is the most expensive place for a
+    // rename to be missed and the quietest.
+    for (const { path } of pages) {
+      expect(/village/i.test(path), `${path} carries the old codename`).toBe(false);
+    }
+  });
+
   it('has no duplicate paths', () => {
     const paths = pages.map((page) => page.path);
     expect(new Set(paths).size).toBe(paths.length);
