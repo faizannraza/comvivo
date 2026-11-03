@@ -14,6 +14,16 @@ import starlightLinksValidator from 'starlight-links-validator';
 // the site URL comes from the environment and falls back to something that builds anywhere.
 const site = process.env.DOCS_SITE ?? 'https://comvivo.dev';
 
+// A note on the one build warning you will see:
+//
+//   [WARN] [build] Could not render `/404` from route `/[...slug]` as it conflicts with higher
+//                  priority route `/404`.
+//
+// That is Starlight's dedicated `/404` route winning over the docs catch-all, which is correct —
+// `dist/404.html` is built from `src/content/docs/404.md`, verified by reading the output. Both a
+// `src/pages/404.astro` and no entry at all produce worse warnings (a hard route collision, and
+// "Entry docs → 404 was not found" respectively), so this is the quietest of the three.
+
 export default defineConfig({
   site,
   // Trailing slashes everywhere, matching the paths `13` §3.C.3 specifies. Chosen explicitly

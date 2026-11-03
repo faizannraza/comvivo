@@ -11,6 +11,7 @@
     "directory": "apps/docs"
   },
   "scripts": {
+    "prepare": "astro sync",
     "dev": "astro dev",
     "build": "astro build",
     "preview": "astro preview",

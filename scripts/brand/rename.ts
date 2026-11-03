@@ -128,6 +128,40 @@ for (const path of byDepth) {
   }
 }
 
+// --- Formatting --------------------------------------------------------------------------------
+// A codemod that produces unformatted output is a codemod whose output fails CI. Found by the
+// drill: appending to `BRAND.legacy` pushed that line past the print width, and `biome ci`
+// rejected both `brand.ts` and `deploy/names.json`.
+//
+// `format` rather than `check --write`: formatting is mechanical, while lint autofixes can change
+// what code means, and a rename has no business doing that.
+if (!dryRun) {
+  // The binary directly, not `pnpm exec`: `pnpm` is a shim that `execFileSync` cannot exec
+  // (`spawnSync pnpm ENOEXEC`), and going through it would also trigger pnpm's install check for
+  // no reason. Found by the drill.
+  const biome = `${ROOT}/node_modules/.bin/biome`;
+  if (!existsSync(biome)) {
+    stdout.write(
+      'brand:rename: Biome is not installed, so the output is unformatted.\n\n' +
+        '  Run `pnpm install` and then `pnpm exec biome format --write .`\n\n' +
+        'On a fresh checkout the rename has to come after the install, which is the order\n' +
+        '`rename-drill.yml` uses. Unformatted output fails `biome ci` in `pnpm verify`.\n',
+    );
+    exit(1);
+  }
+  try {
+    execFileSync(biome, ['format', '--write', '.'], { cwd: ROOT, stdio: 'pipe' });
+  } catch (error) {
+    const failure = error as { status?: number; stdout?: Buffer; stderr?: Buffer };
+    stdout.write(
+      'brand:rename: the formatter failed.\n\n' +
+        `  exit: ${String(failure.status ?? '?')}\n` +
+        `${failure.stdout?.toString() ?? ''}${failure.stderr?.toString() ?? ''}\n`,
+    );
+    exit(1);
+  }
+}
+
 // --- Leftovers ---------------------------------------------------------------------------------
 const leftovers: Leftover[] = [];
 if (!dryRun) {
