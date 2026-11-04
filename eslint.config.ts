@@ -135,7 +135,12 @@ export default defineConfig(
     // the `fetch` global, which dependency-cruiser cannot see.
     name: 'comvivo/guarded-egress',
     files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
-    ignores: [...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
+    // `packages/core/**` is excluded because `comvivo/core-purity` above already carries the fetch
+    // ban as part of its own `no-restricted-globals`. ESLint flat config **replaces** a rule's
+    // options rather than merging them, so a block that matched core here would silently take the
+    // `Date` and `process` bans away — which is exactly what happened for most of M0, and what
+    // the exit gate caught by planting `new Date()` in core and finding `pnpm lint` green.
+    ignores: ['packages/core/**', ...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
     rules: FETCH_BAN,
   },
   {

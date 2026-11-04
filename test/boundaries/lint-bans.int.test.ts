@@ -192,6 +192,53 @@ describe('the guarded-egress ban bites', { tags: ['slow'] }, () => {
 });
 
 describe('the real eslint.config.ts wires the bans to the right files', { tags: ['slow'] }, () => {
+  /**
+   * The effective **options**, not just the rule name.
+   *
+   * This is the assertion that was missing. ESLint flat config *replaces* a rule's options when a
+   * later block sets the same rule; it does not merge them. `no-restricted-globals` is set by both
+   * `comvivo/core-purity` and `comvivo/guarded-egress`, and for most of M0 the egress block won —
+   * so the effective config for `packages/core/**` banned `fetch` and **not** `Date` or `process`.
+   *
+   * Every test passed throughout. The isolated rule tests exercise `CORE_PURITY_RULES` directly,
+   * and the test below used to assert only that the rule *name* was present. It took planting
+   * `new Date()` in core during the M0 exit gate, and seeing `pnpm lint` come back green, to find
+   * it.
+   */
+  const restrictedGlobalsFor = async (file: string): Promise<string[]> => {
+    const rules = await configuredRulesFor(file);
+    const entry = rules['no-restricted-globals'];
+    if (!Array.isArray(entry)) return [];
+    return entry
+      .slice(1)
+      .map((option) => (option as { name?: string }).name ?? '')
+      .filter((name) => name !== '')
+      .sort();
+  };
+
+  it('bans Date, process and fetch inside core — the options, not just the rule', async () => {
+    expect(await restrictedGlobalsFor('packages/core/src/policy/authorize.ts')).toEqual([
+      'Date',
+      'fetch',
+      'process',
+    ]);
+  });
+
+  it('bans only fetch outside core, where a clock is legitimate', async () => {
+    // `storage` must be able to call `Date.now()`. If this ever returns `Date`, a block has
+    // started matching more than it should; if it returns nothing, one has clobbered the egress
+    // ban.
+    expect(await restrictedGlobalsFor('packages/storage/src/repositories/groups.ts')).toEqual([
+      'fetch',
+    ]);
+  });
+
+  it('bans nothing where fetch is explicitly allowed', async () => {
+    // `FETCH_ALLOWED_GLOBS` exists so an adapter can speak a platform protocol. If the ban leaked
+    // in here, the allowlist would be decorative.
+    expect(await restrictedGlobalsFor('packages/shared/src/net/safe-fetch.ts')).toEqual([]);
+  });
+
   it('applies the core purity bans inside core', async () => {
     const rules = await configuredRulesFor('packages/core/src/policy/authorize.ts');
     expect(Object.keys(rules)).toContain('no-restricted-globals');
