@@ -105,6 +105,16 @@ overrides:
   # Reached only through the eslint toolchain, so it is dev-only: a linter that can be slowed down
   # by a crafted glob is not a product risk. Fixed anyway, because the fix is a version bump.
   minimatch: ^11.0.1
+  # GHSA-67mh-4wv8-2f99 - esbuild's development server sets `Access-Control-Allow-Origin: *`, so
+  # any website a developer visits can make requests to it and read the responses. Vulnerable
+  # `< 0.25.0`; `drizzle-kit@0.31.11` pins `esbuild ^0.18.20` and has no release that moves off it.
+  #
+  # Dev-only and, for us, not even that: drizzle-kit uses esbuild's **bundle** API to compile
+  # `drizzle.config.ts`, and never starts a server. It is overridden anyway, because the fix is a
+  # version bump and because leaving a known advisory in the lockfile trains people to read
+  # `osv-scanner` output as noise. `0.25.x` was already in the tree through vite and tsx, so this
+  # also collapses two copies of esbuild into one.
+  esbuild: ^0.25.0
 
 catalog:
   fast-check: ^4.10

@@ -12,6 +12,7 @@ import {
   COVERAGE_THRESHOLDS,
   NON_UNIT,
   sharedTest,
+  WORKSPACE_ALIASES,
 } from './vitest.shared.js';
 
 // Pin the environment here, in the main process, **before Vitest forks any worker**. Workers
@@ -28,6 +29,14 @@ process.env['COMVIVO_TEST_MODE'] = '1';
 const CI = process.env['CI'] === 'true' || process.env['CI'] === '1';
 
 export default defineConfig({
+  // Every `@comvivo/*` import resolves to **source**, not to a package's `dist/`.
+  //
+  // Without this a test that imports a sibling package needs that package built first, so it
+  // passes on a machine that has built recently and fails on a fresh checkout with "Failed to
+  // resolve entry for package". That is the same shape as M0-T18's `.astro` types: a local check
+  // that is weaker than CI's while printing the same result. Built from `tsconfig.paths.json`, the
+  // one file dependency-cruiser and the test typecheck also read.
+  resolve: { alias: WORKSPACE_ALIASES },
   test: {
     // The integration, contract, scenario and bench layers are populated by their own milestones
     // (M1 storage, M2/M3 adapters, M3-T43 the harness, M1-T32 benches), so an empty project must

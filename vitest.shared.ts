@@ -7,7 +7,51 @@
  * The old `vitest.workspace.ts` / `defineWorkspace` was removed in Vitest 4 and now fails
  * **silently**, which is worse than failing loudly — a repo can look configured and run nothing.
  */
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { UserWorkspaceConfig, ViteUserConfig } from 'vitest/config';
+
+const ROOT = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Resolve every `@comvivo/*` import to **source**, from `tsconfig.paths.json`.
+ *
+ * Without this, a test that imports a sibling package resolves it through `node_modules` into that
+ * package's `dist/` — so the test passes on a machine that has built recently and fails on a fresh
+ * checkout with "Failed to resolve entry for package". Measured in `M1-T2`: the first three
+ * cross-package imports in this repository's history were mine, and all of them went green locally
+ * and red in CI.
+ *
+ * Built from the same file dependency-cruiser and `tsc -p tsconfig.test.json` read, because three
+ * copies of one mapping is three chances to disagree. `test/boundaries/depcruise-paths.test.ts`
+ * asserts the file is complete and that this alias covers it.
+ *
+ * JSON with comments, so `JSON.parse` would refuse it: the comment stripping below is deliberate
+ * and narrow (line comments only, which is all that file uses).
+ */
+function workspaceAliases(): Record<string, string> {
+  const raw = readFileSync(resolve(ROOT, 'tsconfig.paths.json'), 'utf8');
+  const withoutComments = raw.replaceAll(/^\s*\/\/.*$/gm, '');
+  const config = JSON.parse(withoutComments) as {
+    compilerOptions: { paths: Record<string, string[]> };
+  };
+  const out: Record<string, string> = {};
+  for (const [specifier, targets] of Object.entries(config.compilerOptions.paths)) {
+    const target = targets[0];
+    if (target === undefined) continue;
+    // Type-only entries are excluded. `tsconfig.paths.json` also maps
+    // `better-sqlite3-multiple-ciphers` to the declaration file that package ships and hides, and
+    // aliasing that at **runtime** makes Vitest load a `.d.ts` as if it were a module —
+    // `ReferenceError: Database is not defined`, from inside `export = Database`. A declaration
+    // file is not code; the alias is for source, not for types.
+    if (target.endsWith('.d.ts')) continue;
+    out[specifier] = resolve(ROOT, target);
+  }
+  return out;
+}
+
+export const WORKSPACE_ALIASES: Record<string, string> = workspaceAliases();
 
 type TestOptions = NonNullable<ViteUserConfig['test']>;
 
