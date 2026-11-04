@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from './errors.js';
-import { brandedId, describeIssues, formatIssues, parse, parseOrThrow, z } from './zod.js';
+import { describeIssues, formatIssues, parse, parseOrThrow, z } from './zod.js';
 
 const person = z.object({ name: z.string().min(1), age: z.number().int().positive() });
 
@@ -85,45 +85,5 @@ describe('parseOrThrow', () => {
     expect(() => parseOrThrow(person, {}, 'a row from the members table')).toThrow(
       /a row from the members table/,
     );
-  });
-});
-
-describe('brandedId', () => {
-  const groupId = brandedId('grp', 'GroupId');
-
-  it('accepts a well-formed TypeID', () => {
-    expect(groupId.safeParse('grp_01j8kqd7h3f9z2m4n6p8r0t2vw').success).toBe(true);
-  });
-
-  it.each([
-    ['the wrong prefix', 'mbr_01j8kqd7h3f9z2m4n6p8r0t2vw'],
-    ['no prefix', '01j8kqd7h3f9z2m4n6p8r0t2vw'],
-    ['too short', 'grp_01j8kqd7h3f9z2m4n6p8r0t2v'],
-    ['too long', 'grp_01j8kqd7h3f9z2m4n6p8r0t2vwx'],
-    ['uppercase', 'grp_01J8KQD7H3F9Z2M4N6P8R0T2VW'],
-    ['excluded base32 letters (i, l, o, u)', 'grp_01j8kqd7h3f9z2m4n6p8r0tiou'],
-    ['empty', ''],
-  ])('rejects %s', (_label, value) => {
-    expect(groupId.safeParse(value).success).toBe(false);
-  });
-
-  it('explains the expected shape, naming the entity', () => {
-    const outcome = groupId.safeParse('nope');
-    if (!outcome.success) {
-      expect(outcome.error.issues[0]?.message).toContain('GroupId');
-      expect(outcome.error.issues[0]?.message).toContain('grp_');
-    }
-  });
-
-  it('keeps two entity ids mutually unassignable at compile time', () => {
-    // The runtime value is just a string; the brand is what stops a MemberId reaching a parameter
-    // that wants a GroupId. Operating on the wrong group IS invariant I4 failing, so this is the
-    // bug class the brand exists to prevent.
-    const memberId = brandedId('mbr', 'MemberId');
-    const g = groupId.parse('grp_01j8kqd7h3f9z2m4n6p8r0t2vw');
-    const m = memberId.parse('mbr_01j8kqd7h3f9z2m4n6p8r0t2vw');
-    // @ts-expect-error a MemberId must not be assignable to a GroupId
-    const wrong: typeof g = m;
-    expect(typeof wrong).toBe('string');
   });
 });

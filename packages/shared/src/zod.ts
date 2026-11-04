@@ -76,20 +76,17 @@ export function parseOrThrow<S extends z.ZodType>(
  */
 export type Branded<T, B extends string> = T & { readonly __brand: B };
 
-/** Build a zod schema for a branded id with a TypeID prefix. */
-export function brandedId<B extends string>(
-  prefix: string,
-  brand: B,
-): z.ZodType<Branded<string, B>> {
-  // TypeID: `<prefix>_<26 chars of Crockford base32>`, lowercase.
-  const pattern = new RegExp(`^${prefix}_[0-9a-hjkmnp-tv-z]{26}$`);
-  return z
-    .string()
-    .regex(
-      pattern,
-      `must be a ${brand} id: "${prefix}_" followed by 26 base32 characters (ADR-019)`,
-    )
-    .transform((value) => value as Branded<string, B>);
-}
+/**
+ * `brandedId` lived here until `M1-T3`.
+ *
+ * It took a prefix and a brand as *independent* arguments, so `brandedId('grp', 'member')`
+ * produced a schema that accepted group ids and typed them as member ids — the exact confusion
+ * branding exists to prevent. Its pattern also accepted any 26 base32 characters, including a
+ * leading `8`–`z`, which decodes past 128 bits and which `typeid-js` refuses.
+ *
+ * `idSchema` in `ids.ts` replaces it: the brand **is** the prefix, the prefix comes from the
+ * registry, and it reports the same distinctions `parseId` does, so an API error and a storage
+ * error say the same thing about the same string.
+ */
 
 export { z };
