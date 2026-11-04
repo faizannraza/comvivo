@@ -1,8 +1,8 @@
 # STATUS — Comvivo build tracker
 
-**Current milestone:** M0 — Foundations (in progress)  
-**Last updated:** 2026-11-01  
-**Last green gate:** none  
+**Current milestone:** M1 — Storage & domain core (starting)  
+**Last updated:** 2026-11-03  
+**Last green gate:** **M0, 2026-11-03** — 1111 tests, 97.33% statements, CI 75 s, 23/23 tasks ([report](#milestone-report))  
 **Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
 **Operating mode:** autonomous (`CLAUDE.md` §5). Ask the owner only for money, credentials/account actions, or a 2-minute real-chat smoke test.  
 **Repo:** https://github.com/faizannraza/comvivo (renamed from `village` on 2026-11-01 when D-2 landed; see DL-8)
@@ -335,7 +335,7 @@ State at plan creation (after `_review/R4-alignment.md`). `M0-T23` re-verifies; 
 
 ### M0 — Foundations
 
-Status: in progress · Tasks: 23/23 · Gate: —
+Status: **complete** · Tasks: 23/23 · Gate: **green 2026-11-03** (merge queue blocked on H-6)
 
 - [x] M0-T1 Monorepo scaffold — 24 packages/apps; `pnpm verify` green in 6s on Node 26.13.0 **and** 24.22.2; 27 modules / 0 depcruise violations; 18 tests — `ae5b2e1`, `6e5526d`
 - [x] M0-T2 Runtime pins & pnpm supply-chain policy — policy **observed working live**: rejected `eslint@10.14.0` as too fresh, then a clean resolution chose 10.13.0 and `dependency-cruiser@18.7.0` unaided (evidence: `docs/architecture/evidence/m0-t2-minimum-release-age.md`); 15 policy tests — `a14b602`
@@ -417,7 +417,120 @@ names) is the one with a clock on it, because the repository is public.
 
 #### Milestone report
 
-_Not written yet._
+**M0 closed 2026-11-03.** 23/23 tasks. Gate green on every criterion the repository can satisfy
+today; the one exception is the merge queue, which GitHub will not enable on a user-owned
+repository (owner ask **H-6**), and it is recorded as blocked rather than waived.
+
+**Gate 1 — `pnpm install --frozen-lockfile && pnpm verify`.** Green on both legs.
+
+| | Node 26.13.0 (primary) | Node 24.22.2 (floor) |
+|---|---|---|
+| Exit code | 0 | 0 |
+| Wall-clock, cold Turborepo cache | **21 s** | **21 s** |
+
+| Measured | |
+|---|---|
+| Tests | **1111 passed**, 0 failed, **0 skipped** across 5 Vitest projects |
+| Coverage | **97.33% statements / 94.22% branches / 97.43% functions / 97.91% lines** (`shared` threshold 90/80) |
+| dependency-cruiser | 93 modules, 174 dependencies, **0 violations**, 28 rules |
+| Vale | **0 errors, 0 warnings, 0 suggestions** over **147 files** |
+| Plan trace | 504 tasks / 16 milestones / 552 spec tasks, **0 errors, 0 warnings, 0 unmapped** |
+| Biome | 217 files, 0 findings |
+
+**Gate 2 — `11` §3.12's M0 row.** Eight of nine green; the ninth is blocked, not skipped.
+
+| Criterion | Result |
+|---|---|
+| `ci.yml` with `static`, `unit`, `build`, `ci-ok` | green — run [`41777955409`](https://github.com/faizannraza/comvivo/actions/runs/41777955409), **75 s wall-clock** for 10 jobs against a p50 ≤ 12 min budget (static 52 s, unit 25/30/24 s, integration 38 s, coverage 26 s, build 30 s, node24 30 s, changeset 28 s, ci-ok 3 s) |
+| Merge queue on | **blocked.** `POST /rulesets` with a `merge_queue` rule returns `422 Invalid rule 'merge_queue'` on a user-owned repository, on every parameter combination tried. Settings documented in `docs/architecture/ci.md` ready for the day the repo moves into the `comvivo` org (**H-6**). The substitute in force meanwhile is **"require branches to be up to date"**, which gives the same property the queue would guarantee, manually |
+| Vitest projects and tags | green — 5 projects, 8 tags, `strictTags` on |
+| Coverage thresholds wired (shared ≥ 90%) | green — per-glob thresholds with `perFile` |
+| Testing primitives with property tests | green — `VirtualClock`, `SeededRng`, `DeterministicIds`; **11 properties** across two `*.prop.test.ts` suites |
+| Logger field allowlist + redaction + unit log canary | green — 22 secret shapes, each standalone, combined, inside a URL and nested deep |
+| Snapshot-policy lint | green — 17 rules across three policies, each with a planted-violation fixture |
+| Actions pinned by SHA | green — enforced by `hygiene:check` and by GitHub's `sha_pinning_required` at the platform level |
+| Flake policy in `CONTRIBUTING.md` | green |
+
+**Gate 3 — guards bite.** `pnpm test:guards`: **43 files, 1111 tests, 1.9 s.** Every
+dependency-cruiser rule, every lint ban, the brand guard, the hygiene policies, the names manifest,
+the literal-secret scanner, the supply-chain policies, the changeset check, the log canary and the
+test-time network guard each have a planted violation that is asserted to fail the guard. This gate
+is the reason M0 took as long as it did: **it caught two blockers that had been green for days.**
+
+**Gate 4 — the drill, the docs and the security workflows.**
+
+| | |
+|---|---|
+| `rename-drill` | green — PR run [`41777955426`](https://github.com/faizannraza/comvivo/actions/runs/41777955426), **1 m 41 s**. Re-measured locally end to end in the renamed tree: rename exit 0 with an empty leftover report, `pnpm install` 0, `pnpm verify` 0 with **1111 tests**, `pnpm --filter @zzbrand/docs build` 0 |
+| `pnpm --filter docs build` | green — 2 pages, all internal links valid, Pagefind index built |
+| Security workflows | `codeql` (both languages), `osv`, `zizmor`, `scorecard`, `supply-policy` green; `dependency-review` green on the PR. The gate text asked for "all six green on `main`", which is unsatisfiable — `dependency-review` reviews a diff and a push has none. Gate text corrected rather than scored six-of-six (see Plan changes) |
+
+**Gate 5 — ADRs.** `docs/adr/` holds ADR-001 … ADR-025 (23 from `01` §2 plus ADR-024 product name
+and ADR-025 the TypeScript pin), `MINI-001-yaml.md`, `README.md` and `TEMPLATE-mini.md`. Every
+index link resolves.
+
+**Demo, run start to finish on 2026-11-03.** All six steps.
+
+| Step | Result |
+|---|---|
+| 1. Clone, `pnpm install`, `pnpm verify` under 5 minutes | **31 s total** from a fresh clone against a 300 s budget — clone 1 s, install 3 s, verify 27 s |
+| 2. `new Date()` in `packages/core` fails the core ban | exit 1, and the message says what to do instead: *"core is pure (01 §4): take the time from the injected Clock port"*. **This step is how the gate found that the ban had never been enforced** |
+| 3. Importing `packages/storage` from `packages/channels/telegram` fails depcruise | exit 2 — two rules fired, `channels-only-sdk-core-shared` and `channels-never-engine-or-storage` |
+| 4. A hard-coded brand literal in `packages/engine` fails the brand guard | exit 1, naming file, line and column |
+| 5. A PR runs `static`/`unit`/`build`, CodeQL, OSV and zizmor; `ci-ok` aggregates | [PR #2](https://github.com/faizannraza/comvivo/pull/2): **23 checks, all green** |
+| 6. `pnpm docs:dev` shows the docs skeleton with draft pages | splash and draft pages serve 200 on `localhost:4321`; the draft pages are visible in dev and excluded from the production build, which is the point |
+
+**Independent review.** A sub-agent with fresh context audited M0 against the specs and found
+**2 blockers, 7 majors and 18 minors**. Everything it found is fixed; every fix carries the test
+that would have caught it. The two blockers were both guards reporting success while enforcing
+nothing — the test-time network guard let real HTTP and all of DNS out of a unit test, and the core
+purity ban on `Date` and `process` had been silently replaced by ESLint flat config's
+options-replacement semantics. Full detail in *Plan changes*.
+
+That makes **seven** guards in this repository caught enforcing nothing during M0. The pattern in
+every case: the guard was proven to work *at its own entry point*, or *in isolation*, or *against
+its own configuration* — never against the real command in the real tree. The rule that now governs
+all of them, and the one thing from M0 worth carrying into every later milestone:
+
+> Plant the violation the way a contributor would write it, in the real tree, and make the real
+> command be the thing that fails.
+
+**Cut-lines used.** None. `M0-T13` (Renovate), `M0-T14` (Changesets), `M0-T15` (names manifest) and
+`M0-T22` (naming kickoff) were all allowed to slip to M3 and all landed in M0.
+
+**Known gaps, stated rather than glossed.**
+
+1. **The merge queue is off** and needs **H-6**. Mitigated by "require branches to be up to date".
+2. **`pnpm verify`'s last step carries no evidence yet.** `evals:smoke` is a pending stub until
+   `M3-T48`, so a green `verify` says nothing about evals. It exits 0 with a notice, as `M0-T1`'s
+   AC permits; `M3-T48` must make the suite's absence a failure. Five other `CLAUDE.md` §4 commands
+   are pending stubs on the same pattern (see Plan changes).
+3. **No fresh-user dry run.** `M0-T16`'s community profile and `M0-T18`'s docs are checked by
+   machine (GitHub community profile 100%, 170 internal links, 147 prose files) but no human
+   stranger has read them. Offered as a follow-up; the strongest automated substitute is in place.
+4. **Trademark clearance is a substitute, not an opinion.** ADR-024 records that every formal
+   register was unreachable without an account, a key or a CAPTCHA, and that Trademarkia's zero
+   result is strong evidence but not clearance. One residual (VIVO, class 9) is flagged for an
+   attorney.
+5. **Docs deploy is a no-op** until **H-9** (Cloudflare). Both deploy workflows exit cleanly with a
+   summary saying so, rather than failing.
+6. **The plan still uses the codename** in ~1,700 places. Deliberate, logged as a reading
+   convention rather than a 2.5 MB rewrite; the two places where it is a *design* problem rather
+   than a spelling one (`villageApi`, `kind='village'`) are renamed in the specs now, before either
+   exists.
+7. **One unexplained flake, once.** A Vitest worker crashed mid-run on a local machine (1034 of
+   1044 tests reported); 0 of 5 retries reproduced it and it has not recurred in ~30 full runs
+   since. Attributed to local resource pressure. **No retries were added** — a retry in a required
+   check is how a real flake becomes invisible.
+
+**What M0 bought.** A monorepo where the boundaries are machine-checked, a test harness that cannot
+reach the network, a logger that content cannot get into, CI that runs in 75 seconds, a name that
+is actually free, a rename that is one command, and 1111 tests of which a large fraction exist to
+make a guard fail. Nothing in it is a prototype.
+
+**Next: M1 — Storage & domain core.** No stop (`CLAUDE.md` §1.4.5). Entry criteria: M0 gate green
+✓. SP-1/SP-2/SP-3 run first; the Raspberry Pi leg of SP-1 and SP-2 is an owner ask with an
+automated substitute ready if hardware is unavailable.
 
 ### M1 — Storage & domain core
 
