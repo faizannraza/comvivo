@@ -1,7 +1,7 @@
 # 05 — Agent Runtime
 
 > Status: draft for review. This document elaborates `01-architecture.md` §1, §2.1, §6.1–§6.3, §7.4–§7.5 and §8. It does not contradict the spine, including the resolved amendments in 01 §14 (A1–A28), which override any conflicting text here. Where it needs the spine to change, the change is recorded in §12 with its resolution status.
-> Packages: `@village/core/ports/model` (port types only), `@village/models` (gateway, adapters, registry, pricing, fake), `@village/engine` (router, turn, prompt, tools-executor, output, recovery, budget, trace), and `@village/tools` (the catalog list and the three runtime tools of §3.6.7).
+> Packages: `@comvivo/core/ports/model` (port types only), `@comvivo/models` (gateway, adapters, registry, pricing, fake), `@comvivo/engine` (router, turn, prompt, tools-executor, output, recovery, budget, trace), and `@comvivo/tools` (the catalog list and the three runtime tools of §3.6.7).
 > Third-party facts were verified on 2026-11-01; see the references in §13 (`[R#]`). Anthropic facts come from the bundled `claude-api` skill (v2.1.309). Re-verify them by loading that skill at implementation time (spine §2.1).
 
 ---
@@ -80,7 +80,7 @@ It also defines the provider-neutral **model gateway** and its four adapters.
 | D21 | Reply language | A local detector, a per-conversation language EWMA and the member's locale produce a *hint*. The model mirrors the requester. | Cheap. Handles code-mixing (e.g. HI-Latin) through the model. |
 | D22 | Output | CommonMark subset → mdast → RichText AST. Links are limited to URLs already in the context. Link previews are disabled where supported. | Rendering stays portable, and the exfiltration channel is closed. |
 | D23 | Costs | Integer micro-USD from a versioned price JSON. `usage.iterations` is summed, so refused-then-fallback attempts are counted. | Accurate budgets [R1]. |
-| D24 | Traces | Manifests and hashes only. Content is stored only under `VILLAGE_DEBUG_CONTENT=1`, encrypted, with a 24 h TTL. | Spine §11.7 and ADR-013. |
+| D24 | Traces | Manifests and hashes only. Content is stored only under `COMVIVO_DEBUG_CONTENT=1`, encrypted, with a 24 h TTL. | Spine §11.7 and ADR-013. |
 | D25 | Errors and retries | Typed SDK errors map to `ModelCallError.kind`. SDK retries run inside the turn's AbortSignal deadline. A circuit breaker sits on each provider. | Spine §2.1. Retries are bounded. |
 
 ---
@@ -830,7 +830,7 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
 | `local` | local/`<models.local.model>` | same | same, or `models.local.smallModel` if set | same (sync) |
 | `custom` | per `models.routes` | per `models.routes.chatEconomy` | per route | per route |
 
-**Resolution** follows ADR-014 precedence: env > DB settings > `village.yaml` (`models.routes.<route>`) > preset > defaults, except for **host-only keys** (01 §14 A14): provider selection, endpoints (`baseUrl`) and API keys come from env or `village.yaml` only, and DB settings for them are ignored. Each resolved binding is validated against **route requirements**, and validation fails at boot with a `village doctor` hint:
+**Resolution** follows ADR-014 precedence: env > DB settings > `comvivo.yaml` (`models.routes.<route>`) > preset > defaults, except for **host-only keys** (01 §14 A14): provider selection, endpoints (`baseUrl`) and API keys come from env or `comvivo.yaml` only, and DB settings for them are ignored. Each resolved binding is validated against **route requirements**, and validation fails at boot with a `village doctor` hint:
 
 | Route | Requirement |
 |---|---|
@@ -1389,7 +1389,7 @@ Parts are split by `capabilities.maxMessageChars` after rendering, by the render
 If the final reply is exactly "✅", every effect is `reaction_ok`, the channel has `reactions`, and `runtime.output.reactionAck` is true, the output is an outbox `react` op (✅ on the trigger message) instead of a message. Otherwise "✅" expands to the effect template lines. Quiet by default.
 
 #### 3.8.7 Outbox enqueue
-Fields this document sets (row schema `outbox_messages` in doc 02; `OutboundPayloadSchema` in `@village/core/domain/outbound`, mapped by 06 onto `OutboundMessage`, 06 §4.1):
+Fields this document sets (row schema `outbox_messages` in doc 02; `OutboundPayloadSchema` in `@comvivo/core/domain/outbound`, mapped by 06 onto `OutboundMessage`, 06 §4.1):
 
 | Field | Value |
 |---|---|
@@ -1480,7 +1480,7 @@ Notes:
 | `outcome` | Status, error codes |
 
 - **Retention.** `traces.retentionDays`: default 30, configurable 7–365 (11 §5, 08 §3.16.2). Traces hold manifests, never content (see `contextManifest`). Doc 02 handles deletion.
-- **Debug content.** `VILLAGE_DEBUG_CONTENT=1` additionally stores the rendered requests and responses in `turn_trace_debug`: encrypted, 24 h TTL, host-only, never exported. A startup banner warns that it is on.
+- **Debug content.** `COMVIVO_DEBUG_CONTENT=1` additionally stores the rendered requests and responses in `turn_trace_debug`: encrypted, 24 h TTL, host-only, never exported. A startup banner warns that it is on.
 
 #### 3.10.2 Who may see what
 | Viewer | May see |
@@ -1550,7 +1550,7 @@ Copy lives in `copy/runtime.<locale>.json` (ICU) and is reviewed like UI copy.
 
 ## 4. Interfaces
 
-### 4.1 Model port (`@village/core/ports/model.ts`)
+### 4.1 Model port (`@comvivo/core/ports/model.ts`)
 ```ts
 export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openai-compatible' | 'fake';
 export type ModelRoute = 'chat' | 'route' | 'extract' | 'declassify' | 'guard' | 'consolidate';
@@ -1657,7 +1657,7 @@ export interface ModelGateway {                                              // 
   routeInfo(route: ModelRoute, variant?: RouteVariant): { provider: string; model: string; supports: ModelFeatureSet };
 }
 
-/** Adapter SPI inside @village/models (not a core port). */
+/** Adapter SPI inside @comvivo/models (not a core port). */
 export interface ProviderAdapter {
   readonly id: ProviderId;
   run(binding: RouteBinding, req: ModelTurnRequest, signal: AbortSignal): Promise<ModelTurnResult>;
@@ -1846,9 +1846,9 @@ budgets:
   perMemberTurnsPerHour: 30
 ```
 
-**Environment (secrets; ADR-014):** `ANTHROPIC_API_KEY` (or the SDK's default credential resolution), `OPENAI_API_KEY`, `GEMINI_API_KEY`, `VILLAGE_LOCAL_API_KEY` (optional; sent as a bearer token to the local server), `VILLAGE_DEBUG_CONTENT=1`.
+**Environment (secrets; ADR-014):** `ANTHROPIC_API_KEY` (or the SDK's default credential resolution), `OPENAI_API_KEY`, `GEMINI_API_KEY`, `COMVIVO_LOCAL_API_KEY` (optional; sent as a bearer token to the local server), `COMVIVO_DEBUG_CONTENT=1`.
 
-**DB runtime settings (dashboard):** per-group `budgets.*`, `runtime.output.reactionAck`, the interjection toggles (constitution-gated), and the local probe cache. Never host-only keys (`models` providers, endpoints and keys, plugins, MCP servers, `VILLAGE_DEBUG_CONTENT`; 01 §14 A14).
+**DB runtime settings (dashboard):** per-group `budgets.*`, `runtime.output.reactionAck`, the interjection toggles (constitution-gated), and the local probe cache. Never host-only keys (`models` providers, endpoints and keys, plugins, MCP servers, `COMVIVO_DEBUG_CONTENT`; 01 §14 A14).
 
 ---
 
@@ -2005,7 +2005,7 @@ Thinking and effort are already at their cheapest sane setting (`low`) for simpl
 - **Local:** probe fixtures for Ollama, LM Studio, llama.cpp (`--jinja` and without) and vLLM (with and without the tool flags) → expected ladder level. Envelope parsing.
 - **`assertWireInvariants`:** fuzzed messages never produce a request with sampling parameters, more than 4 breakpoints, an assistant-final message (except pause), or split tool results.
 
-### 9.4 Engine scenarios (`@village/evals` simulator + `FakeModelGateway`)
+### 9.4 Engine scenarios (`@comvivo/evals` simulator + `FakeModelGateway`)
 - Full turn flows for every `RouteDecision` kind, including directed commands.
 - Parallel reads and a write with barrier ordering; results in one message.
 - All four policy decision kinds; the confirmation round trip on buttons, reactions and text channels (reactions and text count only on/as replies to the confirmation message); `dm_deeplink` delivery; expiry with 03's TTLs; supersede; rate limits.

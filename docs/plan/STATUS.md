@@ -1,8 +1,8 @@
 # STATUS — Comvivo build tracker
 
-**Current milestone:** M1 — Storage & domain core (starting)  
+**Current milestone:** M1 — Storage & domain core (in progress, started 2026-11-03)  
 **Last updated:** 2026-11-03  
-**Last green gate:** **M0, 2026-11-03** — 1117 tests, 97.33% statements, CI 75 s, 23/23 tasks ([report](#milestone-report))  
+**Last green gate:** **M0, 2026-11-03** — `main` green on `e2ebfb9` across all eleven workflows; 1117 tests, 97.33% statements, CI 75 s, 23/23 tasks ([report](#milestone-report))  
 **Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
 **Operating mode:** autonomous (`CLAUDE.md` §5). Ask the owner only for money, credentials/account actions, or a 2-minute real-chat smoke test.  
 **Repo:** https://github.com/faizannraza/comvivo (renamed from `village` on 2026-11-01 when D-2 landed; see DL-8)
@@ -48,6 +48,7 @@ Batched per `CLAUDE.md` §5. Everything else proceeds without waiting, using the
 | H-9 | **Cloudflare Pages for the docs site.** Free account, a Pages project, and a token scoped to *Pages: Edit*. See the steps below | account action | `M0-T18` docs deploy; `13` §3.C.2 | **open** (asked 2026-11-03) |
 | H-6 | **Secure the `comvivo` assets — highest priority of all the asks.** See the steps below | account action | `M0-T15` names manifest; `M12-T34` npm trusted publishing; `ghcr.io/comvivo` | **open** (asked 2026-11-01) |
 | H-7 | Optional: a domain for the docs site and product URL | money | nothing (GitHub Pages is used until bought) | **open** (asked 2026-11-01) |
+| H-10 | **A Raspberry Pi 5 (8 GB, 64-bit OS) for one afternoon**, to run three recorded benchmarks: the SQLite/SQLCipher/sqlite-vec matrix (**SP-1**), libsodium secretstream throughput (**SP-2**), and the `02` §3.16.4 storage budgets (`M1-T33`). I will write a single script that prints a pasteable report; the whole session is `git clone && ./scripts/bench/pi.sh`. See the steps below | hardware | **nothing** — `M1-T2`, `M1-T4` and `M1-T33` all proceed on x64/arm64-macOS with the substitution stated. It gates only the *arm64-Linux* row of each | **open** (asked 2026-11-03) |
 | H-8 | Later, announced at their milestone: Discord + Slack apps (M10), `npm login` / trusted publishing (M12), Cloudflare Pages token for docs (M0-T18/M15), optional paid security + child-safety review (M13/M15), community-chat space + bot spend cap (M8, D-7) | mixed | their milestones | **not yet due** |
 
 ### H-1 — proposed API budget
@@ -89,6 +90,37 @@ everybody to ignore a red check.
 
 Until then the site is reviewable with `pnpm docs:dev`, which shows all 104 pages including the
 drafts a production build excludes.
+
+### H-10 — a Raspberry Pi 5 afternoon (M1 spikes)
+
+**Why it matters.** `00` §3.7 promises Comvivo runs on a Raspberry Pi, and three M1 decisions turn
+on whether it actually does: whether the encrypted-SQLite stack loads at all on arm64 Linux
+(**SP-1**), whether the backup cipher is fast enough to be used by default rather than behind a
+flag (**SP-2**, threshold 40 MB/s), and whether the `02` §3.16.4 query budgets hold on the slowest
+machine we claim to support (`M1-T33`). Getting those wrong is expensive later: the first is a
+dependency choice, the second is a default, the third is a published promise.
+
+**What I need.** A Pi 5 with 8 GB and a 64-bit OS, reachable over SSH or with a keyboard, for about
+an afternoon. No Comvivo account, no credentials, no spend.
+
+**What you do.** When `M1-T2` lands I will write `scripts/bench/pi.sh`, so the whole session is:
+
+```sh
+git clone https://github.com/faizannraza/comvivo && cd comvivo
+./scripts/bench/pi.sh          # installs nothing outside the clone; prints a report
+```
+
+Then paste the report back. It prints a markdown table I drop into
+`docs/architecture/storage-spike.md` and `storage-benchmarks.md` verbatim, with the hardware and OS
+version it detected, so the provenance of every number is in the file.
+
+**If you have no Pi.** Nothing stops. The substitute, stated in `STATUS.md` and in the docs rather
+than glossed: every row is measured on **darwin-arm64** (the build machine) and on **linux-x64**
+(GitHub Actions), and the arm64-Linux column says `not measured — needs H-10` instead of carrying a
+number. Where a threshold decides a default — SP-2's 40 MB/s — I take the **conservative** branch
+and document that the measurement which would allow the faster one has not been made. An
+arm64-Linux *build* smoke test runs in CI under QEMU, which proves the modules load and compile but
+says nothing useful about throughput, and will be labelled that way.
 
 ### H-6 — secure the Comvivo assets
 
@@ -284,7 +316,7 @@ Every significant delegated decision, with its rationale. Architectural decision
 | 2026-11-01 | M0-T23 | `14` §0.4 | The serial-only rule's "every database migration" is now scoped **by name**: a `migrations/` or `migrate/` path segment, not any occurrence of the word *migration* | `scripts/plan/trace.py --check` flagged `M3-T34` (`packages/channels/telegram/src/{membership,migration,probe,webhook}.ts`) as a serial violation. That file handles Telegram's group→supergroup chat-id change, not a schema migration. §0.4's prose already said "**database** migration"; only the enforceable scope was missing |
 | 2026-11-01 | M0-T23 | `14` §2 M4 table | `M4-T5`, `M4-T6` and `M4-T7` re-tagged from `‖` to `—` | All three write to `packages/core/src/{constitution,governance}`, which `14` §0.4 and `CLAUDE.md` §1.5 require to stay serial on the main thread. §0.4 already overrode the tag, so the `‖` marks were actively misleading. Their neighbours `M4-T1`–`M4-T4`, `M4-T8`, `M4-T9`, `M4-T13`, `M4-T18` and every M5 IFC row were already correct, so these were oversights |
 | 2026-11-01 | M0-T23 | `14` §4 | Added `<!-- BEGIN:TRACE-MATRIX -->` / `<!-- END:TRACE-MATRIX -->` markers around §4's body | `--regen-matrix` is specified to write between markers and refuses to restructure the document itself. Without them it could only print to stdout |
-| 2026-11-01 (extended 2026-11-03) | M0 entry | docs `00`–`15` (global) | **Reading convention for the codename.** Where the specs write `@village/<pkg>`, `VILLAGE_*`, `village.yaml`, `composeVillage`, `VillagePorts`, `villageApi`, `kind='village'` or **Village** in prose, read the current `BRAND` value: `@comvivo/<pkg>`, `COMVIVO_*`, `comvivo.yaml`, `composeComvivo`, `ComvivoPorts`, `hostApi`, `kind='assistant'`, **Comvivo**. Package *directory* names and spec section numbering are unchanged. Extended on 2026-11-03 from the npm scope alone to every surface, after the M0 independent review counted **~1,700** occurrences across `docs/plan/` | Avoids rewriting 2.5 MB of plan text for a rename that `BRAND` already owns at runtime, and the codemod keeps code and plan in step. Two of those surfaces are findings in their own right and are **not** mechanical: `villageApi` is a plugin-manifest field, so `10` §3.4's compatibility key is renamed to `hostApi` at `M12-T3` (a brand-named public API field would make a rename a breaking change for every plugin author); and `kind='village'` is a **database enum value** in `02` §3.3, renamed to `kind='assistant'` at `M1-T5` before any migration exists, because a brand-named column value would turn a rename into a data migration. Both are logged here so `M1` and `M12` cannot read past them |
+| 2026-11-01 (superseded in part 2026-11-03) | M0 entry → M1 entry | docs `00`–`15` (global) | **The codename's machine-readable surfaces are migrated; its prose stays a reading convention.** ~~Where the specs write `@village/<pkg>`, read `@<final-scope>/<pkg>`.~~ On 2026-11-03, **563 occurrences** across `docs/plan/*.md` were rewritten in place, because each class is unambiguous and each one is something a developer **types**: `@village/` → `@comvivo/` (254), `VILLAGE_` → `COMVIVO_` (235), `village.yaml` → `comvivo.yaml` (44), `villageApi` → `hostApi` (12), `composeVillage` → `composeComvivo` (11), `kind='village'` → `kind='assistant'` (5), `VillagePorts` → `ComvivoPorts` (2). The ~1,700 prose mentions of **Village** as the product name are **not** rewritten and remain a reading convention: "Village" in prose means Comvivo. `_review/` and this file keep the old names as history, and `01` §600's struck-through A2 text is skipped because it *is* the record of the rename | Done at the M1 entry rather than at the M0 gate because M1 is the first milestone whose task table names packages, env vars and database values on almost every row — `M1-T1` is literally "`@comvivo/storage` scaffold". A reading convention is fine for a noun and dangerous for an identifier: nobody mistypes a product name into a build, and everybody mistypes a scope. The prose mentions stay because they are the one class that is **not** mechanical — `05` §172's "The village fair is Sunday" is a test fixture for a false-positive check, and `09` §986's `"village green"` is a colour. `scripts/plan/trace.py --check` caught two STATUS checklist titles drifting from the plan in the same pass, which is exactly what it is for |
 | 2026-11-03 | M0-T4 | `01` §4, `11` §3.1.10 | **Blocker. The core purity ban on `Date` and `process` was never enforced.** ESLint flat config **replaces** a rule's options rather than merging them, so `comvivo/guarded-egress` — a later block whose glob also matched `packages/core/**` — silently overwrote `comvivo/core-purity`'s `no-restricted-globals` with the `fetch`-only list. Fixed by composing the ban lists as data (`CORE_RESTRICTED_GLOBALS` + `FETCH_RESTRICTED_GLOBALS` in `scripts/lint/rules.ts`), excluding `packages/core/**` from the egress block, and asserting the **effective options** per path rather than the rule name | Found by **demo step 2 of this gate**: `new Date()` planted in `packages/core/src/index.ts` and `pnpm verify` came back green. The isolated ban tests all passed, because in isolation the rule is correctly configured; the defect lived entirely in the composition. The lesson that now governs every guard here: the planted violation has to be planted **the way a contributor would write it, in the real tree**, and the real command has to be the thing that fails — not the mechanism's own entry point, and not its configuration |
 | 2026-11-03 | M0-T3 | `11` §3.1.1 | **Blocker. The test-time network guard let real HTTP out.** It patched `net.Socket.prototype.connect` only, so `net.connect`, `net.createConnection`, every `node:http`/`node:https` client and the whole of `node:dns` went straight past it — reproduced at 5 of 6 routes NOT BLOCKED, with `http.get` returning a live HTTP 301 from inside a unit test. Now patches the socket prototype, both module-level connect functions, the `dns` module functions, `dns.promises` and `dns.Resolver.prototype`. The 43 tests were rewritten to go through **caller** entry points | The old tests called `new net.Socket().connect(...)` — the exact shape the guard happened to patch — and the one "real loopback round trip" test used `createConnection`, which was unguarded, so that test would have passed with the guard deleted. `fetch` is why the gap survived for all of M0: undici builds a `Socket` and calls `.connect()`, so the client everybody actually used took the guarded path. A name lookup is outbound traffic in its own right and leaks the hostname even when the connection is refused, which is why DNS is now guarded too |
 | 2026-11-03 | M0-T8 | `01` §11.7, `11` §3.10.1 | **`detail` could carry message content into an `info` line.** The `LogFields` type closes the *field names*, and the stripper removes known content keys — but `detail` is an open record of scalars, so `detail: { note: 'Ava said she is moving out' }` typechecked and logged. `enforceFieldGuarantees` now refuses any `detail` string that contains whitespace or exceeds 120 characters, naming the field and pointing at `log.content()`; it throws under `COMVIVO_TEST_MODE` and drops in production, because a logging mistake must never take a group's bot down | `01` §11.7 is a product promise to the people whose family chat this is, so "the type makes it hard" is not sufficient — the type allowed it. A token-shape test rather than a key denylist, because the content was in the **value** and the key was `note`. **Residual, stated rather than glossed:** a single token-shaped word is still loggable by design (that is what the field is for), and a nested object under `detail` is not walked. Both are in the module header |
@@ -347,27 +379,27 @@ Status: **complete** · Tasks: 23/23 · Gate: **green 2026-11-03** (merge queue 
 
 - [x] M0-T1 Monorepo scaffold — 24 packages/apps; `pnpm verify` green in 6s on Node 26.13.0 **and** 24.22.2; 27 modules / 0 depcruise violations; 18 tests — `ae5b2e1`, `6e5526d`
 - [x] M0-T2 Runtime pins & pnpm supply-chain policy — policy **observed working live**: rejected `eslint@10.14.0` as too fresh, then a clean resolution chose 10.13.0 and `dependency-cruiser@18.7.0` unaided (evidence: `docs/architecture/evidence/m0-t2-minimum-release-age.md`); 15 policy tests — `a14b602`
-- [x] M0-T3 Vitest workspace — 5 projects (unit/integration/contract/scenario/dashboard), 8 strict tags, socket-level network guard (29 tests), TZ pinned in the main process and asserted behaviourally, per-glob coverage thresholds from `11` §3.1.4; **bench deferred to M1-T32** — Vitest 5.0.5 has no usable `bench` API (see Plan changes) — `30fbb44`
-- [x] M0-T4 Dependency boundaries & lint bans — **28 depcruise rules, every one proven to bite** against a planted violation in a synthetic tree (one cruise, 1.3s); core purity bans, `08` §3.20 security bans and the guarded-egress `fetch` ban. ~~each proven to fire *and* proven wired to the right paths via the real config; 91 tests~~ **Corrected 2026-11-03 (M0 exit gate):** that claim was false when written. The bans were proven to fire *in isolation*, and the config test asserted only that the rule **name** was present — so `no-restricted-globals` was configured for `packages/core` while banning `fetch` and **not** `Date` or `process`, because ESLint flat config replaces a rule's options and a later block won. Demo step 2 of the exit gate planted `new Date()` in core and `pnpm verify` came back green. Fixed, and the config test now asserts the effective **options** per path; all five bans verified to exit 1. See Plan changes. — `1c8cd40`, `0311949`
+- [x] M0-T3 Vitest workspace — 5 projects (unit/integration/contract/scenario/dashboard), 8 strict tags, socket-level network guard (29 tests), TZ pinned in the main process and asserted behaviourally, per-glob coverage thresholds from `11` §3.1.4; **bench deferred to M1-T32** — Vitest 5.0.5 has no usable `bench` API (see Plan changes) — `30fbb44`, `dc92996`
+- [x] M0-T4 Dependency boundaries & lint bans — **28 depcruise rules, every one proven to bite** against a planted violation in a synthetic tree (one cruise, 1.3s); core purity bans, `08` §3.20 security bans and the guarded-egress `fetch` ban. ~~each proven to fire *and* proven wired to the right paths via the real config; 91 tests~~ **Corrected 2026-11-03 (M0 exit gate):** that claim was false when written. The bans were proven to fire *in isolation*, and the config test asserted only that the rule **name** was present — so `no-restricted-globals` was configured for `packages/core` while banning `fetch` and **not** `Date` or `process`, because ESLint flat config replaces a rule's options and a later block won. Demo step 2 of the exit gate planted `new Date()` in core and `pnpm verify` came back green. Fixed, and the config test now asserts the effective **options** per path; all five bans verified to exit 1. See Plan changes. — `1c8cd40`, `0311949`, `dc92996`
 - [x] M0-T5 `BRAND` constant & guard — `BRAND` matches the `13` §4.1 contract field-for-field (asserted both ways: nothing missing, nothing extra); AST guard excludes only `brand.ts`, npm-scope module specifiers, docs content and fixtures; 43 tests across the constant and the guard — `a090310`, `bffd81a`
-- [x] M0-T6 Shared foundation libraries — `Result`, typed errors, zod boundary helpers, `assertNever`, the Clock/IdGenerator/Rng ports (interfaces only), and the config layer: schema, host-only policy, precedence, `.env` parser, `_FILE` secrets, and env names **derived from the schema** (73 leaves, 0 collisions). 340 tests, **97.6% lines / 93.8% branches** (threshold 90/80) — `e1a9d2e`
+- [x] M0-T6 Shared foundation libraries — `Result`, typed errors, zod boundary helpers, `assertNever`, the Clock/IdGenerator/Rng ports (interfaces only), and the config layer: schema, host-only policy, precedence, `.env` parser, `_FILE` secrets, and env names **derived from the schema** (73 leaves, 0 collisions). 340 tests, **97.6% lines / 93.8% branches** (threshold 90/80) — `e1a9d2e`, `dc92996`
 - [x] M0-T7 Testing primitives — `VirtualClock` (timers in due order with a microtask flush, self-rescheduling loops, DST-correct, refuses calendar units), `SeededRng` (xoroshiro128+, **fork stability as a property test**, FNV-1a known-answer vectors), `DeterministicIdGenerator` (valid TypeIDs cross-checked against typeid-js's own parser, UUIDv7 bit layout, monotonic within a millisecond), `fcConfig()` honouring `FC_SEED`/`FC_PATH`/`FC_NUM_RUNS`. 81 tests here, 421 total — `835fa6c`
-- [x] M0-T8 Logger, redaction & `SecretString` — **four layers** protecting `01` §11.7: the closed `LogFields` type (9 `@ts-expect-error` assertions), the content gate on its own unredacted channel, depth-unlimited forbidden-field stripping, and shape scrubbing. `sec.logs.canary` covers **22 secret shapes** from `08` §3.10, each standalone, combined, inside a URL and nested deep. `SecretString` is unprintable through 10 routes including `util.inspect({showHidden:true})`. Push protection rejected the first push, so every canary is now assembled at runtime and `pnpm secrets:check` enforces that repo-wide (see Plan changes). **574 tests**, 98.2% lines — `bf63262`
+- [x] M0-T8 Logger, redaction & `SecretString` — **four layers** protecting `01` §11.7: the closed `LogFields` type (9 `@ts-expect-error` assertions), the content gate on its own unredacted channel, depth-unlimited forbidden-field stripping, and shape scrubbing. `sec.logs.canary` covers **22 secret shapes** from `08` §3.10, each standalone, combined, inside a URL and nested deep. `SecretString` is unprintable through 10 routes including `util.inspect({showHidden:true})`. Push protection rejected the first push, so every canary is now assembled at runtime and `pnpm secrets:check` enforces that repo-wide (see Plan changes). **574 tests**, 98.2% lines — `bf63262`, `dc92996`
 - [x] M0-T9 Observability skeleton — tracing and metrics facades that are **free when off** (frozen no-op singletons; the OTel SDK is never imported while disabled, asserted rather than assumed). GenAI names pinned to commit `95aff9cd` with the upgrade procedure in the header. Content is **unrepresentable**: `Attributes` refuses 11 forbidden families as template-literal types, so even an attribute the registry has not invented yet fails to compile (12 `@ts-expect-error` assertions). Declarative 33-metric catalog with typed labels, budget-aligned bucket edges and an asserted cardinality ceiling. 96 tests here, **672 total**, 97.7% lines / 94.3% branches — `94a4923`
 - [x] M0-T10 Test-hygiene lints — **17 rules** across three policies (snapshot, test hygiene, workflow), each with a planted-violation fixture in `__fixtures__/*.txt` so the fixture is the real construct rather than an escaped imitation, plus a clean counterpart that must report nothing. Two rules were **broken when first written** and the fixtures caught both: `isInsideRun` anchored on `^\s*run:` and so never matched a step's `- run:`, and the renderer allowlist excluded a `render/` directory. Every finding prints the rule's rationale, because a check that only says "no" gets disabled. 36 tests here, **708 total** — `fa803f7`
 - [x] M0-T11 CI workflow & release skeleton — `ci.yml` (static, unit ×3 shards, integration, coverage, build, node24, ci-ok), `release.yml` (working `mode`, dry-run version path, **no** `packages: write`/`id-token`/registry credential anywhere), `edge.yml`, a composite setup action and `docs/architecture/release.md`. Every action SHA-pinned from a resolved, non-prerelease release; actionlint pinned **by checksum** because it has no npm distribution. Three real CI failures found and fixed by running it: an invalid actionlint flag that failed silently, `upload-artifact` excluding dot-directories, and shellcheck SC2129. **Measured** on run `41613125268` (`7299799`): all 9 jobs green in **1 m 06 s** wall-clock against a p50 ≤ 12 min budget — static 41 s, unit 31/27/24 s, integration 23 s, coverage 23 s, build 21 s, **node24 21 s**, ci-ok 3 s. `release.yml` and `edge.yml` green on the same commit; `edge.yml` re-run green with `sha_pinning_required` enforced — `cb4316a`, `9d8251f`, `7299799`, `2c7dc7a`
 - [x] M0-T12 CI security workflows — six workflows (CodeQL with the `actions` language as well as `javascript-typescript`, OSV in diff and full-tree variants, dependency-review, zizmor, Scorecard, supply-policy), `osv-scanner.toml` with no entries, and `scripts/supply/lockfile-policy.ts` blocking `git+`/`github:`/tarball/`file:`/`link:` specifiers and git or tarball lockfile resolutions (25 tests, half of them false-positive cases). **Measured: 7 of 8 workflows green first time; `osv` failed with two true positives**, since fixed. `sha_pinning_required` enabled at the platform level — `c9a4b6c`, `3f5e28b`
 - [x] M0-T13 Renovate policy — `renovate.json5` with `minimumReleaseAge: '3 days'` matching pnpm's own 4320 minutes, `internalChecksFilter: 'strict'`, a weekly window, monthly `lockFileMaintenance`, digest pinning, and **auto-merge limited to GitHub Actions digests** (the spec's devDep auto-merge contradicts its own CODEOWNERS lockfile rule — see Plan changes). Guards the two pins that would otherwise be silently bumped into breakage: `typescript <7` (ADR-025) and `@types/node <25` (the supported floor, not the primary target). Validated `--strict` as a repository config in Renovate's own digest-pinned image, because our `trustPolicy` refuses the npm package — `3f5e28b`
-- [x] M0-T14 Changesets — ~~validated by unit tests~~ **validated by running `changeset version` for real** (2026-11-03: it had never run, because the version path is a no-op with an empty `.changeset/`, and the first changeset in this repository's history broke it on `main` — see Plan changes). `.changeset/config.json` with the `comvivo`/`@comvivo/server` **fixed** group and independently versioned SDKs, a changelog formatter that groups by type (`breaking:`, `security:`, `upgrade:` first, because somebody skimming a release note stops at the first section that does not concern them) and makes no network call, and a `changeset-required` check with a visible `no-changeset` waiver label. Three spec corrections, all found by running it: `privatePackages: false` is not expressible here, four packages had to stop being private for the mechanism to exist at all, and `changeset status` rejects the tree in a way the config sketch could not show. 64 tests here, **799 total** — `8b80f09`
+- [x] M0-T14 Changesets — ~~validated by unit tests~~ **validated by running `changeset version` for real** (2026-11-03: it had never run, because the version path is a no-op with an empty `.changeset/`, and the first changeset in this repository's history broke it on `main` — see Plan changes). `.changeset/config.json` with the `comvivo`/`@comvivo/server` **fixed** group and independently versioned SDKs, a changelog formatter that groups by type (`breaking:`, `security:`, `upgrade:` first, because somebody skimming a release note stops at the first section that does not concern them) and makes no network call, and a `changeset-required` check with a visible `no-changeset` waiver label. Three spec corrections, all found by running it: `privatePackages: false` is not expressible here, four packages had to stop being private for the mechanism to exist at all, and `changeset status` rejects the tree in a way the config sketch could not show. 64 tests here, **799 total** — `8b80f09`, `8eebc93`
 - [x] M0-T15 Names manifest — `deploy/names.json` as the single source of truth for every published name, cross-checked against `BRAND` field by field (they are one decision stored twice, and the failure mode when they drift is a release published under a name the software does not answer to), plus `names:check`/`names:apply` with an explicit `legacy` block. **Resolved `12` §3.1's blocking finding**: the unscoped name is free under Comvivo, so `npx comvivo@latest init` ships. The ready-to-file reservation issue is in H-6 above. 31 tests here, **830 total** — `7a51c3f`
 - [x] M0-T16 Repo hygiene & community files — README (saying plainly that Comvivo is not launched, and that it is largely built by AI agents with a human accountable), NOTICE, Contributor Covenant 2.1 **verified byte-identical** to its source apart from the contact, CONTRIBUTING, SUPPORT, GOVERNANCE with the six Protected Promises written down while there is nobody to govern, MAINTAINERS naming the one-maintainer gap, SECURITY per `08` §3.18, and the DCO app config. **GitHub community profile: 100%**; private vulnerability reporting confirmed enabled; 31 relative links checked — `0aa05c9`
 - [x] M0-T17 Issue/PR templates, labels, CODEOWNERS — five issue forms **validated against GitHub's own schema** (there is no API that reports whether a form parsed — see Plan changes), a PR template that requires an AI-assistance declaration and a privacy answer even when the answer is "none", CODEOWNERS over every path `08` §3.15 protects, 52 labels applied for real with a reconcile-only sync that cannot delete, and saved replies written for tone because a terse close feels like being dismissed. 57 tests here, **887 total** — `64b0ec3`, `a54f665`
-- [x] M0-T18 Docs-site skeleton & docs CI — Astro 7.4.4 + Starlight 0.42.8, **all 104 `13` §3.C.3 pages** as drafts with descriptions read from the plan itself, a hand-written splash, `starlight-links-validator` active (it caught the splash linking to a draft), Vale with three house rules and eleven documented suppressions (**0 errors over 113 files**), lychee (**0 errors over 170 internal links**), and four workflows whose security design is the point: `docs.yml` builds on `pull_request` **holding no secret**, and `docs-preview.yml` deploys that artefact on `workflow_run` where the token lives, so fork code never runs with a credential. Cloudflare is owner ask **H-9**; both deploy workflows no-op with a clear summary until it exists. 112 tests here, **999 total** — `4491e99`, `77a840a`, `6818c53`, `7c3a9b5`, `8238beb`
-- [x] M0-T19 Rename codemod & weekly drill — `scripts/brand/rename.ts` rewrites every surface `BRAND` cannot cover, case-preserving, including file and directory names, and **adds the outgoing env prefix and config filename to `BRAND.legacy`** so a rename does not silently break every existing host's `.env`. A rename does not rewrite history (ADRs, STATUS, changeset entries), and the drill asserts the rename actually happened — a drill that passed because the codemod did nothing would be green and useless. **Measured on a scratch clone:** rename exit 0 (176 files, 0 skipped), `pnpm install` 0, `pnpm verify` 0 with 1044 tests, `pnpm --filter @zzbrand/docs build` 0, and an **independent** leftover scan — not the tool's own report — finding nothing outside the allowlist. Four real defects found by running it, all in Plan changes. 54 tests here — `2ed25fa`, `95737ad`, `e26ec7c`, `d4f4c17`
+- [x] M0-T18 Docs-site skeleton & docs CI — Astro 7.4.4 + Starlight 0.42.8, **all 104 `13` §3.C.3 pages** as drafts with descriptions read from the plan itself, a hand-written splash, `starlight-links-validator` active (it caught the splash linking to a draft), Vale with three house rules and eleven documented suppressions (**0 errors over 113 files**), lychee (**0 errors over 170 internal links**), and four workflows whose security design is the point: `docs.yml` builds on `pull_request` **holding no secret**, and `docs-preview.yml` deploys that artefact on `workflow_run` where the token lives, so fork code never runs with a credential. Cloudflare is owner ask **H-9**; both deploy workflows no-op with a clear summary until it exists. 112 tests here, **999 total** — `4491e99`, `77a840a`, `6818c53`, `7c3a9b5`, `8238beb`, `dc92996`
+- [x] M0-T19 Rename codemod & weekly drill — `scripts/brand/rename.ts` rewrites every surface `BRAND` cannot cover, case-preserving, including file and directory names, and **adds the outgoing env prefix and config filename to `BRAND.legacy`** so a rename does not silently break every existing host's `.env`. A rename does not rewrite history (ADRs, STATUS, changeset entries), and the drill asserts the rename actually happened — a drill that passed because the codemod did nothing would be green and useless. **Measured on a scratch clone:** rename exit 0 (176 files, 0 skipped), `pnpm install` 0, `pnpm verify` 0 with 1044 tests, `pnpm --filter @zzbrand/docs build` 0, and an **independent** leftover scan — not the tool's own report — finding nothing outside the allowlist. Four real defects found by running it, all in Plan changes. 54 tests here — `2ed25fa`, `95737ad`, `e26ec7c`, `d4f4c17`, `dc92996`, `33d8c42`, `183f467`
 - [x] M0-T20 ADR files — `docs/adr/` ADR-001…ADR-023 + README + TEMPLATE-mini, plus ADR-024 (name) and ADR-025 (TS pin) — `172cef1`
-- [x] M0-T21 Branch protection, merge queue & CI docs — ruleset `26469765` **active** on `main`: **eight** required checks (`ci-ok`, both CodeQL languages, `osv-ok`, `zizmor-ok`, `review`, `policy`, `docs-ok` — the last added on 2026-11-03 after the offline link check was found to be advisory; see Plan changes), a pull request required, **`merge` + `squash`** (squash-only was corrected on 2026-11-03 — it would have made every `STATUS.md` commit hash on a milestone branch dangle; see Plan changes), branches up to date, no force pushes, no deletion, 0 approvals (one maintainer — see Plan changes). **Verified by attempting a direct push**, which was rejected. Two required checks had to be made event-stable first, and `zizmor`'s workflow-level path filter had to come off, or the queue would have stalled on a check that never runs. The merge queue itself needs an organisation-owned repo (**H-6**); its `11` §3.8.3 settings are documented ready. `docs/architecture/ci.md` records all of it — `6a657b4`, `5da3303`, `aa95b34`
+- [x] M0-T21 Branch protection, merge queue & CI docs — ruleset `26469765` **active** on `main`: **eight** required checks (`ci-ok`, both CodeQL languages, `osv-ok`, `zizmor-ok`, `review`, `policy`, `docs-ok` — the last added on 2026-11-03 after the offline link check was found to be advisory; see Plan changes), a pull request required, **`merge` + `squash`** (squash-only was corrected on 2026-11-03 — it would have made every `STATUS.md` commit hash on a milestone branch dangle; see Plan changes), branches up to date, no force pushes, no deletion, 0 approvals (one maintainer — see Plan changes). **Verified by attempting a direct push**, which was rejected. Two required checks had to be made event-stable first, and `zizmor`'s workflow-level path filter had to come off, or the queue would have stalled on a check that never runs. The merge queue itself needs an organisation-owned repo (**H-6**); its `11` §3.8.3 settings are documented ready. `docs/architecture/ci.md` records all of it — `6a657b4`, `5da3303`, `aa95b34`, `907334b`
 - [x] M0-T22 Naming kickoff (private) — done `[human]`. Four waves of research in the gitignored `naming/` workspace, two documented reversals, shortlist and availability recorded there; the decision is [ADR-024](../adr/ADR-024-product-name.md). Folded into the M0 entry when D-2 was pulled forward — no commit in this repository (the workspace is gitignored)
-- [x] M0-T23 Plan consistency pass — `scripts/plan/trace.py` + ~~54~~ **59** unit tests, now actually **run** by `pnpm plan:test` inside `verify` (they were referenced by nothing at all until the exit gate — see Plan changes); **504 tasks / 552 spec tasks, 0 errors, 0 warnings, 0 unmapped spec tasks**; 4 findings fixed (see Plan changes) — `172cef1`
+- [x] M0-T23 Plan consistency pass — `scripts/plan/trace.py` + ~~54~~ **59** unit tests, now actually **run** by `pnpm plan:test` inside `verify` (they were referenced by nothing at all until the exit gate — see Plan changes); **504 tasks / 552 spec tasks, 0 errors, 0 warnings, 0 unmapped spec tasks**; 4 findings fixed (see Plan changes) — `172cef1`, `5bdbd46`
 
 #### Execution note
 
@@ -508,7 +540,19 @@ all of them, and the one thing from M0 worth carrying into every later milestone
 > Plant the violation the way a contributor would write it, in the real tree, and make the real
 > command be the thing that fails.
 
-**Closed out after the merge, 2026-11-03.** Three defects in the release path, all found by
+**Closed out after the merge, 2026-11-03.** Merged as `7081e54` (a **merge** commit, not a squash,
+so the per-task hashes above stay resolvable on `main`), then four more defects, and `main` green on
+`e2ebfb9` across all eleven workflows: `ci`, `codeql`, `docs`, `docs-deploy`, `edge`, `osv`,
+`release`, `scorecard`, `supply-policy`, `zizmor` (`docs-preview` skipped, by design — it is a
+`workflow_run` trigger).
+
+The fourth was a gate gap rather than a bug: **`docs.yml` was never a required status check**, so
+when the offline link check failed on a broken link in this very file, the pull request stayed
+mergeable. `M0-T16`'s "lychee offline link check passes" and all of `M0-T18`'s docs CI were
+therefore advisory. Its job is now `docs-ok`, its path filter is gone, and it is the **eighth**
+required check.
+
+Three defects in the release path, all found by
 running `changeset version` for real for the first time — the milestone PR carried the first
 changeset in this repository's history, and it failed on `main` within a minute of merging. The
 formatter path in `.changeset/config.json` was resolvable from the repository root but not from
@@ -556,9 +600,9 @@ automated substitute ready if hardware is unavailable.
 
 ### M1 — Storage & domain core
 
-Status: not started · Tasks: 0/35 · Gate: —
+Status: **in progress** (started 2026-11-03) · Tasks: 0/35 · Gate: —
 
-- [ ] M1-T1 `@village/storage` scaffold & pins
+- [ ] M1-T1 `@comvivo/storage` scaffold & pins
 - [ ] M1-T2 Storage/encryption/index spike (SP-1, SP-3)
 - [ ] M1-T3 IDs, clock & canonical JSON
 - [ ] M1-T4 Crypto primitives + SP-2
@@ -596,7 +640,88 @@ Status: not started · Tasks: 0/35 · Gate: —
 
 #### Execution note
 
-_Not written yet._
+**Written 2026-11-03**, straight after the M0 gate (`CLAUDE.md` §1.4.5: no stop).
+
+**What M1 is.** 35 tasks, and the one milestone where getting it wrong is expensive to undo: after
+M1 there are migrations, key files and backup envelopes in real data directories. `14` §2 names the
+never-cut set for exactly that reason — the spikes, keys, `VBK1` recovery-key restore, the outbox
+and the queue.
+
+**Spikes first, as the plan requires.** All three are blocking and all three are about native
+modules, which is the risk M0 could not retire:
+
+| Spike | Question | What I do if it fails |
+|---|---|---|
+| **SP-1** | Do `better-sqlite3-multiple-ciphers` (SQLCipher v4 raw key), `sqlite-vec`, FTS5 and Drizzle all work *together*, on Node 26 and 24, on darwin-arm64 / linux-x64 / linux-arm64 and in the Docker base? | Plain `better-sqlite3` + column-envelope encryption + HMAC-token FTS + an in-memory vector index (`02`). That is a materially worse product, so this gets the most attention |
+| **SP-3** | Is `VACUUM INTO` output encrypted under SQLite3MC in WAL mode? | Online backup API, with archive-level encryption only |
+| **SP-2** | Does `libsodium-wrappers` secretstream reach 40 MB/s on a Pi 5? | `sodium-native` (a build dependency, filed per A8) |
+
+SP-1 and SP-3 are `M1-T2`; SP-2 is `M1-T4`. The arm64-Linux leg of SP-1 and the whole of SP-2's
+threshold need hardware I do not have: that is owner ask **H-10**, and the substitution is written
+down there rather than implied. **Nothing waits for it** — every other leg is measurable here and
+in CI, and where a threshold decides a default I take the conservative branch and say so.
+
+**Task order.** `14` §2's table order, with these deliberate shapes:
+
+1. `M1-T1` (scaffold and pins) alone and first, because every later task imports from it and
+   because `01` §14 A8/A11 boundary rules have to exist before there is anything to violate.
+2. `M1-T2` (the spike) immediately after, before any schema is written. If SP-1 fails, the schema
+   changes shape — writing it first would be writing it twice.
+3. Then the crypto spine **serially**: `M1-T4` → `M1-T5` → `M1-T6`. Keys are the one subsystem where
+   a subtle bug is unrecoverable for a host (a wrapped RDK you cannot unwrap is their data gone), and
+   `CLAUDE.md` §1.5 forbids parallelising anything in this class.
+4. `M1-T7` → `M1-T8` → `M1-T9` (data dir, open/init, `db.tx`). `M1-T9` is the transaction boundary
+   the whole 1.0 depends on, and it brings the `no-await-in-tx` lint — a guard, so it gets a planted
+   fixture like every other.
+5. Schema `M1-T10` → `M1-T13` and the migration runner `M1-T14`, serially. `CLAUDE.md` §1.5:
+   migrations are never parallelised.
+6. `M1-T15` (test kit) before the repositories, so every repository is written against
+   `createTestDb` from its first line rather than retrofitted.
+7. `M1-T16` → `M1-T22` repositories, with `M1-T19`, `M1-T20` and `M1-T21` in parallel worktrees
+   (disjoint files, no shared schema edits).
+8. `M1-T23` (queue) and `M1-T24` (scheduler) serially on the main thread. The queue's model-based
+   property suite at 20k runs is the single best test in this milestone and I want to be the one
+   reading its counterexamples.
+9. `M1-T25` → `M1-T28` (blobs, retention, backup, export) serially; `M1-T27`'s recovery-key-only
+   restore is a gate item and a product promise.
+10. `M1-T35` (docs) last, as the plan has it.
+
+**Sub-agents (`‖`, separate worktrees, no commits from the agent).** `M1-T3` (IDs/clock/canonical
+JSON), `M1-T7` (data-dir primitives), `M1-T29` (`TokenService`), `M1-T30` (`safeFetch`), `M1-T31`
+(secret loading), `M1-T32` (bench infrastructure), `M1-T34` (Stryker), and `M1-T19`/`M1-T20`/`M1-T21`
+as above. Ten of 35. Everything touching `packages/core`, the schema, migrations or the keyring
+stays on the main thread.
+
+`M1-T30` (`safeFetch`) is the one I would most like to hand off and will instead watch closely: it
+is the egress guard the whole product's I5 invariant rests on, its spec asks for a ≥ 60-case SSRF
+matrix, and M0's lesson is that this is precisely the kind of guard that passes its own tests while
+letting traffic out.
+
+**Risks I am taking in, and what I will do about them.**
+
+- *Native modules on four platforms × two Node versions is the biggest single risk in the project.*
+  It is why SP-1 is first. I will record every combination that works and every one that does not,
+  including the ones that fail, because a matrix with holes in it is still evidence and a matrix
+  with only successes in it is marketing.
+- *`minimumReleaseAge: 3 days` plus exact pins means a named version may be unresolvable.* `02`
+  M1-T1 names seven exact versions checked on 2026-11-01. `CLAUDE.md` §6 requires re-verification
+  at implementation time; I will check each against the registry before pinning and log any that
+  moved.
+- *The no-await-in-tx rule is a custom lint rule, and M0 found five guards that were configured and
+  inert.* It gets a planted fixture that fails `pnpm lint`, in the real tree, through the real
+  command — and it goes into `pnpm test:guards`.
+- *Coverage thresholds for `storage` are 85/75, lower than `shared`'s 90/80.* I will not treat that
+  as the target. The parts where a bug is silent — the label join, the outbox state machine, the
+  queue's lease arithmetic, the audit hash chain — get property tests, not percentage points.
+- *`exportDomainState` and `computeEligible` both need `canRead`, which does not exist until M5.*
+  The plan's answer is a **named** stub (`StubInformationFlow`, `StubRetraction`) that fails closed,
+  re-run at `M5-T2`. Named and fail-closed, so it can never be mistaken for the real thing — and
+  `14` §0.2 is explicit that this is the only acceptable kind of stub.
+
+**Needed from the human.** **H-10** (a Pi 5 afternoon) is new and blocks nothing. **H-6** still has
+the clock on it. Nothing else in M1 needs a credential: there is no model call, no platform API and
+no network in this milestone — which is why it is the right place to be strict about `safeFetch`
+before anything uses it.
 
 #### Milestone report
 
@@ -1079,7 +1204,7 @@ Status: not started · Tasks: 0/37 · Gate: —
 - [ ] M12-T16 MCP server core
 - [ ] M12-T17 MCP server security
 - [ ] M12-T18 MCP tokens UX
-- [ ] M12-T19 `@village/mcp-bridge`
+- [ ] M12-T19 `@comvivo/mcp-bridge`
 - [ ] M12-T20 MCP client & hardening
 - [ ] M12-T21 Plugin `weather`
 - [ ] M12-T22 Plugin `ics` (opt-in)

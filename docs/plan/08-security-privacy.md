@@ -34,7 +34,7 @@
 |---|---|---|---|
 | SD-01 | Crypto libraries | **Node `crypto` for everything except streaming AEAD**; **libsodium (`libsodium-wrappers`) only for `crypto_secretstream_xchacha20poly1305`**. No other crypto deps, no custom constructions, no JWT libraries | Node covers HKDF, HMAC, AES-GCM, scrypt, CSPRNG and constant-time compare. Only a vetted chunked AEAD (truncation and reorder safe) is missing; hand-rolling chunked GCM would be custom crypto. The WASM build has no install scripts or native build (§3.7.1) |
 | SD-02 | Key hierarchy | **Master key (MK) and recovery key (RK) are unlock keys only.** They wrap a per-generation **root data key (RDK)** in keyring *slots* (LUKS-style). Purpose keys come from HKDF over the RDK | Rotating MK is a cheap rewrap with no DB rekey. The recovery key restores on a new machine. Rotating data keys is a separate, explicit operation |
-| SD-03 | Default MK storage | `data/keys/master.key` (0600, dir 0700). Options: OS keychain (`@napi-rs/keyring`, optional dep), `VILLAGE_MASTER_KEY_FILE` (Docker/systemd-creds), `VILLAGE_MASTER_KEY` env, passphrase | Zero-friction default that matches the spine; stronger modes for each platform (§3.7.3) |
+| SD-03 | Default MK storage | `data/keys/master.key` (0600, dir 0700). Options: OS keychain (`@napi-rs/keyring`, optional dep), `COMVIVO_MASTER_KEY_FILE` (Docker/systemd-creds), `COMVIVO_MASTER_KEY` env, passphrase | Zero-friction default that matches the spine; stronger modes for each platform (§3.7.3) |
 | SD-04 | Recovery key | **Mandatory at init**, printed once, verified by retyping two groups, **never stored on the host** | The only way to survive losing the keyfile; it also enables off-host restore |
 | SD-05 | SQLCipher mode | `cipher=sqlcipher`, `legacy=4`, **raw 256-bit key** from HKDF, `temp_store=MEMORY`; SQLite3MultipleCiphers ≥ 2.4.0 (WAL rekey) | SQLCipher-compatible as the spine requires (hosts can open it with standard tools). A raw key skips PBKDF2 because the key is already uniform |
 | SD-06 | Blob encryption | Per-blob random DEK, content in secretstream (64 KiB chunks), DEK wrapped with AES-256-GCM by the blob KEK; **blob address = HMAC-SHA256(blob-id key, plaintext)**, not raw SHA-256 | Crypto-shredding by deleting the DEK. A keyed address prevents confirmation-of-file attacks |
@@ -43,7 +43,7 @@
 | SD-09 | Dashboard login | **Pairing is the default**: the browser shows a code, the member sends it to the bot in a DM and approves. **Magic links** (token in the URL fragment, exchanged by POST, single use, 10-minute expiry, bound to person + instance) are allowed **only on loopback, or over HTTPS when the host explicitly opts in** (`dashboard.auth.magicLinks: https`). **Home Assistant ingress users are linked once via a bot code and are never trusted from headers alone.** Sensitive actions need step-up in the member's DM (01 §9, §14 A9; implementation `09` §3.9) | A link sitting on Telegram's servers (or forwarded) must not be enough to log in remotely unless the host accepts that risk for an HTTPS deployment. Resists "approve fatigue" |
 | SD-10 | Exposure | Bind `127.0.0.1` by default; non-loopback requires TLS (direct or trusted proxy) **or** explicit `allowInsecureLan`; **Host-header allowlist always on** | Blocks LAN sniffing and DNS rebinding against localhost |
 | SD-11 | Browser hardening | Strict nonce CSP + `strict-dynamic` + Trusted Types, no CORS, SameSite=Strict, CSRF token + Origin check, JSON-only mutations | Defense in depth for an SPA that holds admin power |
-| SD-12 | Egress / SSRF | One `safeFetch` (`@village/shared/net`): IANA special-purpose deny list via `net.BlockList`, DNS pinning, manual redirects, size/time caps. Lint-enforced as the only path for URLs derived from input | One audited choke point for ICS, MCP remote, plugin net, web search |
+| SD-12 | Egress / SSRF | One `safeFetch` (`@comvivo/shared/net`): IANA special-purpose deny list via `net.BlockList`, DNS pinning, manual redirects, size/time caps. Lint-enforced as the only path for URLs derived from input | One audited choke point for ICS, MCP remote, plugin net, web search |
 | SD-13 | Outbound links | **URL provenance policy**: a URL may appear in output only if it is an instance link, appeared verbatim in audience-visible input, or is allowlisted. **Link previews off**, no remote images | Closes markdown-image and unfurl exfiltration |
 | SD-14 | Mentions | Mentions only from AST nodes; platform mass-mention tokens neutralized; ≤ 5 member mentions per message | No `@everyone` storms via injection |
 | SD-15 | Provider exposure | Per-route egress manifest shown in the wizard; **Hybrid** (`sensitiveRoutesLocal`) and **Local-only** (`localOnly`, fail-closed) modes | Honest, configurable minimization |
@@ -56,7 +56,7 @@
 | SD-22 | Telemetry | **None.** Opt-in update check fetches a static JSON (which may carry a security-advisory banner). Diagnostics only via `village doctor --bundle` (redacted, user-attached) | Spine ADR-017 |
 | SD-23 | Vulnerability handling | GitHub Private Vulnerability Reporting, CVSS 4.0, Critical patch ≤ 7 days, advisories + CVE via the GitHub CNA | Standard, low-overhead CVD |
 | SD-24 | Children | Child DMs **off until a guardian enables them** with a provider-policy notice; Local route recommended; guardians never get verbatim access to child DMs | Provider minors policies; dignity of teens |
-| SD-25 | Transparency of diagnostics | If `VILLAGE_DEBUG_CONTENT=1`, Village **announces it in every bound group** at startup | Hosts can still patch code, but defaults must not allow silent content capture |
+| SD-25 | Transparency of diagnostics | If `COMVIVO_DEBUG_CONTENT=1`, Village **announces it in every bound group** at startup | Hosts can still patch code, but defaults must not allow silent content capture |
 
 ---
 
@@ -78,7 +78,7 @@
 | A10 | Backups | `data/backups/` and wherever the host copies them | Same as DB | `VBK1` (§3.7.11) |
 | A11 | Exports | Downloaded files | Plaintext by design | Authenticated HTTP download only, never sent through chat |
 | A12 | Traces, audit, logs | DB, log files | Metadata; dangerous if content leaks in | Manifest-only traces, redaction (§3.10) |
-| A13 | Constitution and config | DB, `village.yaml` | Integrity (authority) | Amendments (`03`), audit |
+| A13 | Constitution and config | DB, `comvivo.yaml` | Integrity (authority) | Amendments (`03`), audit |
 | A14 | Host machine and LAN | — | Integrity | Non-root, no inbound ports, SSRF guard, plugin isolation |
 | A15 | Release artifacts and project accounts (GitHub, npm, GHCR, domain) | Registries | Integrity for every user | §3.15 |
 | A16 | Vault (runtime-acquired credentials, e.g. MCP OAuth tokens) | `data/keys/vault.enc` | Critical | AES-256-GCM under the vault key |
@@ -145,7 +145,7 @@ flowchart LR
 | ID | Invariant |
 |---|---|
 | S1 | Unwrapped key material exists only in process memory. It is never written to disk, logs, traces, DB or IPC. |
-| S2 | Credentials never appear in the DB, `village.yaml`, logs, traces, exports or error messages. Canary secrets prove it. |
+| S2 | Credentials never appear in the DB, `comvivo.yaml`, logs, traces, exports or error messages. Canary secrets prove it. |
 | S3 | Outbound HTTP to any URL derived from member, external, model, plugin or admin input goes **only** through `safeFetch`. |
 | S4 | **No model call** happens for DMs from persons who are not members of any bound group, for unbound chats, or for platform bots (pre-identity gate; template replies only). Unknown senders *inside* a bound group follow the spine's consent flow. |
 | S5 | Every URL in outbound content satisfies the provenance policy (§3.6.3). Link previews are suppressed unless explicitly allowed. |
@@ -355,9 +355,9 @@ Generation: 32 bytes from `crypto.randomBytes` during `village init`. The wizard
 |---|---|---|---|---|
 | `keyfile` (default) | `data/keys/master.key`, 0600, owned by the service user; dir 0700 | Copies of DB, blobs or backups taken without the key directory; other local users | Theft of the whole disk or SD card (key sits beside the data) unless the disk has FDE | Laptops/VPS with full-disk encryption |
 | `keychain` | `@napi-rs/keyring` (optional dependency, loaded lazily): macOS Keychain, Windows Credential Manager, Linux Secret Service | Disk theft while the user is logged out (OS-dependent) | Malware running as the user | Desktop installs. Not for headless Linux (needs D-Bus and an unlocked keyring) |
-| `file` | `VILLAGE_MASTER_KEY_FILE=/run/secrets/village_mk` | Keeps the key out of `docker inspect` and the image | Root on the host | Docker secrets; **systemd-creds** with TPM2 (`LoadCredentialEncrypted=` → `%d/village_mk`); Kubernetes |
-| `env` | `VILLAGE_MASTER_KEY` (base64url) | Disk theft if the env store is elsewhere | `docker inspect`, `/proc/*/environ` for the same user; CI logs | Last resort; doctor warns |
-| `passphrase` | No MK slot; scrypt slot; prompt on TTY or `VILLAGE_PASSPHRASE_FILE` | Disk theft (no key at rest) | Unattended reboot (needs a human or `systemd-ask-password`) | High-assurance hosts |
+| `file` | `COMVIVO_MASTER_KEY_FILE=/run/secrets/village_mk` | Keeps the key out of `docker inspect` and the image | Root on the host | Docker secrets; **systemd-creds** with TPM2 (`LoadCredentialEncrypted=` → `%d/village_mk`); Kubernetes |
+| `env` | `COMVIVO_MASTER_KEY` (base64url) | Disk theft if the env store is elsewhere | `docker inspect`, `/proc/*/environ` for the same user; CI logs | Last resort; doctor warns |
+| `passphrase` | No MK slot; scrypt slot; prompt on TTY or `COMVIVO_PASSPHRASE_FILE` | Disk theft (no key at rest) | Unattended reboot (needs a human or `systemd-ask-password`) | High-assurance hosts |
 
 Rules:
 - The process reads the MK once, then **deletes it from `process.env`** and zeroes intermediate buffers (best effort).
@@ -386,7 +386,7 @@ Rules:
 - Writes are atomic: write `keyring.json.tmp`, fsync, rename, fsync the directory. The previous file is kept as `keyring.json.prev` until the next successful boot.
 
 #### 3.7.5 Unlock at boot
-1. Resolve the unlock source in order: `VILLAGE_MASTER_KEY_FILE` → `VILLAGE_MASTER_KEY` → configured `keychain` → `keyfile` → `passphrase` (TTY or `VILLAGE_PASSPHRASE_FILE`).
+1. Resolve the unlock source in order: `COMVIVO_MASTER_KEY_FILE` → `COMVIVO_MASTER_KEY` → configured `keychain` → `keyfile` → `passphrase` (TTY or `COMVIVO_PASSPHRASE_FILE`).
 2. Load the keyring, try matching slots for `current`, unwrap the RDK. On failure exit **78** with a doctor hint. **Never start unencrypted as a fallback.**
 3. Derive purpose keys and open the DB with the raw key. Verify the DB header is not plaintext `SQLite format 3\0` when `encryptAtRest:true`.
 4. Read `sessionEpoch` and derive the token MAC key.
@@ -575,14 +575,14 @@ Responses use `429` + `Retry-After`. There is no permanent account lockout (a lo
 Body limits JSON 1 MiB, uploads 25 MiB (`09` may lower); zod on every route; generic error bodies with a correlation ID, never stack traces; no API ETags; no `Server` header. Request logs carry method, route template, status and latency only, never query strings.
 
 #### 3.8.10 Process hardening
-- Never run as root. The image runs as non-root UID/GID `1000:1000` by default (`12` P7); compose maps `VILLAGE_UID`/`VILLAGE_GID` to the invoking host user (`09` §3.11.4); root-start platforms drop to `PUID`/`PGID` with all capabilities cleared before Node starts.
+- Never run as root. The image runs as non-root UID/GID `1000:1000` by default (`12` P7); compose maps `COMVIVO_UID`/`COMVIVO_GID` to the invoking host user (`09` §3.11.4); root-start platforms drop to `PUID`/`PGID` with all capabilities cleared before Node starts.
 - Bare metal: the systemd unit uses `NoNewPrivileges=yes`, `ProtectSystem=strict`, `ProtectHome=yes`, `PrivateTmp=yes`, `ReadWritePaths=<dataDir>`, `CapabilityBoundingSet=` and `RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX` (`12` ships it).
 - Node diagnostic reports (`process.report`) include environment variables, so they stay disabled. Hosts are told not to enable `--report-on-fatalerror`.
 
 #### 3.8.11 ICS feed listener
 Optional `ics.bind`/`ics.port` creates a separate minimal listener serving only `GET /ics/v1/<token>.ics` (`07` §3.1.5; no cookies, no HTML, strict headers, rate limits), so calendar services can reach feeds through a narrow tunnel rule while the dashboard stays private.
 
-### 3.9 SSRF and egress control (`safeFetch`, `@village/shared/net`)
+### 3.9 SSRF and egress control (`safeFetch`, `@comvivo/shared/net`)
 
 **Scope:** ICS import, remote MCP, plugin broker fetches, web-search tool, OAuth discovery for MCP, update check, link-preview fetching (not planned for 1.0), webhooks (none in 1.0). Model-provider SDKs and chat-platform SDKs use fixed, host-configured endpoints and are exempt. Their base URLs are validated at config load and pass the Local-only check (S12).
 
@@ -607,13 +607,13 @@ Rules:
 **Allowlist:** `network.egress.allowPrivate: ["nas.local:443", "192.168.1.20:8443"]`, exact host:port, no wildcards, **host-only** (SD-21). Local model servers (`models.local.baseUrl`) are allowed for the model gateway only, never for `safeFetch` purposes.
 
 ### 3.10 Secrets handling
-- **Sources.** Env, or `<NAME>_FILE` for every secret (generic config-loader rule): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `MATRIX_ACCESS_TOKEN`, `VILLAGE_IMAP_PASSWORD`, transcription/search provider keys, `VILLAGE_MASTER_KEY`. `.env` is loaded only if mode ≤ 0600.
+- **Sources.** Env, or `<NAME>_FILE` for every secret (generic config-loader rule): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `MATRIX_ACCESS_TOKEN`, `COMVIVO_IMAP_PASSWORD`, transcription/search provider keys, `COMVIVO_MASTER_KEY`. `.env` is loaded only if mode ≤ 0600.
 - **Never in** DB, YAML, traces, exports or logs (S2).
 - **Runtime-acquired credentials** (MCP OAuth tokens, Matrix device tokens from login flows) go to the **vault**: `data/keys/vault.enc`, AES-256-GCM under the vault key, versioned, atomic writes. The vault is included in backups (encrypted) and never in exports.
-- **Host-entered extension secrets** (`village plugin secret set`, `village mcp client secret set`; `10` §3.3.2, §3.9.1) are also vault entries, namespaced `plugin/<id>/[<groupId>/]<key>` and `mcp/<id>/<name>`, never plaintext files. `VILLAGE_PLUGIN_<ID>_<KEY>` / `VILLAGE_MCP_CLIENT_<ID>_<NAME>` env (or `_FILE`) take precedence. A plugin receives only its declared secrets, over RPC, bound to `boundHosts`.
-- **Appliance secrets** (01 §14 A29). On Home Assistant, Umbrel and CasaOS installs the host may enter host-only secrets (provider API keys, bot tokens, `VILLAGE_IMAP_PASSWORD`) once through the token-gated web setup page (`09`). They are stored in `data/keys/secrets.enc`: the same AEAD container as the vault (AES-256-GCM, 96-bit random nonce, versioned, atomic write, 0600), keyed by the vault key with AAD `"village/v1/secrets.enc" ‖ instanceId ‖ version` for domain separation. Entries are `{name, value, setAt, setVia}`; names are restricted to the secret names above. Precedence: env and `*_FILE` > `secrets.enc`. Never in the DB, YAML, traces, exports or logs (S2); included in encrypted backups like the vault. Changing an entry requires the setup token (before the host claim) or host step-up (A9). They remain host-only keys (A14).
+- **Host-entered extension secrets** (`village plugin secret set`, `village mcp client secret set`; `10` §3.3.2, §3.9.1) are also vault entries, namespaced `plugin/<id>/[<groupId>/]<key>` and `mcp/<id>/<name>`, never plaintext files. `COMVIVO_PLUGIN_<ID>_<KEY>` / `COMVIVO_MCP_CLIENT_<ID>_<NAME>` env (or `_FILE`) take precedence. A plugin receives only its declared secrets, over RPC, bound to `boundHosts`.
+- **Appliance secrets** (01 §14 A29). On Home Assistant, Umbrel and CasaOS installs the host may enter host-only secrets (provider API keys, bot tokens, `COMVIVO_IMAP_PASSWORD`) once through the token-gated web setup page (`09`). They are stored in `data/keys/secrets.enc`: the same AEAD container as the vault (AES-256-GCM, 96-bit random nonce, versioned, atomic write, 0600), keyed by the vault key with AAD `"village/v1/secrets.enc" ‖ instanceId ‖ version` for domain separation. Entries are `{name, value, setAt, setVia}`; names are restricted to the secret names above. Precedence: env and `*_FILE` > `secrets.enc`. Never in the DB, YAML, traces, exports or logs (S2); included in encrypted backups like the vault. Changing an entry requires the setup token (before the host claim) or host step-up (A9). They remain host-only keys (A14).
 - **Adapter state dirs** (Matrix crypto store, signal-cli data) live under `dataDir` at 0700. If an SDK offers a store passphrase, it is derived via `HKDF(RDK, "village/v1/store/<adapter>")` (`06`).
-- **Redaction** (`@village/shared/logger`) has three layers:
+- **Redaction** (`@comvivo/shared/logger`) has three layers:
   1. pino `redact` paths: `*.token`, `*.apiKey`, `*.password`, `*.secret`, `*.authorization`, `headers.cookie`, `headers.authorization`, `*.key`;
   2. a pattern scrubber on every serialized string field: Village prefixes (`vs1_`, `vmcp_`, `vml1.`, `vlp_`, `vics_`, `vctl_`, `VLG-`, `VRK1-`), `sk-ant-…`, `sk-…`, `xoxb-`/`xoxp-`/`xapp-`, the Telegram token shape `\d{6,12}:[A-Za-z0-9_-]{30,}`, `AIza[0-9A-Za-z_-]{35}`, Discord token shape, PEM blocks, and long base64 blobs adjacent to `key`/`secret`;
   3. **SDK errors are never logged raw.** They are mapped to typed errors with allowlisted fields (status, type, request-id).
@@ -624,14 +624,14 @@ Rules:
 |---|---|---|---|
 | D-01 | `fs.modes` | `dataDir` 0700, `keys/` 0700, keyfile/keyring/vault/control token 0600, owned by the service UID | fail |
 | D-02 | `fs.modes`, `security.env-git` | `.env` ≤ 0600; `.env` inside a git work tree and not ignored | fail / warn |
-| D-03 | `security.secrets-in-config` | `village.yaml` and DB settings contain no secret-shaped strings | fail |
+| D-03 | `security.secrets-in-config` | `comvivo.yaml` and DB settings contain no secret-shaped strings | fail |
 | D-04 | `security.encryption` | DB header is not plaintext while `encryptAtRest:true`; partial-encryption fallback reported | fail / warn |
 | D-05 | `keys.recovery` | Recovery slot exists; never verified or last verification > 180 days | warn |
 | D-06 | `backups.recent` | Backups enabled, latest success < 36 h (the same threshold as `12`'s `/healthz` `degraded: backups`), headers parse, keep count honored | warn |
 | D-07 | `dashboard.exposure` | Exposure mode is coherent (non-loopback without TLS/proxy/insecure flag → fail); HTTPS magic links enabled → warn with the S8 residual risk | fail / warn |
 | D-08 | `runtime.node` | Node version (< 24.11 fail); permission-model network flag available (≥ 25) for plugins (Node 24 → warn) | warn / fail |
 | D-09 | `security.root` | Running as root (fail in Docker) | warn / fail |
-| D-10 | `security.debug-and-key-source` | `VILLAGE_DEBUG_CONTENT` on; master key from env (not `_FILE`) | warn |
+| D-10 | `security.debug-and-key-source` | `COMVIVO_DEBUG_CONTENT` on; master key from env (not `_FILE`) | warn |
 | D-11 | `security.egress` | Provider egress summary; Local-only coherence | info / fail |
 | D-12 | `security.plugins` | Plugins/MCP servers unapproved or with changed hashes | fail |
 | D-13 | `channels.<id>` | Platform exposure: Telegram `can_join_groups`; Discord bot public; excess bot permissions (admin) | warn |
@@ -771,7 +771,7 @@ Rules:
      <sdk runtime child.js> --entry <abs entry> --plugin <id>
 ```
 - No `--allow-child-process`, `--allow-worker`, `--allow-addons` or `--allow-wasi`.
-- `cwd` = the read-only package prefix. Env is the minimal allowlist only (`10` §3.4.2: never `PATH`, tokens or `VILLAGE_*` secrets).
+- `cwd` = the read-only package prefix. Env is the minimal allowlist only (`10` §3.4.2: never `PATH`, tokens or `COMVIVO_*` secrets).
 - stdio carries JSON-RPC `village-plugin-rpc/1` (zod-validated both ways; per-line cap per `10` §3.4.4, 4 MiB, sized for 1 MiB attachment chunks).
 - Timeouts per `10` §3.4.4 (tool `timeoutMs` default 15 s, max 60 s; channel ops 30 s; jobs 120 s; digest render 10 s). Crash restarts back off exponentially. A circuit breaker opens after 5 failures in 10 min and posts an admin notice (`10` §3.4.3).
 - Known limits we document: symlinks are followed, workers don't inherit permissions, and existing fds bypass checks. Mitigations: no symlinks are created in plugin dirs (install unpacks with symlinks rejected), and no fds are passed.
@@ -783,7 +783,7 @@ Rules:
 **Optional container runner** (`plugins.runner: docker`; M12 stretch): `--network none` (brokered fetch only), read-only rootfs, non-root, `--cap-drop ALL`, seccomp default.
 
 **MCP client:**
-1. **Configuration.** Servers come only from host config (`village.yaml`/CLI), never from chat or group admins. Approval shows the **exact command and args** (stdio) or URL (remote), per the MCP security best practices.
+1. **Configuration.** Servers come only from host config (`comvivo.yaml`/CLI), never from chat or group admins. Approval shows the **exact command and args** (stdio) or URL (remote), per the MCP security best practices.
 2. **stdio servers.** Spawned with the env allowlist, an isolated cwd and no inherited fds. If `command` is `node`, the plugin permission flags apply; other runtimes get docs warnings and the optional container runner.
 3. **Remote servers.** `safeFetch` only, https only. OAuth per the MCP authorization spec, tokens in the vault. Host-entered MCP client secrets (`village mcp client secret set`, `10` §3.9) are vault entries too. **No token passthrough.** OAuth metadata URLs are treated as SSRF-sensitive (MCP spec §SSRF); authorization URLs accept only `https:`.
 4. **Pinning.** Tool definitions (name, description, input schema, annotations) are hashed at approval. A changed definition disables that tool and notifies the host (rug-pull defense). Descriptions are capped at 1,024 chars.
@@ -1184,16 +1184,16 @@ what you do to anyone · send anything to the Village project.
 
 ## 4. Interfaces
 
-Types are normative sketches. Packages: `@village/shared` (crypto primitives, net, logger, secrets), `@village/storage` (KeyService, blob/backup crypto), `apps/server` (HTTP middleware), `@village/plugin-sdk` host side (sandbox launcher).
+Types are normative sketches. Packages: `@comvivo/shared` (crypto primitives, net, logger, secrets), `@comvivo/storage` (KeyService, blob/backup crypto), `apps/server` (HTTP middleware), `@comvivo/plugin-sdk` host side (sandbox launcher).
 
 ```ts
-// @village/shared/secrets
+// @comvivo/shared/secrets
 export interface SecretString { readonly kind: 'secret'; reveal(): string; toString(): '[REDACTED]'; toJSON(): '[REDACTED]' }
 export interface SecretSource { readSecret(name: SecretName): SecretString | undefined } // env > <NAME>_FILE; strips from process.env after read
 export type SecretName = 'ANTHROPIC_API_KEY' | 'OPENAI_API_KEY' | 'GEMINI_API_KEY' | 'TELEGRAM_BOT_TOKEN' | 'DISCORD_BOT_TOKEN'
-  | 'SLACK_BOT_TOKEN' | 'SLACK_APP_TOKEN' | 'MATRIX_ACCESS_TOKEN' | 'VILLAGE_IMAP_PASSWORD' | 'VILLAGE_MASTER_KEY' | (string & {});
+  | 'SLACK_BOT_TOKEN' | 'SLACK_APP_TOKEN' | 'MATRIX_ACCESS_TOKEN' | 'COMVIVO_IMAP_PASSWORD' | 'COMVIVO_MASTER_KEY' | (string & {});
 
-// @village/shared/crypto  (thin, audited wrappers over node:crypto + libsodium; the ONLY crypto import site)
+// @comvivo/shared/crypto  (thin, audited wrappers over node:crypto + libsodium; the ONLY crypto import site)
 export interface SecretKey { readonly id: string; use<T>(fn: (raw: Uint8Array) => T): T; destroy(): void } // toJSON throws
 export interface Crypto {
   random(bytes: number): Uint8Array;
@@ -1209,7 +1209,7 @@ export interface Crypto {
 }
 export interface Wrapped { alg: 'A256GCM'; nonce: string; ct: string }        // base64url
 
-// @village/storage/crypto
+// @comvivo/storage/crypto
 export type KeyPurpose = 'db' | 'blob-kek' | 'backup-kek' | 'token-mac' | 'vault' | 'field' | 'blob-id' | 'fts-token';   // 'fts-token': 02 FTS fallback mode only
 export type UnlockSource = 'master-file' | 'master-env' | 'keychain' | 'keyfile' | 'passphrase' | 'recovery';
 export interface KeyringStatus { locked: boolean; currentGen: number; retiredGens: number[]; slots: { id: string; kind: 'master' | 'recovery' | 'passphrase' }[]; wrapCount: number }
@@ -1228,7 +1228,7 @@ export type UnlockError = 'no_source' | 'bad_permissions' | 'auth_failed' | 'key
 export interface BlobCipher { encrypt(addr: BlobAddr, mime: string, src: ReadableStream<Uint8Array>): Promise<{ dekWrapped: Wrapped; kekGen: number; body: ReadableStream<Uint8Array> }>; decrypt(row: BlobRow, body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> }
 export interface BackupEnvelope { seal(tar: ReadableStream<Uint8Array>, meta: BackupMeta): ReadableStream<Uint8Array>; open(file: ReadableStream<Uint8Array>, via: { kind: 'master' } | { kind: 'recovery'; rk: SecretString }): Promise<{ header: BackupHeader; tar: ReadableStream<Uint8Array> }>; rewrapHeader(path: string): Promise<void> }
 
-// @village/shared/tokens (used by apps/server, mcp)
+// @comvivo/shared/tokens (used by apps/server, mcp)
 export type TokenKind = 'session' | 'pending' | 'pairing' | 'magic' | 'csrf' | 'pat' | 'ics' | 'claim' | 'control'; // 'pat' = MCP token (10 §3.7.3)
 export interface IssuedToken { token: SecretString; digest: string; expiresAt: string }  // token shown once; digest stored
 export interface TokenService {
@@ -1237,7 +1237,7 @@ export interface TokenService {
   csrfFor(sessionDigest: string): string;
 }
 
-// @village/shared/net
+// @comvivo/shared/net
 export type EgressPurpose = 'ics-import' | 'mcp-remote' | 'mcp-oauth' | 'plugin' | 'web-search' | 'update-check';
 export interface EgressPolicy { purpose: EgressPurpose; allowHttpHosts?: readonly string[]; allowPrivate?: readonly `${string}:${number}`[];
   allowedHosts?: readonly string[]; maxBytes: number; timeoutMs: number; maxRedirects: number; contentTypes?: readonly string[] }
@@ -1329,11 +1329,11 @@ updates: { check: false }     # ● opt-in
 
 | Env var | Purpose |
 |---|---|
-| `VILLAGE_MASTER_KEY_FILE` / `VILLAGE_MASTER_KEY` | MK source (prefer `_FILE`) |
-| `VILLAGE_PASSPHRASE_FILE` | Passphrase-mode unattended unlock |
+| `COMVIVO_MASTER_KEY_FILE` / `COMVIVO_MASTER_KEY` | MK source (prefer `_FILE`) |
+| `COMVIVO_PASSPHRASE_FILE` | Passphrase-mode unattended unlock |
 | `<SECRET>` / `<SECRET>_FILE` | Every secret in §3.10 |
-| `VILLAGE_DEBUG_CONTENT=1` | Content debug logs (announced in groups, auto-deleted after 24 h) |
-| `VILLAGE_INSECURE_PERMISSIONS=1` | Skip file-mode refusal (doctor fails) |
+| `COMVIVO_DEBUG_CONTENT=1` | Content debug logs (announced in groups, auto-deleted after 24 h) |
+| `COMVIVO_INSECURE_PERMISSIONS=1` | Skip file-mode refusal (doctor fails) |
 
 Precedence follows ADR-014. ● keys from DB settings are **ignored** (only env/YAML count), so a compromised admin session cannot change them.
 
@@ -1406,7 +1406,7 @@ Precedence follows ADR-014. ● keys from DB settings are **ignored** (only env/
 
 ## 9. Testing & evals
 
-Test IDs referenced in §3. `sec.*` live next to the code (Vitest). `prop.*` use fast-check. `fuzz.*` run under `pnpm test:fuzz` (fast-check drivers) and nightly Jazzer.js. `dast.*` use ZAP. `redteam.*` are scenario suites in `@village/evals` (`11`).
+Test IDs referenced in §3. `sec.*` live next to the code (Vitest). `prop.*` use fast-check. `fuzz.*` run under `pnpm test:fuzz` (fast-check drivers) and nightly Jazzer.js. `dast.*` use ZAP. `redteam.*` are scenario suites in `@comvivo/evals` (`11`).
 
 | Suite | Asserts |
 |---|---|
@@ -1459,7 +1459,7 @@ Each row lists the task, its files, its acceptance criteria and its dependencies
 | ID | Task | Files | Acceptance | Deps |
 |---|---|---|---|---|
 | M1-T80 | Encryption spike (with `02`'s ADR-005 spike) | `spikes/crypto/*`, `docs/adr/ADR-0xx-encryption.md` | SQLite3MC raw-key sqlcipher legacy 4 + FTS5 + sqlite-vec + Drizzle work together; WAL rekey (≥ 2.4.0); `VACUUM INTO`/backup-API behavior documented; libsodium-wrappers ESM + secretstream throughput vs §8 on x86 and Pi 5; decision recorded | M1 storage scaffold |
-| M1-T81 | `@village/shared/crypto` primitives | `packages/shared/src/crypto/{random,hkdf,wrap,hmac,equal,scrypt,stream}.ts` | `sec.crypto.kat` and stream tamper tests pass; 100% branch coverage; the only module importing `node:crypto`/libsodium | M1-T80 |
+| M1-T81 | `@comvivo/shared/crypto` primitives | `packages/shared/src/crypto/{random,hkdf,wrap,hmac,equal,scrypt,stream}.ts` | `sec.crypto.kat` and stream tamper tests pass; 100% branch coverage; the only module importing `node:crypto`/libsodium | M1-T80 |
 | M1-T82 | KeyService + keyring | `packages/storage/src/crypto/{keyring,key-service,unlock-sources,keychain}.ts` | §3.7.3–3.7.5 behavior; atomic writes; permission refusal; `sec.keys.*` including crash-resume via fault injection | M1-T81 |
 | M1-T83 | Recovery key codec + `village keys` | `packages/storage/src/crypto/recovery-key.ts`, `apps/cli/src/commands/keys/*` | Codec property tests (typo normalization; checksum catches all single-char errors); commands `status`, `verify-recovery`, `rotate-{master,data,recovery,sessions}`, `recover`, `add-passphrase`, `remove-slot`, `purge-retired`; ceremony per §3.7.6 | M1-T82 |
 | M1-T84 | Blob cipher | `packages/storage/src/crypto/blob-cipher.ts` (+ `02` blob store) | `VBL1` format; keyed addresses (`sec.crypto.blob-id`); tamper, truncation and crypto-shred tests | M1-T81, M1-T82 |
@@ -1513,7 +1513,7 @@ Each row lists the task, its files, its acceptance criteria and its dependencies
 | M14-T82 | SBOM + SLSA Build L3 | `.github/workflows/build-reusable.yml` (called by `release.yml`, listed in `12` §3.10.4) | `pnpm sbom --sbom-format cyclonedx --prod` per published package attached to the release; image and npm builds run in the isolated reusable workflow and meet L3 per GitHub guidance | M14-T80, M14-T81 |
 | M14-T83 | Reproducible tarballs | `.github/workflows/repro.yml` | Two independent builds give identical npm tarballs (`SOURCE_DATE_EPOCH`); image diff reported (non-gating) | M14-T80 |
 | M14-T84 | Backup/restore + rotation e2e | `apps/cli/test/e2e/keys-backup.e2e.test.ts` | Restore on a fresh host with RK; `rotate-data` on live data resumes after kill -9; upgrades keep the keyring compatible | `02`/`12` backup ops |
-| M14-T85 | Container + systemd hardening | `deploy/docker/Dockerfile`, `deploy/compose/*.yml`, `deploy/systemd/village.service` | `sec.image.policy` (non-root UID, default `1000:1000`; uid 0 refused unless `VILLAGE_ALLOW_ROOT=1`; read-only rootfs, `cap_drop: ALL`, `no-new-privileges`); `systemd-analyze security` exposure ≤ 2.5 (same target as `12:M14-T11`) | `12` |
+| M14-T85 | Container + systemd hardening | `deploy/docker/Dockerfile`, `deploy/compose/*.yml`, `deploy/systemd/village.service` | `sec.image.policy` (non-root UID, default `1000:1000`; uid 0 refused unless `COMVIVO_ALLOW_ROOT=1`; read-only rootfs, `cap_drop: ALL`, `no-new-privileges`); `systemd-analyze security` exposure ≤ 2.5 (same target as `12:M14-T11`) | `12` |
 
 ### M15 — Docs, launch, external review
 | ID | Task | Files | Acceptance | Deps |

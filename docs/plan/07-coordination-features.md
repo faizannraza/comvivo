@@ -28,7 +28,7 @@ Design goals, in priority order:
 
 | # | Decision | Choice | Why / alternatives |
 |---|---|---|---|
-| KD-1 | Date parsing | The model emits a **structured `WhenSpec`** (what the user said, e.g. `weekday FR, which=next, time 18:00`). A **pure resolver in `@village/core/time`** computes the instant with Temporal. `chrono-node` cross-checks the user's verbatim phrase. | LLMs are unreliable at calendar arithmetic. Alternative: the model emits ISO instants, rejected because of silent off-by-one-week and timezone errors. |
+| KD-1 | Date parsing | The model emits a **structured `WhenSpec`** (what the user said, e.g. `weekday FR, which=next, time 18:00`). A **pure resolver in `@comvivo/core/time`** computes the instant with Temporal. `chrono-node` cross-checks the user's verbatim phrase. | LLMs are unreliable at calendar arithmetic. Alternative: the model emits ISO instants, rejected because of silent off-by-one-week and timezone errors. |
 | KD-2 | Rendering times | Write tools return a pre-rendered **receipt** string per audience. The charter tells the model to quote receipts verbatim and never restate dates. | Removes hallucinated dates from replies. The receipt's `templateKey` and params are journaled as `TurnEffect.summaryKey`/`summaryParams` (02), so crash-recovery messages (I7, 05 §3.7) render the same text. |
 | KD-3 | "next Friday" | When ambiguous (the coming Friday is in the same calendar week), Village **asks with two buttons**. Each member's preference is learned after 2 consistent picks. | Usage differs by region and by person, and a wrong week is costly. Confirmations always show the explicit date. |
 | KD-4 | Recurrence engine | **`rrule-temporal`** (MIT, Temporal-native, RFC 5545 + RFC 7529; v2.2.x in Sep 2026), wrapped by `core/time/recurrence.ts`. Fallback `rrule` only if the M7 spike (M7-T1) fails. Resolves ADR-011. | It is Temporal-native, supports EXDATE/RDATE and `tzid`, and is maintained. The original `rrule` uses `Date` and is effectively unmaintained. |
@@ -51,7 +51,7 @@ Design goals, in priority order:
 
 ### 3.0 Cross-cutting foundations
 
-#### 3.0.1 Time model (`@village/core/time`)
+#### 3.0.1 Time model (`@comvivo/core/time`)
 
 - **Types.** `Temporal.Instant`, `ZonedDateTime` (ZDT), `PlainDate` (all-day), `PlainTime`, `Duration`. Values are persisted as RFC 9557 strings, e.g. `2026-11-13T18:00:00+05:00[Asia/Karachi]`, plus derived UTC epoch-ms columns for indexing (02). Wall-clock time plus IANA zone is the **source of truth**. Instants are derived caches.
 - **Zones.** Each person has `Person.timezone` (IANA). Each group has a default `Group.timezone` (spine §6.3 references "group timezone"; field added by 01 §14 A7, schema in 02). Members without a zone inherit the group zone, and onboarding (06) asks them once.
@@ -1558,7 +1558,7 @@ out: zWriteResult(z.object({ summary: z.string() }))
 Group-level digest settings: the recap day and time are constitution fields (`proactivity.digests.weeklyRecap`, 03), changed with `constitution_propose_amendment` (03). The primary conversation is a group setting, changed with `group_settings_update` (05 §3.6.7) under `settings.write`.
 
 ---
-### 3.10 Proactivity engine (`@village/engine/proactivity`; math pure in `@village/core/proactivity`)
+### 3.10 Proactivity engine (`@comvivo/engine/proactivity`; math pure in `@comvivo/core/proactivity`)
 
 #### 3.10.1 Pipeline
 
@@ -1768,7 +1768,7 @@ Export packaging, encryption and CLI belong to 02 and 12. Coordination supplies 
 | `calendar/group.ics` | Group-readable native events (overrides, EXDATE/RDATE as §3.1.5); subscriptions are exported as their URLs in `coordination.json`, not their events | `export.group` |
 | `calendar/me.ics` | Everything the member can read, including private events | `export.self` |
 | `tasks/me.ics` | VTODO for the member's open and recent tasks (`DUE`, `STATUS`, `PERCENT-COMPLETE`) — optional, for Apple Reminders/Thunderbird | `export.self` |
-| `coordination.json` | Versioned `village.coordination/v1` JSON (zod schemas published in `@village/plugin-sdk`): events, overrides, attendees, reminders, tasks, rotations, ledger, swaps, lists, polls (votes only for self-export and non-anonymous polls in group export; anonymous polls export aggregates), plans, steps, decisions with citations (message ids, no text unless retained and readable) | `export.group` / `export.self` |
+| `coordination.json` | Versioned `village.coordination/v1` JSON (zod schemas published in `@comvivo/plugin-sdk`): events, overrides, attendees, reminders, tasks, rotations, ledger, swaps, lists, polls (votes only for self-export and non-anonymous polls in group export; anonymous polls export aggregates), plans, steps, decisions with citations (message ids, no text unless retained and readable) | `export.group` / `export.self` |
 
 Each exporter takes an audience and applies `canRead` per row: the same IFC as everywhere else. Imports of a `coordination.json` happen only through 02's restore. Members bring external calendars in via ICS subscription or `.ics` attachment (§3.1.6).
 
@@ -1906,7 +1906,7 @@ Each item carries id, version and display, so the model can reference ids withou
 
 ## 5. Configuration
 
-**`village.yaml` (instance-level; zod schema in `packages/shared/config`):**
+**`comvivo.yaml` (instance-level; zod schema in `packages/shared/config`):**
 ```yaml
 coordination:
   calendar:
