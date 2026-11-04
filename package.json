@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:test && pnpm run plan:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -35,6 +35,7 @@
     "depcruise": "depcruise packages apps --config",
     "depcruise:graph": "depcruise packages apps --config --output-type dot | dot -T svg > reports/dependency-graph.svg",
     "brand:check": "tsx scripts/brand/check.ts",
+    "plan:test": "python3 scripts/plan/trace.test.py",
     "plan:check": "python3 scripts/plan/trace.py --check",
     "build": "turbo run build",
     "test": "vitest run",

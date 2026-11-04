@@ -1027,7 +1027,44 @@ def check_plan(model: PlanModel) -> list[Finding]:
     out.extend(_check_status(model))
     out.extend(_check_parallel(model))
     out.extend(_check_matrix(model))
+    out.extend(_check_table_shape(model))
     out.sort()
+    return out
+
+
+def _check_table_shape(model: PlanModel) -> list[Finding]:
+    """Flag a markdown table row whose column count does not match its header.
+
+    This exists because two rows were appended to `STATUS.md`'s *Plan changes*
+    table without a newline between them, producing one line with twice the
+    columns. Nothing caught it: the checker reads the rows it cares about by
+    name, Vale reads prose, and the rendered table merely looks odd. A
+    corrupted row in the decision record is the one kind of damage this
+    project cannot afford to make quietly, because the record *is* the
+    evidence.
+
+    A doubled row is the signal here, so the check is on the count rather than
+    on the content. `<br/>`-heavy cells and inline pipes inside code spans are
+    already handled by `split_table_row`.
+    """
+    out: list[Finding] = []
+    for doc in (MILESTONES_DOC, STATUS_DOC):
+        path = model.plan_dir / doc
+        if not path.exists():
+            continue
+        for table in iter_tables(read_lines(path)):
+            width = len(table.header)
+            for row in table.rows:
+                if len(row.cells) != width:
+                    out.append(
+                        Finding(
+                            "ERROR",
+                            "E-TABLE-SHAPE",
+                            f"{doc}:{row.lineno}",
+                            f"row has {len(row.cells)} columns; the header at "
+                            f"line {table.start_lineno} has {width}",
+                        )
+                    )
     return out
 
 
