@@ -8,7 +8,7 @@ column-level encryption, which is a materially worse product.
 **Outcome: ship D8.** Every criterion passes. The fallback is not needed, and `VACUUM INTO` can be
 used for snapshots, so `01` §14 A8's online-backup-API alternative is not needed either.
 
-Measured 2026-11-04 on darwin-arm64 (Apple M1, 16 GiB), on **Node 26.13.0 and Node 24.22.2** — the whole suite green on both, and `pnpm verify` green on both — with
+Measured 2026-11-04 on **darwin-arm64** (Apple M1, 16 GiB) and **linux-x64** (GitHub Actions, `ubuntu-24.04`), on **Node 26.13.0 and Node 24.22.2** — the whole suite green on every combination, and `pnpm verify` green on both Node versions locally and on CI run [`41802692194`](https://github.com/faizannraza/comvivo/actions/runs/41802692194) — with
 `better-sqlite3-multiple-ciphers@13.0.3`, `sqlite-vec@0.1.9` (SQLite 3.53.4),
 `drizzle-orm@0.45.4` and `drizzle-kit@0.31.11`.
 
@@ -153,5 +153,5 @@ eligible-label filter applied to both.
 | | |
 |---|---|
 | **H-10 — a Raspberry Pi 5 afternoon** | U7 (every §3.16.4 latency), SP-2's 40 MB/s gate, and the linux-arm64 legs of SP-1 and U5. `scripts/bench/pi.sh` is the one-command session |
-| **linux-x64 and the Docker base** | CI covers linux-x64 on both Node versions. The `node:26-trixie-slim` base arrives with `12`'s image work in M14 |
+| **The Docker base** | linux-x64 is **done** — the spike suite and `pnpm verify` are green on `ubuntu-24.04` on both Node versions (run [`41802692194`](https://github.com/faizannraza/comvivo/actions/runs/41802692194)), which is where the prebuilt `linux-x64` binaries of both native modules get exercised. The `node:26-trixie-slim` base arrives with `12`'s image work in M14 |
 | **ADR-005 addendum** | Written: `docs/adr/ADR-005-sqlite-and-encryption.md` |

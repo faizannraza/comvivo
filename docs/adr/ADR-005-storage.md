@@ -68,7 +68,7 @@ evidence, is `docs/architecture/storage-spike.md`; the numbers are in
 runs on every `pnpm verify`, because each of these is a fact about somebody else's native module
 and can change on an upgrade.
 
-Measured on darwin-arm64 (Apple M1), green on **both** Node 26.13.0 and Node 24.22.2, with
+Measured on darwin-arm64 (Apple M1) and linux-x64 (GitHub Actions), green on **both** Node 26.13.0 and Node 24.22.2, with
 `better-sqlite3-multiple-ciphers@13.0.3` (SQLite 3.53.4), `sqlite-vec@0.1.9`,
 `drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`.
 
