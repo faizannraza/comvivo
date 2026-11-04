@@ -113,9 +113,21 @@ export async function getReleaseLine(changeset, _type, options) {
   const { type, text } = parseSummary(changeset.summary);
   const [first = '', ...rest] = text.split('\n');
   const label = type === OTHER.type ? '' : `**${headingFor(type)}:** `;
-  const indented = rest.map((line) => (line.trim() === '' ? '' : `  ${line.trimEnd()}`)).join('\n');
-  const head = `\n\n- ${label}${first.trim()}${commitSuffix(changeset.commit, repo)}`;
-  return rest.length > 0 ? `${head}\n${indented}` : head;
+  const suffix = commitSuffix(changeset.commit, repo);
+  const head = `\n\n- ${label}${first.trim()}`;
+
+  // The commit link goes at the END of the entry, not at the end of its first line.
+  //
+  // It used to go on the first line, which on a wrapped multi-line summary dropped the link into
+  // the middle of a sentence: "A `.env` line with the `=` ([`dc92996`](…)) missing had its whole
+  // text echoed". Found the first time `changeset version` ever ran with a real changeset — the
+  // unit tests called this function directly with one-line summaries and never saw it.
+  const lines = rest.map((line) => (line.trim() === '' ? '' : `  ${line.trimEnd()}`));
+  let last = lines.length - 1;
+  while (last >= 0 && lines[last] === '') last -= 1;
+  if (last < 0) return `${head}${suffix}`;
+  lines[last] = `${lines[last]}${suffix}`;
+  return `${head}\n${lines.join('\n')}`;
 }
 
 /**

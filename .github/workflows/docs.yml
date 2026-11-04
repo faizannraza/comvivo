@@ -10,15 +10,15 @@
 name: docs
 
 on:
+  # No `paths:` filter on `pull_request`, deliberately.
+  #
+  # `docs-ok` is a **required** status check, and a required check with a workflow-level path
+  # filter never reports at all on a pull request that touches none of those paths — so the merge
+  # blocks forever waiting for a run that will not happen. `docs/architecture/ci.md` records the
+  # same trap for `zizmor`. The cost is ~50 s on pull requests that change no documentation; the
+  # alternative is an advisory check, which is what this was until the offline link check failed
+  # on a broken link in `STATUS.md` and the pull request remained mergeable.
   pull_request:
-    paths:
-      - "apps/docs/**"
-      - ".vale.ini"
-      - ".vale/**"
-      - "lychee.toml"
-      - "*.md"
-      - "docs/**"
-      - ".github/workflows/docs.yml"
   merge_group:
   push:
     branches: [main]
@@ -42,7 +42,11 @@ env:
 
 jobs:
   build:
-    name: build
+    # `docs-ok`, not `build`: `ci.yml` also has a job called `build`, and a required check is
+    # matched by name, so two jobs sharing one name cannot both be required unambiguously. The
+    # `-ok` suffix matches the other required aggregators (`ci-ok`, `osv-ok`, `zizmor-ok`); this
+    # workflow has a single job, so the job *is* the aggregator.
+    name: docs-ok
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:

@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/@changesets/config@4/schema.json",
   "changelog": [
-    "./tools/changelog/index.mjs",
+    "../tools/changelog/index.mjs",
     {
       "repo": "faizannraza/comvivo"
     }
