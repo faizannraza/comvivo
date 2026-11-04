@@ -76,8 +76,19 @@ jobs:
         run: |
           set -euo pipefail
           echo "$NEEDS"
-          failed=$(echo "$NEEDS" | grep -c '"result": "\(failure\|cancelled\)"' || true)
-          ran=$(echo "$NEEDS" | grep -c '"result": "success"' || true)
+          # `node`, not `grep`, for the same reason as `ci-ok`: matching a literal '": "' makes the
+          # audit depend on undocumented JSON formatting, and a formatting change would make this
+          # count zero failures and pass.
+          counts=$(node -e '
+            const needs = JSON.parse(process.env.NEEDS);
+            const results = Object.values(needs).map((job) => job.result);
+            const bad = results.filter((r) => r === "failure" || r === "cancelled").length;
+            const ok = results.filter((r) => r === "success").length;
+            // See ci-ok: console.log joins the arguments, so there is no dollar-brace for
+            // shellcheck to read as a shell expansion.
+            console.log(bad, ok);
+          ')
+          read -r failed ran <<< "$counts"
           if [ "$failed" -ne 0 ]; then
             echo "osv-ok: a scan failed." >&2
             exit 1

@@ -23,6 +23,7 @@ import {
   isHistory,
   type Leftover,
   rewriteContent,
+  rewriteHistoryTitle,
   rewritePath,
   shouldSkip,
   type TargetBrand,
@@ -92,7 +93,16 @@ for (const path of tracked) {
     skipped.push(path);
     continue;
   }
-  if (isHistory(path) || isFixture(path)) continue;
+  if (isFixture(path)) continue;
+  if (isHistory(path)) {
+    // The body is a record and stays verbatim; the title is not. See `rewriteHistoryTitle`.
+    const titled = rewriteHistoryTitle(bytes.toString('utf8'), from, to);
+    if (titled !== bytes.toString('utf8')) {
+      rewritten.push(path);
+      if (!dryRun) writeFileSync(`${ROOT}/${path}`, titled);
+    }
+    continue;
+  }
 
   const source = bytes.toString('utf8');
   let next = rewriteContent(source, from, to);

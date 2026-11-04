@@ -31,8 +31,14 @@ ones:
 - **Shared authority.** Who may ask Comvivo to spend money, change a shared calendar, or message
   somebody outside the group? Roles and a group-editable constitution decide, and every
   consequential action is confirmed to a person who is allowed to authorise it.
-- **It belongs to you.** Self-hosted, Apache-2.0, **zero telemetry** — no analytics, no phone-home,
-  no usage counting, not even an opt-in. Export everything, delete anything.
+- **It belongs to you.** Self-hosted, Apache-2.0, and **no product telemetry**: no analytics, no
+  usage counting, no crash reporting, not even opt-in. The one outbound request Comvivo can make on
+  its own behalf is an update check, which is **off by default** and reads a static file from a host
+  that gives us no request logs — so installs cannot be counted even if we wanted to. Export
+  everything, delete anything.
+
+  This website measures aggregate traffic with a self-hosted, cookieless analytics install, and
+  publishes the dashboard. That is the site, not the product ([ADR-022](docs/adr/ADR-022-docs-site-analytics.md)).
 - **Quiet by default.** An assistant in a family chat that chatters is an assistant people mute.
   Comvivo speaks when it is useful and otherwise stays out of the way.
 
@@ -55,9 +61,16 @@ reviewing, merging and accountable for the result. We would rather say so plainl
 noticed.
 
 What makes that defensible is evidence rather than assurance: every guard in this repository has a
-test that plants a violation and asserts the guard fails, because three separate guards here were
-found reporting success while enforcing nothing. Test counts, property tests, the red-team
-scorecard and the performance budgets are all public and measured, never estimated.
+test that plants a violation and asserts the guard fails. That rule exists because **seven guards
+here have been caught reporting success while enforcing nothing** — a dependency checker cruising
+an empty graph, a lint rule with no declared global, a secret-scrubbing pattern that could never
+match the one case it was written for, two file scanners blind to a whole class of file, an ESLint
+rule whose options a later block silently replaced, and a test-time network guard that let real
+HTTP requests out. Each was found by trying to break it, never by reading it.
+
+Test counts, property tests, the red-team scorecard and the performance budgets are public and
+measured, never estimated. Where a gate needs something only a human can do, the substitution is
+stated in [`STATUS.md`](docs/plan/STATUS.md) rather than glossed.
 
 ## Licence
 

@@ -433,12 +433,20 @@ export const declassifications = sqliteTable('declassifications', {   // I2 "rec
 
 #### 3.3.3 Messages & attachments — `messages.ts`
 ```ts
+> **`kind='assistant'`, not `kind='village'`** (decided 2026-11-03, M0 exit gate; STATUS → Plan
+> changes). The enum value was named after the product. A column **value** named after the brand
+> turns a rename into a data migration, which is precisely what ADR-024's `BRAND` indirection and
+> the rename codemod exist to prevent — and the product has already been renamed once. Changed here
+> rather than at use, because `M1-T5` writes this table's first migration and that is the last
+> moment the change is free. Every later reference in this document and in `06` reads `village` for
+> historical reasons; implement `assistant`.
+
 export const messages = sqliteTable('messages', {
   rid: integer('rid').primaryKey({ autoIncrement: true }),
   id: tid('msg')('id').notNull().unique(),
   groupId: tid('grp')('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
   conversationId: tid('cnv')('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['member', 'village', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`
+  kind: text('kind', { enum: ['member', 'assistant', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`; was 'village' — see note below
   senderMemberId: tid('mbr')('sender_member_id').references(() => members.id),
   senderIdentityId: tid('chid')('sender_identity_id').references(() => channelIdentities.id, { onDelete: 'set null' }),
   platformMessageId: text('platform_message_id'),

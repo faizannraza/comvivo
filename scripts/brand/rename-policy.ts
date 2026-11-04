@@ -134,6 +134,26 @@ export function rewriteContent(source: string, from: CurrentBrand, to: TargetBra
   });
 }
 
+/**
+ * Rewrite only the leading `# ` heading of a HISTORY file.
+ *
+ * HISTORY files are exempt from the rewrite because their **bodies** record what things used to be
+ * called — striking that out would destroy the record. Their titles are not records: `STATUS.md`
+ * opened with "STATUS — Village build tracker" for two days after the product stopped being called
+ * Village, because the exemption was applied to the whole file. Found by the M0 independent review.
+ *
+ * Only the first line, and only if it is an ATX heading, so a changeset entry or an ADR whose first
+ * line is prose is left completely alone.
+ */
+export function rewriteHistoryTitle(source: string, from: CurrentBrand, to: TargetBrand): string {
+  const newline = source.indexOf('\n');
+  const first = newline === -1 ? source : source.slice(0, newline);
+  if (!/^#{1,6} /.test(first)) return source;
+  const rewritten = rewriteContent(first, from, to);
+  if (rewritten === first) return source;
+  return newline === -1 ? rewritten : rewritten + source.slice(newline);
+}
+
 /** The new path for a file whose name or directory contains the slug, or `undefined` if unchanged. */
 export function rewritePath(path: string, from: CurrentBrand, to: TargetBrand): string | undefined {
   const rewritten = rewriteContent(path, from, to);
@@ -166,7 +186,7 @@ export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   // The plan records that the project was renamed, in the amendment that did it.
   /^docs\/plan\/01-architecture\.md$/,
   /^docs\/plan\/13-docs-launch-community\.md$/,
-  /^docs\/plan\/15-risks-spikes-decisions\.md$/,
+  /^docs\/plan\/15-risks-and-open-questions\.md$/,
 ];
 
 export function isAllowedLeftover(path: string): boolean {

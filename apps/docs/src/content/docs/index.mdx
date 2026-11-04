@@ -2,6 +2,13 @@
 title: Comvivo
 description: A self-hosted AI assistant that belongs to a group, not to one person. Your household's chat, your machine, your data.
 template: splash
+# Starlight appends the site title to every page title, so `title: Comvivo` on the home page of a
+# site called Comvivo rendered `<title>Comvivo | Comvivo</title>` — the one page whose title is
+# quoted in search results and shown on a bookmark. `title` is still the sidebar and hero name;
+# this overrides only the document title. Found by opening the dev server at the M0 gate.
+head:
+  - tag: title
+    content: Comvivo — an AI assistant that belongs to the group
 hero:
   tagline: |
     An AI assistant for your family's group chat that belongs to the whole group — and keeps
@@ -47,7 +54,12 @@ record of what actually exists.
     it is useful, respects quiet hours, and has a budget for how often it may interrupt.
   </Card>
   <Card title="Yours, on your machine" icon="laptop">
-    Self-hosted, Apache-2.0, and **zero telemetry** — no analytics, no phone-home, no usage
-    counting, not even opt-in. Export everything, delete anything.
+    Self-hosted, Apache-2.0, and **no product telemetry**: no analytics, no usage counting, no
+    crash reporting, not even opt-in. The one request Comvivo can make on its own behalf is an
+    update check — off by default, and served from a host that gives us no request logs, so
+    installs cannot be counted. Export everything, delete anything.
+
+    This site measures aggregate traffic with a self-hosted, cookieless install and publishes the
+    dashboard. That is the website, not the product.
   </Card>
 </CardGrid>

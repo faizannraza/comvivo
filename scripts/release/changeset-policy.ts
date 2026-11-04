@@ -10,8 +10,21 @@
  * hatch is visible and attributable stays on.
  */
 
-/** Paths that ship. */
-const SHIPPED = [/^apps\//, /^packages\//, /^deploy\//];
+/**
+ * Paths that ship.
+ *
+ * The root `package.json` is here because `engines` is the supported Node floor — shipped
+ * behaviour by any reading, and a host on the old floor finds out by their install failing.
+ * `pnpm-workspace.yaml` likewise carries `allowBuilds` and the dependency overrides. Found by the
+ * M0 independent review, which noted a change to either needed no changeset.
+ */
+const SHIPPED = [
+  /^apps\//,
+  /^packages\//,
+  /^deploy\//,
+  /^package\.json$/,
+  /^pnpm-workspace\.yaml$/,
+];
 
 /**
  * Paths inside those trees that do not ship.

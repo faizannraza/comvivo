@@ -11,11 +11,19 @@
  * `path` / `pathNot` are **regular expressions**, not globs, matched against the path from the
  * repository root with forward slashes.
  *
- * Every rule here is covered twice (`M0-T4`):
- *   - `test/boundaries/rules.test.ts` asserts each rule's regexes against representative paths, so
- *     a rule is proven correct even when the modules it protects do not exist yet;
- *   - `test/boundaries/fixtures.test.ts` cruises the planted violations under
- *     `test/fixtures/depcruise/**` and asserts each rule actually fires.
+ * Every rule here is covered by a **planted violation**, not by inspection (`M0-T4`).
+ *
+ * The fixtures live in a synthetic package tree built in a temp directory by
+ * `test/boundaries/plant.ts` and asserted by `test/boundaries/fixtures.int.test.ts`. That tree
+ * symlinks the real `node_modules`, so npm dependency types classify identically — which is what
+ * makes the `no-dev-dep-in-src` fixture possible at all.
+ *
+ * `test/boundaries/depcruise-paths.test.ts` covers the other half: every workspace export must
+ * have a `paths` entry in `tsconfig.depcruise.json`, because without one an import resolves into
+ * `dist/` and a rule anchored on a `src/` path then matches nothing and reports success.
+ *
+ * (An earlier version of this comment claimed the fixtures were files under
+ * `test/fixtures/depcruise/**` and the suite was `fixtures.test.ts`. Neither has ever existed.)
  */
 
 // --- Path fragments, named once -----------------------------------------------------------------

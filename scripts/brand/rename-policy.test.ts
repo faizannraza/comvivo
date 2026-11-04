@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { BRAND } from '../../packages/shared/src/brand.js';
 import {
@@ -12,7 +13,9 @@ import {
   isHistory,
   LEFTOVER_ALLOWLIST,
   rewriteContent,
+  rewriteHistoryTitle,
   rewritePath,
+  SKIP,
   shouldSkip,
   type TargetBrand,
 } from './rename-policy.js';
@@ -328,5 +331,79 @@ describe('the leftover report', () => {
     for (const pattern of HISTORY) {
       expect(LEFTOVER_ALLOWLIST).toContain(pattern);
     }
+  });
+});
+
+describe('rewriteHistoryTitle', () => {
+  it('rewrites the title of a history file, because a title is not a record', () => {
+    // `STATUS.md` read "STATUS — Village build tracker" for two days after the product stopped
+    // being called Village: the HISTORY exemption was applied to the whole file, title included.
+    const before = '# STATUS — Comvivo build tracker\n\nComvivo was renamed on 2026-11-01.\n';
+    const after = rewriteHistoryTitle(before, FROM, TO);
+    expect(after).toContain('# STATUS — Zzbrand build tracker');
+  });
+
+  it('leaves the body completely alone, which is the whole point of the exemption', () => {
+    const before = '# STATUS — Comvivo build tracker\n\nComvivo was renamed on 2026-11-01.\n';
+    expect(rewriteHistoryTitle(before, FROM, TO)).toContain('Comvivo was renamed on 2026-11-01.');
+  });
+
+  it('ignores a file whose first line is not a heading', () => {
+    // A changeset entry opens with `---`, and an ADR body can open with prose.
+    const before = "---\n'@comvivo/core': patch\n---\n";
+    expect(rewriteHistoryTitle(before, FROM, TO)).toBe(before);
+  });
+
+  it('ignores a heading that does not name the brand', () => {
+    const before = '# Changelog\n\nComvivo 0.1.0\n';
+    expect(rewriteHistoryTitle(before, FROM, TO)).toBe(before);
+  });
+
+  it('handles a file that is a single unterminated heading line', () => {
+    expect(rewriteHistoryTitle('# Comvivo', FROM, TO)).toBe('# Zzbrand');
+  });
+
+  it('rewrites a deeper heading level too, since a fragment file may start at ##', () => {
+    expect(rewriteHistoryTitle('### Comvivo notes\nbody\n', FROM, TO)).toBe(
+      '### Zzbrand notes\nbody\n',
+    );
+  });
+});
+
+describe('the policy patterns name paths that exist', () => {
+  /**
+   * A pattern that can never match is a silent hole: `LEFTOVER_ALLOWLIST` carried
+   * `^docs/plan/15-risks-spikes-decisions\.md$` for the whole of M0, and the file is actually
+   * `15-risks-and-open-questions.md`. Nothing failed, because an allowlist entry that matches
+   * nothing only ever *over*-reports — until the day it does not, and the drill fails on a file
+   * somebody meant to exempt. Found by the M0 independent review.
+   *
+   * Only anchored, metacharacter-free patterns are checked; the directory and glob-ish ones
+   * legitimately describe files that may not exist yet.
+   */
+  const literalPath = (pattern: RegExp): string | undefined => {
+    const source = pattern.source;
+    if (!source.startsWith('^') || !source.endsWith('$')) return undefined;
+    const body = source.slice(1, -1);
+    // Escaped dots and ordinary path characters only.
+    if (/[*+?()[\]{}|]/.test(body.replaceAll('\\.', ''))) return undefined;
+    return body.replaceAll('\\/', '/').replaceAll('\\.', '.');
+  };
+
+  it.each([
+    ['LEFTOVER_ALLOWLIST', LEFTOVER_ALLOWLIST],
+    ['HISTORY', HISTORY],
+    ['SKIP', SKIP],
+  ] as const)('%s names only files that exist', (_label, patterns) => {
+    const missing = patterns
+      .map(literalPath)
+      .filter((path): path is string => path !== undefined)
+      .filter((path) => !existsSync(new URL(`../../${path}`, import.meta.url)));
+    expect(missing).toEqual([]);
+  });
+
+  it('checks at least a few patterns, so the filter cannot make this vacuous', () => {
+    const checked = LEFTOVER_ALLOWLIST.map(literalPath).filter((p) => p !== undefined);
+    expect(checked.length).toBeGreaterThanOrEqual(5);
   });
 });

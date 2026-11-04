@@ -59,9 +59,12 @@ function labels(): string[] {
     const event = JSON.parse(readFileSync(path, 'utf8')) as {
       pull_request?: { labels?: { name?: unknown }[] };
     };
+    // Only a string name counts. `String(unknown)` would turn an object into "[object Object]",
+    // which could then be compared against the waiver label and quietly not match — or, worse,
+    // match a label literally named that. Found once the type-aware rules reached `scripts/**`.
     return (event.pull_request?.labels ?? [])
-      .map((label) => String(label.name ?? ''))
-      .filter((name) => name !== '');
+      .map((label) => label.name)
+      .filter((name): name is string => typeof name === 'string' && name !== '');
   } catch {
     return [];
   }

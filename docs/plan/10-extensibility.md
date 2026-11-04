@@ -108,7 +108,7 @@ Dependencies are `zod@^4` (peer), `@village/core` (types only), `@village/shared
 export function definePlugin<const P extends PluginPermissions>(spec: {
   name: string;                 // provider id (must equal manifest village.id)
   version: string;              // must equal package.json version
-  villageApi: string;           // semver range over host API, e.g. '^1' or '^1.2'
+  hostApi: string;              // semver range over host API, e.g. '^1' or '^1.2'; was `villageApi` — see note below
   permissions: P;               // must be ⊆ manifest permissions (checked at load)
   settingsSchema?: { instance?: z.ZodObject; group?: z.ZodObject }; // non-secret settings
   tools?: ReadonlyArray<ToolDefinition<any, any, P>>;
@@ -120,6 +120,17 @@ export function definePlugin<const P extends PluginPermissions>(spec: {
   onUninstall?(ctx: InstallContext<P>): Promise<void>;        // per-group disable hook (best effort)
 }): PluginDefinition<P>;
 ```
+
+> **`hostApi`, not `villageApi`** (decided 2026-11-03, M0 exit gate; STATUS → Plan changes). This is
+> a **public manifest field**: every third-party plugin writes it, so a brand-named key would make a
+> product rename a breaking change for every plugin author — the one cost ADR-024's `BRAND`
+> indirection cannot absorb, because the field lives in other people's repositories. It also
+> removes an inconsistency this document already had: §3.8's `initialize` request sends `hostApi`
+> while the response returns `villageApi` for the same concept. Renamed at `M12-T3`, before any
+> plugin SDK is published. Later references to `villageApi` in this document and in `12` read as
+> `hostApi`.
+
+
 
 - `name`, `version` and the permissions ⊆ manifest relation are validated at install (definitions extraction, §3.3.4) and again at every process start. A mismatch refuses to load and records `plugin.load_failed`.
 - **Type narrowing.** `ToolContext<P>` exposes `repos.calendar` only when `P['repos']['calendar']` is declared, `http` only when `P['network']` is declared, and so on. Undeclared capabilities are absent at type level and rejected at runtime with `E_PERMISSION_DENIED`.

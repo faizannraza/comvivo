@@ -217,7 +217,7 @@ export function findWorkflowViolations(path: string, source: string): Finding[] 
       add(1, 'top-level-permissions-empty', 'this file is not a workflow mapping.');
       return findings;
     }
-    workflow = parsed as Workflow;
+    workflow = parsed;
   } catch (cause) {
     add(1, 'top-level-permissions-empty', `not valid YAML: ${String(cause)}`);
     return findings;

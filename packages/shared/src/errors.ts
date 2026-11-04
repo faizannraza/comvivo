@@ -73,8 +73,16 @@ export class AppError extends Error {
 export class BugError extends AppError {
   constructor(message: string, context: ErrorContext = {}) {
     super('bug', message, {
-      userMessage: 'Something went wrong on my side. Nothing was changed.',
+      // Not "nothing was changed": a broken invariant can be noticed *after* a partial effect, and
+      // this is the base copy for every one of them. Claiming more than is known is exactly the
+      // habit this product is supposed to be the opposite of.
       ...context,
+      // After the spread, and with an explicit `undefined` check: `{ ...context }` placed last
+      // would let a caller passing `userMessage: undefined` wipe the default, leaving a broken
+      // invariant with no copy at all.
+      userMessage:
+        context.userMessage ??
+        "Something went wrong on my side — I've stopped here rather than guess.",
     });
   }
 }
@@ -119,7 +127,12 @@ export class TimeoutError extends AppError {
   readonly afterMs: number;
 
   constructor(message: string, afterMs: number, context: ErrorContext = {}) {
-    super('timeout', message, { detail: { afterMs }, ...context });
+    // `detail` is merged rather than spread over, so a caller passing their own `detail` does not
+    // silently lose `afterMs` — which is the one fact a timeout error exists to carry.
+    super('timeout', message, {
+      ...context,
+      detail: { afterMs, ...(context.detail ?? {}) },
+    });
     this.afterMs = afterMs;
   }
 }

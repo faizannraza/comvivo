@@ -34,7 +34,7 @@ if (problems.length === 0) {
   exit(0);
 }
 
-stdout.write(`supply: ${problems.length} policy problem(s).\n\n`);
+stdout.write(`supply: ${String(problems.length)} policy problem(s).\n\n`);
 for (const problem of problems) stdout.write(`  [${problem.kind}] ${problem.message}\n`);
 stdout.write('\nSpecification: docs/plan/08-security-privacy.md §3.15.\n');
 exit(1);

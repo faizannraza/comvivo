@@ -43,8 +43,11 @@ export interface Finding {
 
 /** True when this literal is a module specifier, where the npm scope legitimately appears. */
 function isModuleSpecifier(node: ts.Node): boolean {
-  const parent: ts.Node | undefined = node.parent;
-  if (parent === undefined) return false;
+  // `createSourceFile(..., setParentNodes: true)` below means every node except the SourceFile
+  // itself has a parent, and a string literal is never the root — so there is no undefined case
+  // to guard. The check that used to be here was dead code; typescript-eslint found it once the
+  // type-aware rules started applying to `scripts/**`.
+  const parent = node.parent;
   if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) {
     return parent.moduleSpecifier === node;
   }
@@ -90,7 +93,9 @@ export function findInSource(relPath: string, source: string, needle: string): F
   return found;
 }
 
-async function main(): Promise<void> {
+// Not async: there is nothing to await. It was `async` from an earlier draft that read files
+// asynchronously, and `require-await` caught the leftover once `scripts/**` became type-aware.
+function main(): void {
   const asJson = argv.includes('--json');
   const files = SOURCE_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: ROOT }))
     .map((f) => f.split('\\').join('/'))
@@ -107,15 +112,15 @@ async function main(): Promise<void> {
     );
   } else if (findings.length === 0) {
     stdout.write(
-      `brand: clean — scanned ${files.length} files for the literal "${BRAND.codename}".\n`,
+      `brand: clean — scanned ${String(files.length)} files for the literal "${BRAND.codename}".\n`,
     );
   } else {
     stdout.write(
-      `brand: ${findings.length} hard-coded brand literal(s) found. ` +
+      `brand: ${String(findings.length)} hard-coded brand literal(s) found. ` +
         `Import BRAND from '@comvivo/shared' instead, so a rename stays one command.\n\n`,
     );
     for (const f of findings) {
-      stdout.write(`  ${f.file}:${f.line}:${f.column}  "${f.text}"\n`);
+      stdout.write(`  ${f.file}:${String(f.line)}:${String(f.column)}  "${f.text}"\n`);
     }
     stdout.write(`\nGuard specified in docs/plan/13-docs-launch-community.md §3.A.6.\n`);
   }
@@ -123,5 +128,5 @@ async function main(): Promise<void> {
 }
 
 if (relative(ROOT, argv[1] ?? '').replace(/\\/g, '/') === 'scripts/brand/check.ts') {
-  await main();
+  main();
 }

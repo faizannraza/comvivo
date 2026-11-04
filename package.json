@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:check && pnpm run test && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint .",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -43,6 +43,7 @@
     "test:int": "vitest run --project integration",
     "test:contract": "vitest run --project contract",
     "test:scenario": "vitest run --project scenario",
+    "test:guards": "vitest run --project unit --project integration test scripts packages/shared/src/logger/scrub.test.ts",
     "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run --project unit prop.test",
     "bench": "node scripts/pending.mjs \"pnpm bench\" M1-T32 \"run the B-suite micro and macro benchmarks and compare against the 01 \u00a711.10 budgets\" \"nothing yet: vitest 5.0.5 does not expose a usable bench API, so M1-T32 chooses the harness (see STATUS Plan changes)\"",
     "coverage": "vitest run --coverage",
@@ -66,7 +67,8 @@
     "docs:build": "pnpm --filter @comvivo/docs build",
     "docs:dev": "pnpm --filter @comvivo/docs dev",
     "prose": "bash scripts/ci/check-prose.sh",
-    "brand:rename": "tsx scripts/brand/rename.ts"
+    "brand:rename": "tsx scripts/brand/rename.ts",
+    "gate": "pnpm run verify && pnpm run hygiene:check -- --gate"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

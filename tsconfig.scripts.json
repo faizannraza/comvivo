@@ -12,6 +12,7 @@
   },
   "include": [
     "scripts/**/*.ts",
+    "tools/**/*.ts",
     "vitest.config.ts",
     "vitest.shared.ts",
     "vitest.setup.ts",
