@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 // @ts-expect-error — the formatter is `.mjs` because Changesets loads it directly at run time,
 // so it has no declaration file. The shapes are asserted below rather than by the compiler.
@@ -196,6 +198,36 @@ describe('getReleaseLine', () => {
     expect(line).toContain('**New:** reminders repeat');
     expect(line).toContain('  Weekly and monthly, per member.');
   });
+
+  it('puts the commit link at the end of the entry, not inside a sentence', async () => {
+    // The link used to go on the first line, and a summary wrapped at 100 columns put it in the
+    // middle of a sentence: "A `.env` line with the `=` ([`dc92996`](…)) missing had its whole
+    // text echoed". Found the first time `changeset version` ever ran against a real changeset —
+    // these tests called `getReleaseLine` directly with one-line summaries and never saw it.
+    const line = await getReleaseLine(
+      {
+        summary:
+          'security: a malformed line in your configuration file no longer\nprints the key it contains.',
+        commit: 'abc1234def',
+      },
+      'patch',
+      { repo: 'faizannraza/comvivo' },
+    );
+    expect(line.trimEnd().endsWith('/commit/abc1234def))')).toBe(true);
+    expect(line).toContain('no longer\n  prints the key it contains.');
+    // The first line must be clean, which is the actual regression.
+    const firstLine = line.trim().split('\n')[0] ?? '';
+    expect(firstLine).not.toContain('abc1234');
+  });
+
+  it('puts the link on the last non-empty line, not after trailing blank lines', async () => {
+    const line = await getReleaseLine(
+      { summary: 'fix: something\n\nmore detail\n\n', commit: 'abc1234def' },
+      'patch',
+      {},
+    );
+    expect(line.trimEnd().endsWith('more detail (`abc1234`)')).toBe(true);
+  });
 });
 
 describe('getDependencyReleaseLine', () => {
@@ -230,5 +262,54 @@ describe('getDependencyReleaseLine', () => {
     );
     expect(line).toContain('zod@4.7.0');
     expect(line).not.toContain('@comvivo/core');
+  });
+});
+
+describe('the Changesets config points at this file', () => {
+  /**
+   * The defect this exists for: `.changeset/config.json` said
+   * `"./tools/changelog/index.mjs"`, and Changesets resolves the `changelog` option **relative to
+   * `.changeset/`** — so it looked for `.changeset/tools/changelog/index.mjs` and
+   * `changeset version` died with `ERR_MODULE_NOT_FOUND`.
+   *
+   * It stayed invisible for all of M0 because the version path only runs when a changeset is
+   * pending, and the first changeset in the repository's history was written at the M0 exit gate.
+   * The formatter's 28 unit tests all imported this module **directly**, so they proved the
+   * functions work and said nothing about whether Changesets could find them.
+   */
+  const ROOT = resolve(import.meta.dirname, '..', '..');
+
+  const changelogOption = (): string => {
+    const config = JSON.parse(readFileSync(`${ROOT}/.changeset/config.json`, 'utf8')) as {
+      changelog: [string, unknown] | string;
+    };
+    return Array.isArray(config.changelog) ? config.changelog[0] : config.changelog;
+  };
+
+  it('resolves to a file that exists, from the directory Changesets resolves it from', () => {
+    const option = changelogOption();
+    expect(option.endsWith('.mjs'), `unexpected changelog option: ${option}`).toBe(true);
+    expect(existsSync(resolve(ROOT, '.changeset', option))).toBe(true);
+  });
+
+  it('is this very file, so these tests are testing what Changesets will load', () => {
+    expect(resolve(ROOT, '.changeset', changelogOption())).toBe(
+      resolve(import.meta.dirname, 'index.mjs'),
+    );
+  });
+
+  it('would not resolve from the repository root, which is the trap', () => {
+    // Asserting the shape of the fix rather than only its effect: a future edit back to
+    // `./tools/changelog/index.mjs` resolves fine from the root and fails where it counts.
+    expect(changelogOption().startsWith('../')).toBe(true);
+  });
+
+  it('exports both hooks Changesets calls', async () => {
+    const loaded = (await import(resolve(ROOT, '.changeset', changelogOption()))) as Record<
+      string,
+      unknown
+    >;
+    expect(typeof loaded['getReleaseLine']).toBe('function');
+    expect(typeof loaded['getDependencyReleaseLine']).toBe('function');
   });
 });

@@ -2,7 +2,7 @@
 
 **Current milestone:** M1 — Storage & domain core (starting)  
 **Last updated:** 2026-11-03  
-**Last green gate:** **M0, 2026-11-03** — 1111 tests, 97.33% statements, CI 75 s, 23/23 tasks ([report](#milestone-report))  
+**Last green gate:** **M0, 2026-11-03** — 1117 tests, 97.33% statements, CI 75 s, 23/23 tasks ([report](#milestone-report))  
 **Plan:** [`14-milestones.md`](14-milestones.md) is authoritative for task IDs and order.  
 **Operating mode:** autonomous (`CLAUDE.md` §5). Ask the owner only for money, credentials/account actions, or a 2-minute real-chat smoke test.  
 **Repo:** https://github.com/faizannraza/comvivo (renamed from `village` on 2026-11-01 when D-2 landed; see DL-8)
@@ -303,6 +303,9 @@ Every significant delegated decision, with its rationale. Architectural decision
 | 2026-11-03 | M0-T21 | `11` §3.8.3, `CLAUDE.md` §10 | **Squash-only was the wrong merge policy for this project and is now `merge` + `squash`.** Squashing a milestone branch destroys the per-task commits, and `CLAUDE.md` §1.3.3 requires each `STATUS.md` tick to carry **its task's commit hash** — so on a squash-only repository every tick on a multi-task branch would reference a hash that does not exist on `main`. §10 also names a merge commit as the method. Ruleset `26469765` updated to `allowed_merge_methods: ["merge", "squash"]`: milestone branches merge, single-change PRs squash | Caught while merging the M0 exit-gate PR, when the M0-T4 tick's `0311949` was about to become a dangling reference. It is a small setting with a large consequence, because the evidence trail this project runs on is "tick → hash → diff" and squashing breaks the middle link. `require_linear_history` is deliberately **not** set, for the same reason |
 | 2026-11-03 | M0-T23 | `14` §2 M0-T23 AC, `CLAUDE.md` §4 | **The plan checker's 54 unit tests were never run by anything.** `scripts/plan/trace.test.py` was referenced by nothing — not `pnpm verify`, not `ci.yml`, not even a `package.json` script; the only mention of it anywhere was the usage line in its own docstring. New `pnpm plan:test`, wired into `verify` immediately before `plan:check` | The **eighth** guard-shaped thing in this repository found to be inert during M0, and the one with the most direct consequence: `plan:check` is what keeps `STATUS.md` and the task tables honest, and its own tests — the ones that prove it reports an error rather than passing over a broken plan — had never executed in CI. The M0-T23 tick said "54 unit tests" and the tests did exist and did pass; nothing was measuring whether they ran |
 | 2026-11-03 | M0-T23 | `14` §2 M0-T23 AC | **New check `E-TABLE-SHAPE`:** every markdown row in `14-milestones.md` and `STATUS.md` must have the column count of its header | Two *Plan changes* rows were appended without a newline between them, producing one line with **11 columns against a 5-column header** — one corrupted row in the decision record, silently. Nothing could catch it: the checker reads the rows it cares about by name, Vale reads prose, and a glued row merely renders oddly. A doubled row is the signal, so the check is on the count. Proven to bite on the real file, with a non-vacuity test asserting the live `docs/plan/` is clean. 5 tests, 59 total |
+| 2026-11-03 | M0-T14 | `12` §3.10.1 | **`changeset version` could never have run.** `.changeset/config.json` named the formatter as `./tools/changelog/index.mjs`, and Changesets resolves the `changelog` option **relative to `.changeset/`** — so it looked for `.changeset/tools/changelog/index.mjs` and died with `ERR_MODULE_NOT_FOUND`. Corrected to `../tools/changelog/index.mjs`, and four tests now resolve the option the way Changesets does, assert it is this exact file, assert the `../` shape, and dynamically import it to check both hooks exist | Invisible for all of M0 because the version path only runs when a changeset is **pending**, and the first changeset in the repository's history was written at this gate — it failed on `main` within a minute of the merge (run [`41779302718`](https://github.com/faizannraza/comvivo/actions/runs/41779302718)). The formatter's 28 unit tests imported the module **directly**, so they proved the functions work and said nothing about whether Changesets could find them. Same shape as the two blockers: tested at the function, not at the door |
+| 2026-11-03 | M0-T11 | `12` §3.10.4 | **"The version-PR path runs in dry-run" was satisfied over zero changesets.** The job ran, exited 0, and exercised nothing, because `changeset version` is a no-op with an empty `.changeset/`. The AC is now read as requiring a run with **at least one pending changeset**, which is what caught the defect above | A green job over an empty input is the gate equivalent of a cruise over an empty graph — the first guard this project found enforcing nothing, in `M0-T4`. Worth stating because it is the same mistake in a different mechanism, and because it means every pre-M3 release-path "green" before today was vacuous |
+| 2026-11-03 | M0-T14 | `12` §3.10.1 | **The commit link landed inside a sentence.** `getReleaseLine` appended it to the end of the changeset's **first line**, so a summary wrapped at 100 columns produced "A `.env` line with the `=` ([`dc92996`](…)) missing had its whole text echoed". It now attaches to the last non-empty line of the entry | Seen in the first `CHANGELOG.md` this project ever generated. The unit tests passed one-line summaries, where first line and last line are the same line — so the bug was unreachable from the tests and obvious from the output |
 
 ## Spikes
 
@@ -354,7 +357,7 @@ Status: **complete** · Tasks: 23/23 · Gate: **green 2026-11-03** (merge queue 
 - [x] M0-T11 CI workflow & release skeleton — `ci.yml` (static, unit ×3 shards, integration, coverage, build, node24, ci-ok), `release.yml` (working `mode`, dry-run version path, **no** `packages: write`/`id-token`/registry credential anywhere), `edge.yml`, a composite setup action and `docs/architecture/release.md`. Every action SHA-pinned from a resolved, non-prerelease release; actionlint pinned **by checksum** because it has no npm distribution. Three real CI failures found and fixed by running it: an invalid actionlint flag that failed silently, `upload-artifact` excluding dot-directories, and shellcheck SC2129. **Measured** on run `41613125268` (`7299799`): all 9 jobs green in **1 m 06 s** wall-clock against a p50 ≤ 12 min budget — static 41 s, unit 31/27/24 s, integration 23 s, coverage 23 s, build 21 s, **node24 21 s**, ci-ok 3 s. `release.yml` and `edge.yml` green on the same commit; `edge.yml` re-run green with `sha_pinning_required` enforced — `cb4316a`, `9d8251f`, `7299799`, `2c7dc7a`
 - [x] M0-T12 CI security workflows — six workflows (CodeQL with the `actions` language as well as `javascript-typescript`, OSV in diff and full-tree variants, dependency-review, zizmor, Scorecard, supply-policy), `osv-scanner.toml` with no entries, and `scripts/supply/lockfile-policy.ts` blocking `git+`/`github:`/tarball/`file:`/`link:` specifiers and git or tarball lockfile resolutions (25 tests, half of them false-positive cases). **Measured: 7 of 8 workflows green first time; `osv` failed with two true positives**, since fixed. `sha_pinning_required` enabled at the platform level — `c9a4b6c`, `3f5e28b`
 - [x] M0-T13 Renovate policy — `renovate.json5` with `minimumReleaseAge: '3 days'` matching pnpm's own 4320 minutes, `internalChecksFilter: 'strict'`, a weekly window, monthly `lockFileMaintenance`, digest pinning, and **auto-merge limited to GitHub Actions digests** (the spec's devDep auto-merge contradicts its own CODEOWNERS lockfile rule — see Plan changes). Guards the two pins that would otherwise be silently bumped into breakage: `typescript <7` (ADR-025) and `@types/node <25` (the supported floor, not the primary target). Validated `--strict` as a repository config in Renovate's own digest-pinned image, because our `trustPolicy` refuses the npm package — `3f5e28b`
-- [x] M0-T14 Changesets — `.changeset/config.json` with the `comvivo`/`@comvivo/server` **fixed** group and independently versioned SDKs, a changelog formatter that groups by type (`breaking:`, `security:`, `upgrade:` first, because somebody skimming a release note stops at the first section that does not concern them) and makes no network call, and a `changeset-required` check with a visible `no-changeset` waiver label. Three spec corrections, all found by running it: `privatePackages: false` is not expressible here, four packages had to stop being private for the mechanism to exist at all, and `changeset status` rejects the tree in a way the config sketch could not show. 64 tests here, **799 total** — `8b80f09`
+- [x] M0-T14 Changesets — ~~validated by unit tests~~ **validated by running `changeset version` for real** (2026-11-03: it had never run, because the version path is a no-op with an empty `.changeset/`, and the first changeset in this repository's history broke it on `main` — see Plan changes). `.changeset/config.json` with the `comvivo`/`@comvivo/server` **fixed** group and independently versioned SDKs, a changelog formatter that groups by type (`breaking:`, `security:`, `upgrade:` first, because somebody skimming a release note stops at the first section that does not concern them) and makes no network call, and a `changeset-required` check with a visible `no-changeset` waiver label. Three spec corrections, all found by running it: `privatePackages: false` is not expressible here, four packages had to stop being private for the mechanism to exist at all, and `changeset status` rejects the tree in a way the config sketch could not show. 64 tests here, **799 total** — `8b80f09`
 - [x] M0-T15 Names manifest — `deploy/names.json` as the single source of truth for every published name, cross-checked against `BRAND` field by field (they are one decision stored twice, and the failure mode when they drift is a release published under a name the software does not answer to), plus `names:check`/`names:apply` with an explicit `legacy` block. **Resolved `12` §3.1's blocking finding**: the unscoped name is free under Comvivo, so `npx comvivo@latest init` ships. The ready-to-file reservation issue is in H-6 above. 31 tests here, **830 total** — `7a51c3f`
 - [x] M0-T16 Repo hygiene & community files — README (saying plainly that Comvivo is not launched, and that it is largely built by AI agents with a human accountable), NOTICE, Contributor Covenant 2.1 **verified byte-identical** to its source apart from the contact, CONTRIBUTING, SUPPORT, GOVERNANCE with the six Protected Promises written down while there is nobody to govern, MAINTAINERS naming the one-maintainer gap, SECURITY per `08` §3.18, and the DCO app config. **GitHub community profile: 100%**; private vulnerability reporting confirmed enabled; 31 relative links checked — `0aa05c9`
 - [x] M0-T17 Issue/PR templates, labels, CODEOWNERS — five issue forms **validated against GitHub's own schema** (there is no API that reports whether a form parsed — see Plan changes), a PR template that requires an AI-assistance declaration and a privacy answer even when the answer is "none", CODEOWNERS over every path `08` §3.15 protects, 52 labels applied for real with a reconcile-only sync that cannot delete, and saved replies written for tone because a terse close feels like being dismissed. 57 tests here, **887 total** — `64b0ec3`, `a54f665`
@@ -430,11 +433,11 @@ repository (owner ask **H-6**), and it is recorded as blocked rather than waived
 | | Node 26.13.0 (primary) | Node 24.22.2 (floor) |
 |---|---|---|
 | Exit code | 0 | 0 |
-| Wall-clock, cold Turborepo cache | **21 s** | **21 s** |
+| Wall-clock, cold Turborepo cache | **20 s** | **22 s** |
 
 | Measured | |
 |---|---|
-| Tests | **1111 passed**, 0 failed, **0 skipped** across 5 Vitest projects |
+| Tests | **1117 passed**, 0 failed, **0 skipped** across 5 Vitest projects, plus 59 Python tests for the plan checker |
 | Coverage | **97.33% statements / 94.22% branches / 97.43% functions / 97.91% lines** (`shared` threshold 90/80) |
 | dependency-cruiser | 93 modules, 174 dependencies, **0 violations**, 28 rules |
 | Vale | **0 errors, 0 warnings, 0 suggestions** over **147 files** |
@@ -455,7 +458,7 @@ repository (owner ask **H-6**), and it is recorded as blocked rather than waived
 | Actions pinned by SHA | green — enforced by `hygiene:check` and by GitHub's `sha_pinning_required` at the platform level |
 | Flake policy in `CONTRIBUTING.md` | green |
 
-**Gate 3 — guards bite.** `pnpm test:guards`: **43 files, 1111 tests, 1.9 s.** Every
+**Gate 3 — guards bite.** `pnpm test:guards`: **43 files, 1117 tests, 1.9 s.** Every
 dependency-cruiser rule, every lint ban, the brand guard, the hygiene policies, the names manifest,
 the literal-secret scanner, the supply-chain policies, the changeset check, the log canary and the
 test-time network guard each have a planted violation that is asserted to fail the guard. This gate
@@ -465,7 +468,7 @@ is the reason M0 took as long as it did: **it caught two blockers that had been 
 
 | | |
 |---|---|
-| `rename-drill` | green — PR run [`41777955426`](https://github.com/faizannraza/comvivo/actions/runs/41777955426), **1 m 41 s**. Re-measured locally end to end in the renamed tree: rename exit 0 with an empty leftover report, `pnpm install` 0, `pnpm verify` 0 with **1111 tests**, `pnpm --filter @zzbrand/docs build` 0 |
+| `rename-drill` | green — PR run [`41777955426`](https://github.com/faizannraza/comvivo/actions/runs/41777955426), **1 m 41 s**. Re-measured locally end to end in the renamed tree: rename exit 0 with an empty leftover report, `pnpm install` 0, `pnpm verify` 0 with **1117 tests**, `pnpm --filter @zzbrand/docs build` 0 |
 | `pnpm --filter docs build` | green — 2 pages, all internal links valid, Pagefind index built |
 | Security workflows | `codeql` (both languages), `osv`, `zizmor`, `scorecard`, `supply-policy` green; `dependency-review` green on the PR. The gate text asked for "all six green on `main`", which is unsatisfiable — `dependency-review` reviews a diff and a push has none. Gate text corrected rather than scored six-of-six (see Plan changes) |
 
@@ -491,16 +494,27 @@ nothing — the test-time network guard let real HTTP and all of DNS out of a un
 purity ban on `Date` and `process` had been silently replaced by ESLint flat config's
 options-replacement semantics. Full detail in *Plan changes*.
 
-That makes **eight** guards in this repository caught enforcing nothing during M0 — the eighth
-found while closing the gate itself: the plan checker's 54 unit tests, the ones that prove it
-reports an error rather than passing over a broken plan, were referenced by nothing and had never
-run in CI. The pattern in every case: the guard was proven to work *at its own entry point*, or
+That makes **nine** guards and gates in this repository caught proving nothing during M0. Two of
+them were found while closing the gate itself: the plan checker's 54 unit tests — the ones that
+prove it reports an error rather than passing over a broken plan — were referenced by nothing and
+had never run in CI; and the release workflow's version-PR dry run had been green all milestone
+over an **empty** `.changeset/`, so the first changeset ever written broke `changeset version` on
+`main` within a minute of this PR merging. The pattern in every case: the guard was proven to work *at its own entry point*, or
 *in isolation*, or *against its own configuration*, or not proven to **run** at all — never
 against the real command in the real tree. The rule that now governs
 all of them, and the one thing from M0 worth carrying into every later milestone:
 
 > Plant the violation the way a contributor would write it, in the real tree, and make the real
 > command be the thing that fails.
+
+**Closed out after the merge, 2026-11-03.** Three defects in the release path, all found by
+running `changeset version` for real for the first time — the milestone PR carried the first
+changeset in this repository's history, and it failed on `main` within a minute of merging. The
+formatter path in `.changeset/config.json` was resolvable from the repository root but not from
+`.changeset/`, where Changesets resolves it; the version-PR dry run had been green all milestone
+because it was versioning an empty set; and the commit link landed in the middle of a sentence in
+the first `CHANGELOG.md` this project ever generated. Fixed, with the four tests that resolve the
+config option the way Changesets does. Numbers above are re-measured on the final tree.
 
 **Cut-lines used.** None. `M0-T13` (Renovate), `M0-T14` (Changesets), `M0-T15` (names manifest) and
 `M0-T22` (naming kickoff) were all allowed to slip to M3 and all landed in M0.
@@ -532,7 +546,7 @@ all of them, and the one thing from M0 worth carrying into every later milestone
 
 **What M0 bought.** A monorepo where the boundaries are machine-checked, a test harness that cannot
 reach the network, a logger that content cannot get into, CI that runs in 75 seconds, a name that
-is actually free, a rename that is one command, and 1111 tests of which a large fraction exist to
+is actually free, a rename that is one command, and 1117 tests of which a large fraction exist to
 make a guard fail. Nothing in it is a prototype.
 
 **Next: M1 — Storage & domain core.** No stop (`CLAUDE.md` §1.4.5). Entry criteria: M0 gate green
