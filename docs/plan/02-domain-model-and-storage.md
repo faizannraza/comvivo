@@ -1848,7 +1848,7 @@ export function openDatabase(o: OpenOptions): Database {
   - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt.
   - Converting a plaintext DB to encrypted (`encryptAtRest` flipped to true) uses the same procedure with `PRAGMA rekey` on a non-WAL DB.
   - After erasure flows and backups, run `PRAGMA wal_checkpoint(TRUNCATE)` so deleted content does not linger in the WAL.
-- **Process lock** (`src/db/lock.ts`). `data/village.lock` is created with `O_EXCL` and holds `{pid, bootId, startedAt, role}`.
+- **Process lock** (`src/db/lock.ts`). `data/comvivo.lock` is created with `O_EXCL` and holds `{pid, bootId, startedAt, role}`.
   - A stale lock (the pid is not alive) is replaced.
   - A live lock means the CLI commands that need exclusivity (`restore`, `migrate`, offline `keys rotate-data`) exit with `STORAGE_LOCKED`.
   - Read-only CLI commands (`backup`, `export`) open their own connection with `busy_timeout`.
@@ -1860,7 +1860,7 @@ Run on **Node 26 (primary) and Node 24 ≥ 24.11** (`01` §14 A1) × darwin-arm6
 
 1. Pin `better-sqlite3-multiple-ciphers@13.0.3`, `sqlite-vec@0.1.9`, `drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`, `libsodium-wrappers` (exact version pinned in M1-T1) and, for the SP-2 comparison only, `sodium-native@5.2.0`. Record `sqlite_version()`, `sqlite3mc_version()` and `vec_version()`.
 2. Open via `openDatabase()` with a random raw key. Time 100 opens; the p50 must be < 20 ms. A larger number means the KDF is running, which fails U4 for that variant.
-3. Insert 10k rows containing the canary `VILLAGE-CANARY-7f3a` into a normal table, FTS5 (both tokenizers) and vec0. Verify that the canary does not appear in `village.db`, `-wal` or `-shm` (grep for raw bytes, UTF-16 and lowercase forms). Verify the file header is not `SQLite format 3\0`. (U2)
+3. Insert 10k rows containing the canary `COMVIVO-CANARY-7f3a` into a normal table, FTS5 (both tokenizers) and vec0. Verify that the canary does not appear in `comvivo.db`, `-wal` or `-shm` (grep for raw bytes, UTF-16 and lowercase forms). Verify the file header is not `SQLite format 3\0`. (U2)
 4. vec0:
    - partition key + metadata `IN` + `valid_to_ms` range KNN;
    - DELETE, including inside a trigger (U6);
@@ -2515,7 +2515,7 @@ The envelope, header fields, slot constructions and recovery-key format are **ow
 2. Run `PRAGMA quick_check` on the snapshot; anything other than `ok` → `BACKUP_INTEGRITY` and abort.
 3. Build `manifest.json` (below) with per-table row counts and the sha256 of the snapshot file.
 4. Shared blob store: for each `blobs` row, copy-if-absent `data/blobs/<path>` → `<backups>/blobstore/<addr>.vblob`. Use a hardlink when on the same filesystem. Files are already encrypted and immutable.
-5. Generate a random per-backup DEK; stream `tar(manifest.json, db/village.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
+5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
 6. Rotation: keep the newest `backups.keep` (14) archives. Remove `blobstore/` files not listed in any retained manifest's `blobs.jsonl`.
 
 The `--portable` flag (CLI) also embeds the referenced blob files under `blobs/` in the tar, giving a single file for off-site copies.
@@ -2542,7 +2542,7 @@ export const BackupManifestSchema = z.object({
   createdAt: z.string(), instanceId: idSchema('inst'),
   app: z.object({ version: z.string(), node: z.string(), sqlite: z.string(), sqlite3mc: z.string(), sqliteVec: z.string() }),
   schema: z.object({ lastMigrationId: z.string(), migrationCount: z.number().int() }),
-  db: z.object({ path: z.literal('db/village.db'), bytes: z.number().int(), sha256: z.string().length(64),
+  db: z.object({ path: z.literal('db/comvivo.db'), bytes: z.number().int(), sha256: z.string().length(64),
                  encrypted: z.boolean(), quickCheck: z.literal('ok') }),
   tables: z.record(z.string(), z.number().int()),                  // row counts
   embeddingSpaces: z.array(z.object({ id: z.string(), model: z.string(), dims: z.number().int(), status: z.string() })),
@@ -2560,7 +2560,7 @@ export const BackupManifestSchema = z.object({
 5. Verify blobs: every `blobs.jsonl` entry exists in `--blobs-from` (default `<backups>/blobstore`) or under `blobs/` in a portable archive, with matching size. A missing blob is a warning (`BLOB_MISSING_FILE`) unless `--strict`.
 6. If `manifest.schema` is newer than the binary → `SCHEMA_TOO_NEW` (upgrade first). If older → migrations run at next start.
 7. Swap atomically:
-   - rename `data/village.db*` → `data/pre-restore-<ts>/`;
+   - rename `data/comvivo.db*` → `data/pre-restore-<ts>/`;
    - move the restored DB in;
    - copy or link blobs into `data/blobs/`;
    - write `keyring.json`. If the archive's `RDK_g`/`instanceId` differ from the current keyring, the restored DB is **rekeyed** to the current `db_key` (offline `PRAGMA rekey` in DELETE journal mode), and blob DEKs are re-wrapped (`blob.rewrap`). Otherwise the archive's keyring generations are imported. On a fresh host restored with RK only, the user sets a new MK slot (08).
@@ -2902,7 +2902,7 @@ All tests use Vitest. Property tests use fast-check 4 with `numRuns` 200 locally
 - `turn-journal.recovery.test`: effects without completion → recovery query finds them → `recover()` acks all → I7 query empty.
 - `outbox.crash.test` (child process `kill -9` at 5 injected points: after enqueue, after claim, after send-before-receipt, after receipt) → no logical duplicate and no loss across 50 iterations.
 - `migrations.*` (§3.12.6).
-- `encryption.at-rest.canary.test`: the canary is absent from `village.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
+- `encryption.at-rest.canary.test`: the canary is absent from `comvivo.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
 - `backup.roundtrip.test`: seed (`release-small` + blobs), `createBackup`, `restoreBackup` into a new dataDir, then a logical dump (all tables as sorted JSONL, excluding `app_meta.restored_from`) equals the original. A **recovery-key-only** restore into an empty dataDir succeeds (A10); a passphrase-slot restore succeeds when the slot exists.
 - `backup.tamper.test`: flip one byte in each region (header, chunk 0, middle, last) → `BACKUP_INTEGRITY` or `BACKUP_KEY_MISMATCH`. Truncation is detected.
 - `blob.tamper.test`, `blob.gc.test` (unreference → grace → deleted; orphan file swept), `blob.quota.test`.

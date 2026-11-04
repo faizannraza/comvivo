@@ -104,7 +104,9 @@ export const COVERAGE_EXCLUDE = [
   '**/dist/**',
   // Generated: the drizzle metadata and the OpenAPI client are outputs, not code we write.
   'packages/api-client/src/generated/**',
-  'packages/storage/drizzle/**',
+  // `drizzle.config.ts` writes to `./migrations` (`02` §3.1). This read `drizzle/**` until
+  // 2026-11-03, naming a directory that will never exist.
+  'packages/storage/migrations/**',
   'scripts/**',
   'apps/docs/**',
 ];

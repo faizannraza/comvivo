@@ -81,6 +81,9 @@ export default defineConfig(
       '**/*.scenario.ts',
       // Build tooling at a package root: see `comvivo/scripts-type-aware` below.
       'packages/*/*.config.ts',
+      // Spike helpers live outside `src/`, so the project service cannot type them either. See
+      // `comvivo/spike-helpers` below, which names `tsconfig.test.json` explicitly.
+      'packages/*/spike/**/*.ts',
     ],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
@@ -224,6 +227,40 @@ export default defineConfig(
       'no-console': 'off',
       // The same three rules, with the same options, as `comvivo/type-aware`. Set explicitly
       // because `switch-exhaustiveness-check` is not part of `strictTypeChecked`.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        {
+          allowDefaultCaseForExhaustiveSwitch: false,
+          considerDefaultExhaustiveForUnions: false,
+          requireDefaultForNonUnion: true,
+        },
+      ],
+    },
+  },
+  {
+    // The storage spike's helpers (`02` M1-T2 keeps the suite permanently). They sit in
+    // `packages/*/spike/`, outside the package's `include`, so `projectService` reports them as
+    // "not found by the project service" and every type-aware rule goes inert — the M0 defect, in
+    // a new directory. `tsconfig.test.json` covers them; naming it is what makes the rules run.
+    name: 'comvivo/spike-helpers',
+    files: ['packages/*/spike/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // A spike talks to an untyped native module by nature.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': [

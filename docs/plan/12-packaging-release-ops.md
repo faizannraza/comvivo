@@ -707,19 +707,19 @@ WantedBy=multi-user.target
 ```
 <dataDir>/      0700  (container /data · systemd /var/lib/village · native ./data)
 ├─ FORMAT       0600  data-dir marker (§4.5)
-├─ db/          0700  village.db (+ -wal, -shm) 0600 — schema/encryption: 02/08
+├─ db/          0700  comvivo.db (+ -wal, -shm) 0600 — schema/encryption: 02/08
 ├─ blobs/       0700  content-addressed encrypted blobs — layout: 02
 ├─ keys/        0700  master.key · keyring.json (+ .prev) · vault.enc (08 §3.7) · control.token (09 D-04) · secrets.enc (appliance installs only; 01 §14 A29, format 08 §3.10), all 0600
 ├─ backups/     0700  daily/ weekly/ monthly/ pre-migrate/ manual/ ha-snapshot/  (*.vbak 0600 + *.vbak.json sidecar)
 ├─ models/      0700  downloaded models, .partial/
 ├─ plugins/     0700  owned by 10
 ├─ logs/        0700  only if logging.file.enabled
-├─ run/         0700  village.lock · last-boot.json · update-check.json · setup-token (hashed)
+├─ run/         0700  comvivo.lock · last-boot.json · update-check.json · setup-token (hashed)
 └─ tmp/         0700  same-filesystem temp for atomic renames; swept on boot
 ```
 
 - **Permission audit** (boot and `doctor`): a group- or world-*writable* `dataDir`, `keys/` or `master.key` → refuse to start (78); a group- or world-*readable* `keys/` directory or key file (`master.key`, `keyring.json`, `vault.enc`, `secrets.enc`, `control.token`) → refuse to start (78) unless `--insecure-permissions` (08 §3.7.3); other group- or world-readable paths → auto-tighten and warn; owner mismatch → 78 with a `chown` hint.
-- **Instance lock** (`run/village.lock`; one writer per data dir, spine §8). Created with `O_EXCL`; holds `{pid, hostname, bootId, version, startedAt, heartbeatAt}`; heartbeat every 10 s. Takeover happens if the heartbeat is older than 60 s, or the hostname matches and the PID is dead. Otherwise the second process exits 75 with "another Village (pid, host, version) uses this data dir". `--role=web` processes take `run/web.<pid>.lock`.
+- **Instance lock** (`run/comvivo.lock`; one writer per data dir, spine §8). Created with `O_EXCL`; holds `{pid, hostname, bootId, version, startedAt, heartbeatAt}`; heartbeat every 10 s. Takeover happens if the heartbeat is older than 60 s, or the hostname matches and the PID is dead. Otherwise the second process exits 75 with "another Village (pid, host, version) uses this data dir". `--role=web` processes take `run/web.<pid>.lock`.
 - **Filesystem check.** `statfs` types `nfs`, `cifs`/`smb2`, `9p` and `fuse.*` give a boot warning and a doctor error, because SQLite WAL locking is unreliable there. `fuse.virtiofs` (Docker Desktop) only warns. Doctor also detects `.stfolder`/`.dropbox` sync markers.
 
 ### 3.8 Upgrades
@@ -1008,8 +1008,8 @@ pino writes JSON to stdout in containers and under systemd, and pretty output in
 7. Still stuck → `village doctor --bundle` writes a **redacted** bundle (no content, no secrets).
 
 **R2 — "database is locked" / SQLITE_BUSY.**
-1. Make sure only one instance runs: check `run/village.lock`, `docker ps` and `systemctl status` on every host sharing the path.
-2. Run `lsof <data>/db/village.db` to find other holders: backup agents, `sqlite3` shells, sync clients. **Never sync the live `db/`.**
+1. Make sure only one instance runs: check `run/comvivo.lock`, `docker ps` and `systemctl status` on every host sharing the path.
+2. Run `lsof <data>/db/comvivo.db` to find other holders: backup agents, `sqlite3` shells, sync clients. **Never sync the live `db/`.**
 3. Data dir on NFS, SMB or 9p → move it to a local disk.
 4. WAL over 1 GB → `village db checkpoint`.
 5. Persists after a restart → `village backup verify --latest`, then R3.

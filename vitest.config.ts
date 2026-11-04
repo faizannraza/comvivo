@@ -115,6 +115,10 @@ export default defineConfig({
             'packages/**/src/**/*.int.test.ts',
             'apps/*/src/**/*.int.test.ts',
             'test/**/*.int.test.ts',
+            // `02` M1-T2 keeps the storage spike as a permanent regression suite, and it lives
+            // outside `src/` — so without this glob it would have been written once and never run
+            // again, which makes it a record of what was true in November rather than a guard.
+            'packages/*/spike/**/*.spike.test.ts',
           ],
           testTimeout: 30_000,
         },

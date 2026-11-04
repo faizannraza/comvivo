@@ -34,9 +34,23 @@ const PLUGIN_SDK = '^packages/plugin-sdk/';
 const TOOLS = '^packages/tools/';
 const ANY_PACKAGE = '^packages/';
 
-/** Everything test-shaped. Used wherever a rule must not apply to tests. */
+/**
+ * Everything test-shaped. Used wherever a rule must not apply to tests.
+ *
+ * `/spike/` is in here for the same reason `/testing/` is: it is test apparatus, not product code.
+ * `02` M1-T2 defines `packages/storage/spike/` as the encryption spike's permanent regression
+ * suite, and its helper (`spike/open.ts`) transcribes `02` §3.6.2's pragma sequence and generates
+ * throwaway keys with `node:crypto` — which `crypto-only-in-shared-crypto-and-storage-crypto`
+ * correctly refused until this directory was classified.
+ *
+ * Classifying the directory rather than adding a third entry to `CRYPTO_ALLOWED` is deliberate:
+ * "cryptography lives in two reviewed modules" is a claim worth keeping exactly true, and
+ * threading a key through a helper's signature to satisfy a path regex is the kind of workaround
+ * that makes a guard look arbitrary. Nothing under `spike/` ships — `packages/storage`'s `files`
+ * list is `["dist"]`, and `tsconfig.json` includes only `src/`.
+ */
 const TEST_SHAPED =
-  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/__fixtures__/|^test/)';
+  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/spike/|/__fixtures__/|^test/)';
 
 /**
  * Build tooling that sits at a package root rather than under `src/`.

@@ -18,6 +18,7 @@
     "packages/**/src/**/*.bench.ts",
     "packages/evals/scenarios/**/*.scenario.ts",
     "apps/**/src/**/*.test.ts",
-    "scripts/**/*.test.ts"
+    "scripts/**/*.test.ts",
+    "packages/**/spike/**/*.ts"
   ]
 }
