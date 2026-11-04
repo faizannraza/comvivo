@@ -106,6 +106,46 @@ export const FETCH_BAN: Linter.RulesRecord = {
 };
 
 /**
+ * The paths allowed to call a `…Unfiltered` read (`02` §3.7.1).
+ *
+ * `engine/tools-executor`, because it has already applied the requester's authority itself, and
+ * `storage` internals, which includes the retention sweep — a sweep that could only see what
+ * somebody is allowed to read would leave the rest behind forever.
+ */
+export const UNFILTERED_ALLOWED_GLOBS: readonly string[] = [
+  'packages/engine/src/tools-executor/**',
+  'packages/storage/src/**',
+];
+
+/**
+ * Ban the `…Unfiltered` **call shape** outside those paths.
+ *
+ * The import edge is enforced by `.dependency-cruiser.cjs`'s `unfiltered-reads-restricted-callers`,
+ * and this is the second layer, because the two fail differently: the import rule cannot be dodged
+ * by renaming a method, and this cannot be dodged by re-exporting a module. `02` §3.7.1 asks for
+ * the restriction "by dependency-cruiser rule", which cannot see a method name at all — so the
+ * naming convention needs a rule that reads the call site.
+ *
+ * Deliberately a *syntax* ban on the name rather than a type-aware check on the interface: the
+ * whole point of the `…Unfiltered` suffix is that it is visible at the call site, to the person
+ * writing it and to the person reviewing it.
+ */
+export const UNFILTERED_READ_BAN: Linter.RulesRecord = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: 'CallExpression > MemberExpression[property.name=/Unfiltered$/]',
+      message:
+        'A `…Unfiltered` read skips the eligible-label filter (02 §3.7.1), so calling one here is ' +
+        'a labeled read with the label check taken out — invariant I1, in one line that looks ' +
+        'like a convenience. Take an `EligibleLabelSet` from core `canRead` and use the filtered ' +
+        "read. Only `engine/tools-executor` (which has already applied the requester's " +
+        'authority) and storage internals may call these.',
+    },
+  ],
+};
+
+/**
  * Repository-wide bans from `08` §3.20's SAST row. Each one is a code-execution or injection path
  * that has no legitimate use in this codebase.
  */

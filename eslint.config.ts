@@ -29,6 +29,8 @@ import {
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   SECURITY_RULES,
+  UNFILTERED_ALLOWED_GLOBS,
+  UNFILTERED_READ_BAN,
 } from './scripts/lint/rules.js';
 
 export default defineConfig(
@@ -73,7 +75,13 @@ export default defineConfig(
     // Test files, benches and scenarios are excluded from the emitting TS projects so they never
     // reach `dist`, which means the project service cannot type them. They are still fully
     // typechecked, by `tsc -p tsconfig.test.json` in `pnpm typecheck`.
-    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.bench.ts',
+      '**/*.scenario.ts',
+      // Build tooling at a package root: see `comvivo/scripts-type-aware` below.
+      'packages/*/*.config.ts',
+    ],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: { projectService: true },
@@ -147,6 +155,28 @@ export default defineConfig(
     rules: FETCH_BAN,
   },
   {
+    // `02` §3.7.1: the reads that skip the eligible-label filter are callable only from the tool
+    // executor and from storage itself. The import edge is dependency-cruiser's
+    // `unfiltered-reads-restricted-callers`; this is the call site.
+    //
+    // `SECURITY_RULES` also sets `no-restricted-syntax`, and flat config **replaces** a rule's
+    // options rather than merging them — the defect that left core's `Date` ban inert for most of
+    // M0 — so this block must not match any path `comvivo/security-bans` needs. It does not: that
+    // block covers `packages/**` and `apps/**` wholesale, and the two selectors would collide.
+    // `test/boundaries/lint-bans.int.test.ts` asserts the **effective options** per path, which is
+    // the assertion that would have caught it.
+    name: 'comvivo/unfiltered-reads',
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
+    ignores: [...UNFILTERED_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        ...(SECURITY_RULES['no-restricted-syntax'] as unknown[]).slice(1),
+        ...(UNFILTERED_READ_BAN['no-restricted-syntax'] as unknown[]).slice(1),
+      ],
+    },
+  },
+  {
     // Doubles and fixtures legitimately need looser typing than production code.
     name: 'comvivo/testing-helpers',
     files: ['**/testing/**/*.ts'],
@@ -163,7 +193,11 @@ export default defineConfig(
     // the one place it is most expensive, because the guard then exits 0 having checked nothing —
     // was not reported. Found by the M0 independent review.
     name: 'comvivo/scripts-type-aware',
-    files: ['scripts/**/*.ts', 'tools/**/*.ts'],
+    // `packages/*/drizzle.config.ts` belongs here, not in `comvivo/type-aware`: it sits at a
+    // package root, outside that package's `include`, so the project service cannot type it —
+    // which is how `scripts/**` ended up with 24 files of configured-but-inert rules during M0.
+    // `tsconfig.scripts.json` covers it instead.
+    files: ['scripts/**/*.ts', 'tools/**/*.ts', 'packages/*/*.config.ts'],
     ignores: ['**/*.test.ts'],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {

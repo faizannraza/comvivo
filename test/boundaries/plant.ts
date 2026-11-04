@@ -131,6 +131,19 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
     );
     paths['@comvivo/core/ports/memory-search'] = ['packages/core/src/ports/memory-search.ts'];
 
+    // The unfiltered reads, same arrangement: present so the rule has an edge to match, and
+    // arriving in the repository with `M1-T17`. `02` §3.7.1 asks for a dependency-cruiser rule on
+    // a *method name*, which a module graph cannot see — so the reads that skip the eligible-label
+    // filter live in their own module and the restriction is on the import.
+    await write(
+      root,
+      'packages/core/src/ports/storage/unfiltered.ts',
+      'export interface UnfilteredReads { listMessagesUnfiltered(): readonly string[] }\n',
+    );
+    paths['@comvivo/core/ports/storage/unfiltered'] = [
+      'packages/core/src/ports/storage/unfiltered.ts',
+    ];
+
     await Promise.all(
       planted.map((file) =>
         write(

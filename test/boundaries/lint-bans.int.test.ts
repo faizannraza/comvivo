@@ -21,6 +21,8 @@ import {
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   SECURITY_RULES,
+  UNFILTERED_ALLOWED_GLOBS,
+  UNFILTERED_READ_BAN,
 } from '../../scripts/lint/rules.js';
 
 const REPO = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
@@ -191,6 +193,68 @@ describe('the guarded-egress ban bites', { tags: ['slow'] }, () => {
   });
 });
 
+describe('the unfiltered-read ban bites', { tags: ['slow'] }, () => {
+  it('rejects a `…Unfiltered` call, which is a labeled read with the label check removed', async () => {
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const all = (repo: { listMessagesUnfiltered(): string[] }) => repo.listMessagesUnfiltered();',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toContain('no-restricted-syntax');
+  });
+
+  it('catches it on any repository shape, since the suffix is the whole convention', async () => {
+    for (const call of [
+      'repo.searchMemoriesUnfiltered(q)',
+      'uow.messages.listUnfiltered()',
+      'store.repos.memory.recentUnfiltered(10)',
+    ]) {
+      expect(
+        await rulesFiredFor(
+          UNFILTERED_READ_BAN,
+          `export const x = (repo: never, uow: never, store: never, q: never) => ${call};`,
+          'packages/engine/src/digest/build.ts',
+        ),
+        call,
+      ).toContain('no-restricted-syntax');
+    }
+  });
+
+  it('says what to do instead, rather than only refusing', async () => {
+    const message = await firstMessageFor(
+      UNFILTERED_READ_BAN,
+      'export const all = (repo: never) => repo.listMessagesUnfiltered();',
+      'packages/engine/src/digest/build.ts',
+    );
+    expect(message).toContain('EligibleLabelSet');
+    expect(message).toContain('02 §3.7.1');
+    expect(message).toContain('I1');
+  });
+
+  it('leaves an ordinary filtered read alone', async () => {
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const all = (repo: never, eligible: never) => repo.listMessages(eligible);',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toEqual([]);
+  });
+
+  it('is not fooled by a name that merely contains the word', async () => {
+    // `unfilteredCount` is not an unfiltered *read*; banning it would teach people to work around
+    // the rule, which is worse than not having it.
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const n = (repo: never) => repo.unfilteredCount();',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe('the real eslint.config.ts wires the bans to the right files', { tags: ['slow'] }, () => {
   /**
    * The effective **options**, not just the rule name.
@@ -277,6 +341,61 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
       const rules = await configuredRulesFor(path);
       expect(Object.keys(rules), `no-eval is not configured for ${path}`).toContain('no-eval');
     }
+  });
+
+  /** The `no-restricted-syntax` selectors the real config would apply to a path. */
+  const selectorsFor = async (file: string): Promise<string[]> => {
+    const rules = await configuredRulesFor(file);
+    const entry = rules['no-restricted-syntax'];
+    if (!Array.isArray(entry)) return [];
+    return entry
+      .slice(1)
+      .map((option) => (option as { selector?: string }).selector ?? '')
+      .filter((selector) => selector !== '')
+      .sort();
+  };
+
+  const UNFILTERED_SELECTOR = 'CallExpression > MemberExpression[property.name=/Unfiltered$/]';
+
+  it('bans the unfiltered-read call shape in the engine', async () => {
+    expect(await selectorsFor('packages/engine/src/digest/build.ts')).toContain(
+      UNFILTERED_SELECTOR,
+    );
+  });
+
+  it('allows it in the tool executor and in storage, which are the two listed callers', async () => {
+    for (const path of [
+      'packages/engine/src/tools-executor/scoped-repos/messages.ts',
+      'packages/storage/src/retention/sweep.ts',
+    ]) {
+      expect(await selectorsFor(path), `the ban leaked into ${path}`).not.toContain(
+        UNFILTERED_SELECTOR,
+      );
+    }
+    // And the exemption is listed rather than implicit.
+    expect(UNFILTERED_ALLOWED_GLOBS).toEqual([
+      'packages/engine/src/tools-executor/**',
+      'packages/storage/src/**',
+    ]);
+  });
+
+  it('keeps every security selector wherever the unfiltered ban applies', async () => {
+    // The trap that left core's `Date` ban inert for most of M0: flat config **replaces** a rule's
+    // options. `comvivo/unfiltered-reads` sets `no-restricted-syntax`, which `comvivo/security-bans`
+    // also sets, so the later block has to carry both lists — asserted here rather than assumed.
+    const selectors = await selectorsFor('packages/engine/src/digest/build.ts');
+    const security = (SECURITY_RULES['no-restricted-syntax'] as { selector: string }[])
+      .slice(1)
+      .map((option) => option.selector);
+    for (const selector of security) {
+      expect(selectors, `the security selector ${selector} was replaced`).toContain(selector);
+    }
+  });
+
+  it('keeps the security selectors where the unfiltered ban is lifted', async () => {
+    const selectors = await selectorsFor('packages/storage/src/retention/sweep.ts');
+    expect(selectors.length).toBeGreaterThan(0);
+    expect(selectors).not.toContain(UNFILTERED_SELECTOR);
   });
 
   it('bans the fetch global in the engine but allows it in an adapter', async () => {

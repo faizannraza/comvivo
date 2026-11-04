@@ -108,12 +108,27 @@ overrides:
 
 catalog:
   fast-check: ^4.10
+  # --- storage (M1) -----------------------------------------------------------------------------
+  # Pinned EXACTLY, per `02` M1-T1. Not a style choice: a SQLite build, a loadable extension and a
+  # crypto library are the three places where a silent patch bump can change bytes on disk or on
+  # the wire. Renovate opens a PR for each (grouped, `minimumReleaseAge: 3 days`, no auto-merge),
+  # so an upgrade is a reviewed diff with the spike suite re-run rather than an install-time
+  # surprise. Versions re-verified against the registry on 2026-11-03 (`CLAUDE.md` §6).
+  better-sqlite3-multiple-ciphers: 13.0.3
+  sqlite-vec: 0.1.9
+  drizzle-orm: 0.45.4
+  drizzle-kit: 0.31.11
+  libsodium-wrappers: 0.8.4
+  tar-stream: 3.2.2
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2
   zod: ^4.6
   yaml: ^2.9
-  temporal-polyfill: ^1.0
+  # Exact, per `02` M1-T1: `Instant`/`PlainDate`/`ZonedDateTime` are **persisted** (`02` §3.1
+  # column helpers), so a polyfill patch that changes a string form changes what is in a host's
+  # database. 1.0.7 exists as of 2026-11-04 and is younger than `minimumReleaseAge`.
+  temporal-polyfill: 1.0.6
   vitest: ^5.0
   "@vitest/coverage-v8": ^5.0
   "@types/node": ^24.9

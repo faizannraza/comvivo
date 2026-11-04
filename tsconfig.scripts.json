@@ -16,6 +16,7 @@
     "vitest.config.ts",
     "vitest.shared.ts",
     "vitest.setup.ts",
-    "eslint.config.ts"
+    "eslint.config.ts",
+    "packages/*/drizzle.config.ts"
   ]
 }

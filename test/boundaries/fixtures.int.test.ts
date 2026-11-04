@@ -132,6 +132,13 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/engine/src/jobs/searches-memory.ts',
     imports: ['../../../core/src/ports/memory-search.js'],
   },
+  'unfiltered-reads-restricted-callers': {
+    // The `…Unfiltered` reads skip the eligible-label filter on purpose (`02` §3.7.1). Reached
+    // from anywhere but the tool executor or storage itself, they are a labeled read with the
+    // label check taken out — I1 deleted in one import, and it would look like a convenience.
+    path: 'packages/engine/src/digest/reads-unfiltered.ts',
+    imports: ['../../../core/src/ports/storage/unfiltered.js'],
+  },
 
   // --- Purity ----------------------------------------------------------------------------------
   'no-node-builtins-in-pure-packages': {
