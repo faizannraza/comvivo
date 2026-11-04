@@ -7,7 +7,8 @@ but the dedicated `security@` address and PGP key arrive with the domain.
 
 Before 1.0: only the latest release receives fixes. From 1.0: the latest minor of the current
 major. When a new major ships, the previous major's last minor receives security and
-data-integrity fixes for 12 months. Release lines are defined in `docs/ops`.
+data-integrity fixes for 12 months. Release lines are defined in
+[`docs/architecture/release.md`](docs/architecture/release.md) and `12` §3.10.6.
 
 **Today there is no release at all** — Comvivo is pre-1.0 and unannounced. If you are reading this
 because you found something in `main`, please still report it; it is easier to fix now than later.

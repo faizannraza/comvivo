@@ -123,8 +123,9 @@ if (findings.length === 0) {
   stdout.write(
     `  ${count(testFiles, 'test file')}, ${count(workflows.length, 'workflow')}, ` +
       `${count(shellScripts.length, 'shell script')}, ` +
-      `${count(issueForms.length, 'issue form')}` +
-      `${gate ? ', gate mode (no skips allowed)' : ''}.\n`,
+      count(issueForms.length, 'issue form') +
+      (gate ? ', gate mode (no skips allowed)' : '') +
+      '.\n',
   );
 }
 

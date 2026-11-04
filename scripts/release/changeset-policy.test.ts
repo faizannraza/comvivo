@@ -11,6 +11,11 @@ describe('isShippedPath', () => {
     'packages/channels/telegram/src/ingest.ts',
     'deploy/docker/Dockerfile',
     'deploy/compose.yaml',
+    // The root manifest carries `engines` — the supported Node floor — and the workspace file
+    // carries `allowBuilds` and the dependency overrides. Both are shipped behaviour: a host on
+    // the old floor finds out when their install fails.
+    'package.json',
+    'pnpm-workspace.yaml',
   ])('ships: %s', (path) => {
     expect(isShippedPath(path)).toBe(true);
   });
@@ -35,8 +40,6 @@ describe('isShippedPath', () => {
     'docs/plan/STATUS.md',
     'scripts/hygiene/check.ts',
     'tools/changelog/index.mjs',
-    'package.json',
-    'pnpm-workspace.yaml',
   ])('does not ship: %s', (path) => {
     expect(isShippedPath(path)).toBe(false);
   });

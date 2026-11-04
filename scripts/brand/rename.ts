@@ -15,14 +15,17 @@ import { BRAND } from '../../packages/shared/src/brand.js';
 import {
   addLegacyBrand,
   addLegacyNames,
+  addLegacyVocabulary,
   type CurrentBrand,
   findLeftovers,
   isAllowedLeftover,
   isBinary,
   isFixture,
   isHistory,
+  isVocabulary,
   type Leftover,
   rewriteContent,
+  rewriteHistoryTitle,
   rewritePath,
   shouldSkip,
   type TargetBrand,
@@ -92,7 +95,16 @@ for (const path of tracked) {
     skipped.push(path);
     continue;
   }
-  if (isHistory(path) || isFixture(path)) continue;
+  if (isFixture(path)) continue;
+  if (isHistory(path)) {
+    // The body is a record and stays verbatim; the title is not. See `rewriteHistoryTitle`.
+    const titled = rewriteHistoryTitle(bytes.toString('utf8'), from, to);
+    if (titled !== bytes.toString('utf8')) {
+      rewritten.push(path);
+      if (!dryRun) writeFileSync(`${ROOT}/${path}`, titled);
+    }
+    continue;
+  }
 
   const source = bytes.toString('utf8');
   let next = rewriteContent(source, from, to);
@@ -103,6 +115,7 @@ for (const path of tracked) {
   if (path === 'deploy/names.json') {
     next = addLegacyNames(next, from, `${BRAND.repo.owner}/${BRAND.repo.name}`);
   }
+  if (isVocabulary(path)) next = addLegacyVocabulary(next, from);
 
   if (next === source) continue;
   rewritten.push(path);

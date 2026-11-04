@@ -22,21 +22,54 @@ import type { Linter } from 'eslint';
  * The two catch different mistakes: the type error catches `process.env`, this catches a `process`
  * that someone made compile by widening the types.
  */
+/**
+ * Restricted globals for `packages/core`, as **data** rather than a finished rules record.
+ *
+ * Kept separate because ESLint flat config **replaces** a rule's options when a later block sets
+ * the same rule — it does not merge them. `no-restricted-globals` is set by both this and
+ * `FETCH_BAN`, and for most of M0 the egress block silently won: the effective config for
+ * `packages/core/**` banned `fetch` and **not** `Date` or `process`. The isolated rule tests
+ * passed, and the config test asserted only that the rule *name* was present, so nothing caught
+ * it until the exit gate planted `new Date()` in core and `pnpm lint` came back green.
+ *
+ * Composing the arrays at the point of use is what makes a collision impossible rather than
+ * unlikely.
+ */
+export const CORE_RESTRICTED_GLOBALS = [
+  {
+    name: 'Date',
+    message:
+      'core is pure (01 §4): take the time from the injected Clock port. `new Date()` and ' +
+      '`Date.now()` make the module untestable and timezone-dependent. Temporal types are fine.',
+  },
+  {
+    name: 'process',
+    message:
+      'core is pure (01 §4): configuration arrives as an argument, never from the environment.',
+  },
+] as const;
+
+/**
+ * Where the `fetch` global is banned. Everything must reach the network through `safeFetch`, which
+ * applies the egress allowlist — the thing that makes invariant **I5 (guarded egress)** structural
+ * rather than a convention (`08` PSC-8).
+ */
+export const FETCH_RESTRICTED_GLOBALS = [
+  {
+    name: 'fetch',
+    message:
+      'Use safeFetch from @comvivo/shared/net instead. It applies the egress allowlist, which is ' +
+      'what makes invariant I5 (guarded egress) structural rather than a convention (08 PSC-8). ' +
+      'If this module genuinely must speak a platform protocol, add it to FETCH_ALLOWED_GLOBS ' +
+      'with a reason.',
+  },
+] as const;
+
 export const CORE_PURITY_RULES: Linter.RulesRecord = {
-  'no-restricted-globals': [
-    'error',
-    {
-      name: 'Date',
-      message:
-        'core is pure (01 §4): take the time from the injected Clock port. `new Date()` and ' +
-        '`Date.now()` make the module untestable and timezone-dependent. Temporal types are fine.',
-    },
-    {
-      name: 'process',
-      message:
-        'core is pure (01 §4): configuration arrives as an argument, never from the environment.',
-    },
-  ],
+  // Both sets, so this block is self-sufficient and no other block's version of
+  // `no-restricted-globals` can take the core bans away. `core` is pure, so it must not reach the
+  // network either — the fetch ban belongs here on its own merits.
+  'no-restricted-globals': ['error', ...CORE_RESTRICTED_GLOBALS, ...FETCH_RESTRICTED_GLOBALS],
   'no-restricted-properties': [
     'error',
     {
@@ -69,17 +102,7 @@ export const FETCH_ALLOWED_GLOBS: readonly string[] = [
 ];
 
 export const FETCH_BAN: Linter.RulesRecord = {
-  'no-restricted-globals': [
-    'error',
-    {
-      name: 'fetch',
-      message:
-        'Use safeFetch from @comvivo/shared/net instead. It applies the egress allowlist, which is ' +
-        'what makes invariant I5 (guarded egress) structural rather than a convention (08 PSC-8). ' +
-        'If this module genuinely must speak a platform protocol, add it to FETCH_ALLOWED_GLOBS ' +
-        'with a reason.',
-    },
-  ],
+  'no-restricted-globals': ['error', ...FETCH_RESTRICTED_GLOBALS],
 };
 
 /**

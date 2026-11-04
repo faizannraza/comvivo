@@ -1,10 +1,21 @@
 # Code owners (`08` §3.15, `11` §3.8.3, `13` §3.F.1).
 #
-# This file says WHO reviews. Branch protection says HOW MANY — "require review from Code Owners"
-# plus a required approval count. The paths below are the ones `08` §3.15 marks as needing **two**
-# maintainer approvals, which cannot be enforced today because there is one maintainer; see
-# `docs/architecture/ci.md` and MAINTAINERS.md. The file is correct now so that the settings
-# change is one switch when a second maintainer arrives, rather than an archaeology exercise.
+# This file says WHO reviews. Branch protection says HOW MANY.
+#
+# **Nothing here is enforced today.** Ruleset `main` has `required_approving_review_count: 0` AND
+# `require_code_owner_review: false`, so this file is documentation until there is a second
+# maintainer. Both settings are off for the same unavoidable reason and neither is a shortcut:
+# GitHub does not let an author approve their own pull request, so requiring either an approval or
+# a code-owner approval would block every change on a one-maintainer project.
+#
+# The M0 independent review was right to flag that `require_code_owner_review: false` had not been
+# disclosed — the M0-T17 tick said "CODEOWNERS over every path `08` §3.15 protects", which is true
+# of the file and silent about enforcement. It is stated here, in `docs/architecture/ci.md` and in
+# STATUS now.
+#
+# The paths below are the ones `08` §3.15 marks as needing **two** maintainer approvals. Writing
+# them out correctly now means turning enforcement on is one settings change rather than an
+# archaeology exercise.
 #
 # Last match wins, so the protected paths are at the bottom.
 
@@ -35,6 +46,15 @@
 
 # --- Protected: authentication ------------------------------------------------------------------
 /apps/server/src/http/auth/             @faizannraza
+
+# --- Protected: the quality bar -----------------------------------------------------------------
+# `M0-T17`'s AC names these explicitly, and the reason is that they are the dials somebody would
+# turn to make a failing gate pass: an eval threshold, a judge's rubric, or a golden transcript
+# that defines "correct". Lowering one looks exactly like fixing a test.
+/packages/evals/src/thresholds/          @faizannraza
+/packages/evals/src/judges/              @faizannraza
+/packages/evals/__golden__/              @faizannraza
+**/__golden__/                           @faizannraza
 
 # --- Protected: the supply chain ----------------------------------------------------------------
 # A workflow runs with a token on this repository; the lockfile and workspace settings decide what

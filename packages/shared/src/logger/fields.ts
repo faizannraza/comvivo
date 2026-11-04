@@ -95,9 +95,54 @@ export interface LogFields {
 
   /**
    * Catch-all for a numeric or short enum field a subsystem needs before it has earned a named
-   * one. Typed as `FieldValue`, so a whole object still cannot be logged.
+   * one.
+   *
+   * **A string here must be token-shaped, not prose**, and that is checked at runtime by
+   * `isSafeDetailValue`. The type alone is not enough: the M0 independent review showed that
+   * `log.info('turn.completed', { detail: { note: msg.text } })` compiled, ran, and put a
+   * member's message in an `info` line — a one-line, reviewer-invisible breach of `01` §11.7. The
+   * key-name denylist could not help, because the leak is in the *value* and the key was `note`.
+   *
+   * Token-shaped means an identifier, an enum value, a path, a version, a duration — no spaces.
+   * Prose needs spaces, so refusing them refuses sentences while keeping every legitimate use:
+   * `disposition: 'replied'`, `channel: 'telegram'`, `path: '.env'`, `afterMs: 5000`.
    */
   readonly detail?: Readonly<Record<string, FieldValue>>;
+}
+
+/** Longest a `detail` string may be. A token is short; a sentence is not. */
+export const MAX_DETAIL_LENGTH = 120;
+
+/**
+ * Whether a `detail` value is safe to log above `debug`.
+ *
+ * A number, boolean, `null` or `undefined` cannot carry a message. A string may, so it must be
+ * token-shaped: no whitespace, at most `MAX_DETAIL_LENGTH`.
+ *
+ * **What this stops, and what it does not.** Messages and memories are prose, and prose has
+ * spaces, so `detail: { note: msg.text }` now fails loudly instead of logging a member's message.
+ * What still passes is a **whitespace-free** string under a key the denylist does not name — the
+ * residual was measured, not assumed:
+ *
+ *   detail: { text: '…' }                -> removed by FORBIDDEN_FIELD_NAMES
+ *   detail: { note: 'Ava said …' }       -> refused here (prose)
+ *   detail: { nested_text_field: 'TOKEN' } -> still logged
+ *
+ * That residual is accepted on purpose. `01` §11.7 is about message and memory content, and a
+ * single token is neither in practice; the names that would carry one — `text`, `content_text`,
+ * `raw`, `body`, `memberName`, `displayName` — are already on the denylist. Closing it completely
+ * would mean banning strings from `detail` outright, which would push `channel: 'telegram'` and
+ * `path: '.env'` into either a named field for every one-off or into `log.content()`, where they
+ * do not belong.
+ *
+ * The named fields on `LogFields` are the right place for anything that needs structure, and
+ * `log.content()` is the right place for content itself — off unless the host switches it on, and
+ * announced in the group when they do.
+ */
+export function isSafeDetailValue(value: FieldValue): boolean {
+  if (typeof value !== 'string') return true;
+  if (value.length > MAX_DETAIL_LENGTH) return false;
+  return !/\s/.test(value);
 }
 
 /**

@@ -134,6 +134,26 @@ export function rewriteContent(source: string, from: CurrentBrand, to: TargetBra
   });
 }
 
+/**
+ * Rewrite only the leading `# ` heading of a HISTORY file.
+ *
+ * HISTORY files are exempt from the rewrite because their **bodies** record what things used to be
+ * called — striking that out would destroy the record. Their titles are not records: `STATUS.md`
+ * opened with "STATUS — Village build tracker" for two days after the product stopped being called
+ * Village, because the exemption was applied to the whole file. Found by the M0 independent review.
+ *
+ * Only the first line, and only if it is an ATX heading, so a changeset entry or an ADR whose first
+ * line is prose is left completely alone.
+ */
+export function rewriteHistoryTitle(source: string, from: CurrentBrand, to: TargetBrand): string {
+  const newline = source.indexOf('\n');
+  const first = newline === -1 ? source : source.slice(0, newline);
+  if (!/^#{1,6} /.test(first)) return source;
+  const rewritten = rewriteContent(first, from, to);
+  if (rewritten === first) return source;
+  return newline === -1 ? rewritten : rewritten + source.slice(newline);
+}
+
 /** The new path for a file whose name or directory contains the slug, or `undefined` if unchanged. */
 export function rewritePath(path: string, from: CurrentBrand, to: TargetBrand): string | undefined {
   const rewritten = rewriteContent(path, from, to);
@@ -153,6 +173,9 @@ export interface Leftover {
  * of this tool that matters: a green drill with a non-empty report is a rename that looked like it
  * worked.
  */
+/** Vale's accepted-words list, wherever the vocabulary directory happens to be named. */
+const VOCABULARY = /(^|\/)\.vale\/styles\/config\/vocabularies\/[^/]+\/accept\.txt$/;
+
 export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   ...HISTORY,
   ...FIXTURES,
@@ -160,13 +183,16 @@ export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   // installed the old build is not stranded (`13` §3.A.6, legacy compatibility).
   /^packages\/shared\/src\/brand\.ts$/,
   /^deploy\/names\.json$/,
+  // Vale's vocabulary keeps the outgoing names on purpose too (`addLegacyVocabulary`), because the
+  // history this repository deliberately does not rewrite goes on using them.
+  VOCABULARY,
   // The rename tooling itself: these files describe the mechanism and name both sides of it.
   /^scripts\/brand\//,
   /^\.github\/workflows\/rename-drill\.yml$/,
   // The plan records that the project was renamed, in the amendment that did it.
   /^docs\/plan\/01-architecture\.md$/,
   /^docs\/plan\/13-docs-launch-community\.md$/,
-  /^docs\/plan\/15-risks-spikes-decisions\.md$/,
+  /^docs\/plan\/15-risks-and-open-questions\.md$/,
 ];
 
 export function isAllowedLeftover(path: string): boolean {
@@ -184,6 +210,38 @@ export function findLeftovers(path: string, source: string, slug: string): Lefto
     }
   });
   return found;
+}
+
+export function isVocabulary(path: string): boolean {
+  return VOCABULARY.test(path);
+}
+
+/**
+ * Keep the **outgoing** product name in Vale's accepted-words list.
+ *
+ * HISTORY files are deliberately not rewritten — an ADR that records the rename has to keep saying
+ * what the product used to be called. Vale's vocabulary, though, *is* rewritten, so after a rename
+ * the vocabulary accepts only the new name and every one of those historical mentions becomes a
+ * spelling error. The weekly drill failed on exactly that: `docs/adr/README.md:32` — "Did you
+ * really mean 'Comvivo'?" — one line, from a 147-file prose run, in a repository the rename had
+ * otherwise got completely right.
+ *
+ * Same shape as `addLegacyBrand` and `addLegacyNames`: run **after** the rewrite, so the names
+ * added are the old ones. An accepted word is also the one kind of entry that is safe to keep
+ * forever: it widens what prose may say, never what it must.
+ */
+export function addLegacyVocabulary(source: string, from: CurrentBrand): string {
+  const present = (word: string): boolean =>
+    source.split(/\r?\n/).some((line) => line.trim() === word);
+  const missing = [from.display, from.slug].filter((word) => !present(word));
+  if (missing.length === 0) return source;
+  const body = source.replace(/\n*$/, '\n');
+  return `${body}
+# Previous product names, added by \`pnpm brand:rename\`. History — ADRs, STATUS, changelogs,
+# changeset entries — is deliberately never rewritten, so the old name stays in this
+# repository's prose permanently and the spell checker has to keep accepting it.
+${missing.join('\n')}
+`;
 }
 
 /**

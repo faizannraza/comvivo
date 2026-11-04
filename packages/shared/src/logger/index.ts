@@ -19,9 +19,17 @@
  */
 import pino from 'pino';
 import { BRAND } from '../brand.js';
+import { BugError } from '../errors.js';
 import { SecretString } from '../secrets/secret-string.js';
 import { type LogEvent, messageFor } from './events.js';
-import { FORBIDDEN_FIELD_NAMES, type LogFields, type LoggedError } from './fields.js';
+import {
+  type FieldValue,
+  FORBIDDEN_FIELD_NAMES,
+  isSafeDetailValue,
+  type LogFields,
+  type LoggedError,
+  MAX_DETAIL_LENGTH,
+} from './fields.js';
 import { redactOptions } from './redact.js';
 import { type BufferedLine, LogRingBuffer } from './ring-buffer.js';
 import { scrubDeep, scrubErrorMessage } from './scrub.js';
@@ -122,6 +130,56 @@ function stripForbiddenFields(value: unknown, seen = new WeakSet<object>()): unk
 }
 
 /**
+ * Enforce the `detail` and `err` guarantees that the type system cannot.
+ *
+ * Two holes the M0 independent review measured, both of which compiled and ran:
+ *
+ *  - `detail: { note: msg.text }` put a member's message in an `info` line. The key-name denylist
+ *    could not help: the leak was in the value and the key was `note`. A `detail` string must now
+ *    be token-shaped (`isSafeDetailValue`), so prose is refused.
+ *  - `err: { type: 'E', message: userText }` built by hand skipped `toLoggedError`, which is the
+ *    only place `scrubErrorMessage` was applied. The message is now scrubbed here, whatever route
+ *    it arrived by, so the guarantee does not depend on the caller using the helper.
+ *
+ * Unsafe values are dropped in production and **throw** under `<PREFIX>TEST_MODE`, the same
+ * asymmetry as `observability/attributes.ts`: a logging mistake must never take a group's bot
+ * down, and a logging mistake that passes CI is worse than one that fails it.
+ */
+function enforceFieldGuarantees(fields: Record<string, unknown>): Record<string, unknown> {
+  const out = { ...fields };
+  const rejected: string[] = [];
+
+  const detail = out['detail'];
+  if (typeof detail === 'object' && detail !== null && !Array.isArray(detail)) {
+    const safe: Record<string, FieldValue> = {};
+    for (const [key, value] of Object.entries(detail as Record<string, FieldValue>)) {
+      if (isSafeDetailValue(value)) safe[key] = value;
+      else rejected.push(`detail.${key}`);
+    }
+    out['detail'] = safe;
+  }
+
+  const err = out['err'];
+  if (typeof err === 'object' && err !== null && !Array.isArray(err)) {
+    const shaped = err as { message?: unknown };
+    if (typeof shaped.message === 'string') {
+      out['err'] = { ...shaped, message: scrubErrorMessage(shaped.message) };
+    }
+  }
+
+  if (rejected.length > 0 && process.env[`${BRAND.envPrefix}TEST_MODE`] === '1') {
+    throw new BugError(
+      `Log field(s) ${rejected.join(', ')} are not token-shaped, so they may be content. ` +
+        'A `detail` string must be an identifier, enum value, path or version — no spaces, at ' +
+        `most ${String(MAX_DETAIL_LENGTH)} characters (01 §11.7). If you need to log a message or ` +
+        'a memory, use log.content(), which is off unless the host switches it on and announces it.',
+    );
+  }
+
+  return out;
+}
+
+/**
  * Replace any `SecretString` with its name and fingerprint, never its value.
  *
  * Takes `LogFields` as well as a plain record. The cast inside is deliberate and belongs here:
@@ -204,7 +262,7 @@ export function createLogger(options: LoggerOptions = {}): Logger {
       const msg = messageFor(event);
       // Scrub before writing, not after: a shipper that reads stdout must never see the raw string.
       const payload = scrubDeep(
-        stripForbiddenFields({ event, ...describeSecrets(fields ?? {}) }),
+        stripForbiddenFields(enforceFieldGuarantees({ event, ...describeSecrets(fields ?? {}) })),
       ) as Record<string, unknown>;
 
       instance[lvl](payload, msg);
@@ -262,11 +320,13 @@ export function createLogger(options: LoggerOptions = {}): Logger {
   if (contentEnabled) {
     // A banner, every time, at `warn`. `01` §11.7 requires it, and the reason is simple: content
     // logging must never be on without somebody noticing.
+    // No prose in `detail`: a `detail` string must be token-shaped so a message cannot get in,
+    // and our own warning text is not an exception worth carving — it is exactly the shape the
+    // rule refuses. The full explanation lives in `contentWarningBanner()`, which the CLI prints
+    // to stderr where a host will actually read it; `LOG_EVENTS` keeps its messages short by
+    // design, asserted by its own test.
     logger.warn('debug.content_enabled', {
-      detail: {
-        envVar: `${BRAND.envPrefix}DEBUG_CONTENT`,
-        note: 'message and memory content will appear in this log; never leave this on for a real group',
-      },
+      detail: { envVar: `${BRAND.envPrefix}DEBUG_CONTENT` },
     });
   }
 

@@ -331,3 +331,102 @@ describe('no content survives to the output, checked on the serialised line', ()
     }
   });
 });
+
+/**
+ * The two holes the M0 independent review measured, both of which compiled and ran.
+ *
+ * `01` §11.7 is a product promise to people whose family chat this is, so "the type makes it hard"
+ * is not enough on its own — the type allowed both of these.
+ */
+describe('detail cannot carry content', () => {
+  const capture = (): { lines: string[]; log: ReturnType<typeof createLogger> } => {
+    const lines: string[] = [];
+    return { lines, log: createLogger({ destination: { write: (l) => lines.push(l) } }) };
+  };
+
+  // Assembled at runtime so no secret-shaped literal sits in this file (`pnpm secrets:check`).
+  const MESSAGE = ['Ava', 'said', 'she', 'is', 'moving', 'out'].join(' ');
+
+  it('refuses prose under an innocuous key', () => {
+    // The exact leak from the review: the key-name denylist could not help, because the content is
+    // in the value and the key was `note`.
+    const { log } = capture();
+    expect(() => log.info('server.ready', { detail: { note: MESSAGE } })).toThrow(/token-shaped/);
+  });
+
+  it('names the field and points at log.content()', () => {
+    const { log } = capture();
+    try {
+      log.info('server.ready', { detail: { note: MESSAGE } });
+      expect.unreachable('should have thrown');
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain('detail.note');
+      expect(message).toContain('01 §11.7');
+      expect(message).toContain('log.content()');
+    }
+  });
+
+  it('refuses a string longer than the cap even without spaces', () => {
+    const { log } = capture();
+    expect(() => log.info('server.ready', { detail: { blob: 'x'.repeat(200) } })).toThrow(
+      /token-shaped/,
+    );
+  });
+
+  it('keeps the legitimate token-shaped values this field exists for', () => {
+    const { lines, log } = capture();
+    log.info('server.ready', {
+      detail: {
+        disposition: 'replied',
+        channel: 'telegram',
+        path: '.env',
+        afterMs: 5000,
+        ok: true,
+      },
+    });
+    const line = lines.join('');
+    expect(line).toContain('replied');
+    expect(line).toContain('telegram');
+    expect(line).toContain('.env');
+    expect(line).toContain('5000');
+  });
+
+  it('drops rather than throws outside test mode', () => {
+    // A logging mistake must never take a group's bot down. In a test it throws, because there it
+    // is a bug that would otherwise pass CI.
+    const previous = process.env[`${BRAND.envPrefix}TEST_MODE`];
+    delete process.env[`${BRAND.envPrefix}TEST_MODE`];
+    try {
+      const { lines, log } = capture();
+      log.info('server.ready', { detail: { note: MESSAGE, channel: 'telegram' } });
+      const line = lines.join('');
+      expect(line).not.toContain('moving');
+      expect(line).toContain('telegram');
+    } finally {
+      if (previous !== undefined) process.env[`${BRAND.envPrefix}TEST_MODE`] = previous;
+    }
+  });
+});
+
+describe('a hand-built err is scrubbed too', () => {
+  it('scrubs a message that never went through toLoggedError', () => {
+    // `toLoggedError` was the only place `scrubErrorMessage` ran, so a literal `{ type, message }`
+    // skipped it entirely — and `LoggedError` is a plain interface, so writing one by hand
+    // typechecks.
+    const token = `${'123456789'}:${'AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw'}`;
+    const lines: string[] = [];
+    const log = createLogger({ destination: { write: (l) => lines.push(l) } });
+    log.error('config.invalid', { err: { type: 'TypeError', message: `401 from /bot${token}/x` } });
+    const line = lines.join('');
+    expect(line).not.toContain(token);
+    expect(line).toContain('TypeError');
+  });
+
+  it('truncates an over-long hand-built message', () => {
+    const lines: string[] = [];
+    const log = createLogger({ destination: { write: (l) => lines.push(l) } });
+    log.error('config.invalid', { err: { type: 'E', message: 'y'.repeat(5000) } });
+    expect(lines.join('').length).toBeLessThan(1500);
+  });
+});

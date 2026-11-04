@@ -41,7 +41,6 @@ export default defineConfig(
     '**/reports/**',
     'packages/api-client/src/generated/**',
     'apps/docs/.astro/**',
-    'test/fixtures/**',
   ]),
   {
     // Parse every TypeScript file with the TypeScript parser, whether or not it is in a project.
@@ -66,11 +65,15 @@ export default defineConfig(
   },
   {
     name: 'comvivo/type-aware',
-    files: ['packages/**/*.ts', 'apps/**/*.ts'],
+    // `.tsx` as well as `.ts`. The M0 independent review found the glob covered only `.ts`, so
+    // `no-floating-promises`, `no-misused-promises` and `switch-exhaustiveness-check` — the three
+    // `CLAUDE.md` §2 names as non-negotiable — would have been absent from every dashboard
+    // component from M9 onward, silently.
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
     // Test files, benches and scenarios are excluded from the emitting TS projects so they never
     // reach `dist`, which means the project service cannot type them. They are still fully
     // typechecked, by `tsc -p tsconfig.test.json` in `pnpm typecheck`.
-    ignores: ['**/*.test.ts', '**/*.bench.ts', '**/*.scenario.ts'],
+    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts'],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: { projectService: true },
@@ -135,7 +138,12 @@ export default defineConfig(
     // the `fetch` global, which dependency-cruiser cannot see.
     name: 'comvivo/guarded-egress',
     files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
-    ignores: [...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
+    // `packages/core/**` is excluded because `comvivo/core-purity` above already carries the fetch
+    // ban as part of its own `no-restricted-globals`. ESLint flat config **replaces** a rule's
+    // options rather than merging them, so a block that matched core here would silently take the
+    // `Date` and `process` bans away — which is exactly what happened for most of M0, and what
+    // the exit gate caught by planting `new Date()` in core and finding `pnpm lint` green.
+    ignores: ['packages/core/**', ...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
     rules: FETCH_BAN,
   },
   {
@@ -149,8 +157,69 @@ export default defineConfig(
     },
   },
   {
+    // The guards get the type-aware rules too, via `tsconfig.scripts.json`.
+    //
+    // They were previously in `no-type-info` below, which meant a floating promise in a guard —
+    // the one place it is most expensive, because the guard then exits 0 having checked nothing —
+    // was not reported. Found by the M0 independent review.
+    name: 'comvivo/scripts-type-aware',
+    files: ['scripts/**/*.ts', 'tools/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      // `project`, not `projectService`. The service discovers the nearest `tsconfig.json`, and
+      // there is none under `scripts/` — the root one is a solution file with only `references`.
+      // So `projectService: true` left every rule here configured and **inert**: 24 files reported
+      // "was not found by the project service" rather than being checked. Naming the tsconfig that
+      // actually covers them is what makes the rules run.
+      parserOptions: {
+        project: ['./tsconfig.scripts.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // A guard reads untyped JSON and YAML by nature, so the unsafe-* family would fire on every
+      // boundary read. The four rules `CLAUDE.md` §2 calls non-negotiable stay on; the rest of
+      // `strictTypeChecked`'s unsafe-value rules are the ones a parser legitimately trips.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
+      // A script's whole job is to print and exit.
+      'no-console': 'off',
+      // The same three rules, with the same options, as `comvivo/type-aware`. Set explicitly
+      // because `switch-exhaustiveness-check` is not part of `strictTypeChecked`.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        {
+          allowDefaultCaseForExhaustiveSwitch: false,
+          considerDefaultExhaustiveForUnions: false,
+          requireDefaultForNonUnion: true,
+        },
+      ],
+    },
+  },
+  {
+    // `.mjs` and `.cjs` had **no** ESLint block at all, so `tools/changelog/index.mjs`,
+    // `scripts/pending.mjs` and `.dependency-cruiser.cjs` were linted by Biome only — which does
+    // cover `eval` and `any`, but none of the ESLint-only rules. Found by the M0 independent
+    // review. Not type-aware: they are not in a TS project, and `projectService` would report
+    // them as not found, which is how a rule ends up configured and inert.
+    name: 'comvivo/plain-javascript',
+    files: ['**/*.{mjs,cjs,js}'],
+    ignores: ['**/dist/**', '**/node_modules/**'],
+    languageOptions: { globals: { ...globals.node, ...globals.es2024 } },
+    rules: {
+      ...SECURITY_RULES,
+      'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
+  },
+  {
     name: 'comvivo/no-type-info',
-    files: ['**/*.test.ts', '**/*.bench.ts', '**/*.scenario.ts', 'scripts/**/*.ts', '*.ts'],
+    files: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts', '*.ts'],
     extends: [tseslint.configs.disableTypeChecked],
   },
 );

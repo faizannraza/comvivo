@@ -8,6 +8,7 @@ import {
   AppError,
   BugError,
   ConfigError,
+  type ErrorContext,
   IoError,
   isAppError,
   TimeoutError,
@@ -50,11 +51,34 @@ describe('BugError', () => {
     const error = new BugError('label join produced an empty reader set');
     expect(error.code).toBe('bug');
     expect(error.message).toContain('label join');
-    expect(error.userMessage).toBe('Something went wrong on my side. Nothing was changed.');
+    expect(error.userMessage).toBe(
+      "Something went wrong on my side \u2014 I've stopped here rather than guess.",
+    );
   });
 
-  it('reassures the user that nothing changed, because for a bug that is the first question', () => {
-    expect(new BugError('x').userMessage).toMatch(/Nothing was changed/);
+  it('does not claim nothing changed, because a broken invariant can be noticed after an effect', () => {
+    // The copy used to say "Nothing was changed." It is the base message for every broken
+    // invariant in the product, and an invariant can be violated *after* a partial write \u2014 so
+    // that sentence was a promise the class could not keep. Found by the M0 independent review.
+    const message = new BugError('x').userMessage;
+    expect(message).not.toMatch(/[Nn]othing was changed/);
+    expect(message).toMatch(/stopped here/);
+  });
+
+  it('lets a caller that does know the effect say so', () => {
+    expect(new BugError('x', { userMessage: 'Nothing was changed.' }).userMessage).toBe(
+      'Nothing was changed.',
+    );
+  });
+
+  it('keeps its copy when a caller passes userMessage: undefined explicitly', () => {
+    // `{ ...context }` last would have let this wipe the default, leaving a broken invariant with
+    // no user-facing copy at all. `exactOptionalPropertyTypes` already refuses this in typed code
+    // — hence the cast — so the runtime check is defence in depth for a JavaScript caller or a
+    // context object assembled from a parsed payload. Cheap, and the failure mode is an error with
+    // no message at all.
+    const context = { userMessage: undefined } as unknown as ErrorContext;
+    expect(new BugError('x', context).userMessage).toMatch(/stopped here/);
   });
 });
 
@@ -88,6 +112,16 @@ describe('TimeoutError', () => {
     const error = new TimeoutError('turn deadline exceeded', 60_000);
     expect(error.afterMs).toBe(60_000);
     expect(error.detail).toEqual({ afterMs: 60_000 });
+  });
+
+  it('keeps afterMs when the caller brings its own detail', () => {
+    // `{ detail: { afterMs }, ...context }` dropped `afterMs` entirely whenever a caller passed a
+    // `detail` of their own \u2014 losing the one fact the class exists to carry. Found by the M0
+    // independent review.
+    const error = new TimeoutError('model call timed out', 30_000, {
+      detail: { provider: 'anthropic' },
+    });
+    expect(error.detail).toEqual({ afterMs: 30_000, provider: 'anthropic' });
   });
 });
 

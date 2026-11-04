@@ -18,4 +18,9 @@ fi
 
 # The documentation site plus the community files. `docs/plan/**` is excluded in `.vale.ini` —
 # it is an engineering document, not product prose.
-vale apps/docs README.md CONTRIBUTING.md GOVERNANCE.md MAINTAINERS.md SECURITY.md SUPPORT.md docs/security
+# `docs/adr/ADR-*.md` are exempt in `.vale.ini` (dated records), but the index and the
+# architecture notes are not — they describe the project as it is now. The M0 independent review
+# found that `docs/adr` and `docs/architecture` were not passed here at all, so the terminology
+# rule was configured at `level: error` over files it never saw.
+vale apps/docs README.md CONTRIBUTING.md GOVERNANCE.md MAINTAINERS.md SECURITY.md SUPPORT.md \
+  docs/security docs/adr docs/architecture

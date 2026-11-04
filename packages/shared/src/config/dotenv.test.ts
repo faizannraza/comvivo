@@ -73,7 +73,26 @@ describe('parseDotenv', () => {
       A: '1',
       B: '2',
     });
-    expect(result.malformedLines).toEqual([{ line: 2, text: 'this is not an assignment' }]);
+    // The first token only, not the line \u2014 see the next test for why.
+    expect(result.malformedLines).toEqual([{ line: 2, text: 'this' }]);
+  });
+
+  it('never echoes the rest of a malformed line, because that is where the secret is', () => {
+    // The commonest malformed line is a key with the `=` missing, which is to say a line holding a
+    // credential. The report used to carry `text.slice(0, 80)`, so the warning \u2014 and anything
+    // that logged it \u2014 got the key. Reproduced by the M0 independent review with a
+    // real-shaped token; `08` \u00a73.10 S2 forbids it outright.
+    const secret = ['sk-ant-api03', 'NOTAREALKEYjustshaped0000000000000000'].join('-');
+    const result = parseDotenv(`ANTHROPIC_API_KEY ${secret}\n`);
+    expect(result.malformedLines).toHaveLength(1);
+    const reported = result.malformedLines[0]?.text ?? '';
+    expect(reported).toBe('ANTHROPIC_API_KEY');
+    expect(JSON.stringify(result)).not.toContain(secret);
+  });
+
+  it('truncates a first token long enough to be a secret in its own right', () => {
+    const result = parseDotenv(`${'x'.repeat(200)}\n`);
+    expect(result.malformedLines[0]?.text).toHaveLength(48);
   });
 
   it('gives a 1-based line number, so an error message can point at the line', () => {

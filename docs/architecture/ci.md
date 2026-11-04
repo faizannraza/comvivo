@@ -81,10 +81,15 @@ Not yet required, and why:
 enforceable today**, because the project has one maintainer and GitHub does not let an author
 approve their own pull request. Setting a positive number would block every change.
 
-So the ruleset requires **0 approvals** and `.github/CODEOWNERS` is complete and correct but not
-yet enforced. When a second maintainer arrives, the review requirements are one settings change
-rather than an archaeology exercise — which is the entire reason CODEOWNERS was written out in
-full at `M0-T17` rather than left until it could be turned on.
+So the ruleset sets **both** `required_approving_review_count: 0` **and**
+`require_code_owner_review: false`. The second is worth stating separately, because it is not
+implied by the first: "require review from Code Owners" needs an approval *from a code owner*, and
+the only code owner is the author. Either setting alone would block every change.
+
+`.github/CODEOWNERS` is therefore complete and correct and **enforces nothing today**. When a
+second maintainer arrives, both settings flip together — one settings change rather than an
+archaeology exercise, which is the entire reason the file was written out in full at `M0-T17`
+rather than left until it could be turned on.
 
 What *is* enforced today and does not need a second person:
 

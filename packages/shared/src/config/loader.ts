@@ -157,14 +157,19 @@ function readConfigFile(
       stage.problems.push(
         new ConfigError(`${candidate} must contain a mapping at the top level`, {
           path: '(root)',
-          userMessage: 'The configuration file is not shaped like settings.',
+          userMessage:
+            `${candidate} should be a list of settings, like "dashboard:" with values under ` +
+            'it. At the moment its top level is something else — a list, or a single value. ' +
+            'Compare it with the example in the docs, or delete it and I will use defaults.',
         }),
       );
     } catch (cause) {
       stage.problems.push(
         new ConfigError(`${candidate} is not valid YAML`, {
           path: '(root)',
-          userMessage: 'I could not read the configuration file.',
+          userMessage:
+            `${candidate} is not valid YAML, so I did not start rather than guess. The error ` +
+            'above gives the line. The usual cause is an indentation slip or a stray tab.',
           cause,
         }),
       );
@@ -200,7 +205,9 @@ function readEnvFile(
         {
           code: 'config.insecure_permissions',
           path: '.env',
-          userMessage: 'My secrets file is readable by other users, so I did not load it.',
+          userMessage:
+            `${path} holds API keys and bot tokens and other users on this machine can read ` +
+            `it, so I did not load it. Run: chmod 600 ${path}`,
         },
       ),
     );
@@ -212,7 +219,11 @@ function readEnvFile(
     for (const { line, text } of parsed.malformedLines) {
       stage.warnings.push({
         code: 'malformed_env_line',
-        message: `${path}:${String(line)} is not a KEY=value assignment and was skipped: ${text}`,
+        // `text` is the first token only — the variable name — never the line. See `dotenv.ts`:
+        // the usual cause of a malformed line is a missing `=`, on the line holding a credential.
+        message:
+          `${path}:${String(line)} is not a KEY=value assignment and was skipped. ` +
+          `It starts with ${JSON.stringify(text)}. Write it as KEY=value, or comment it out with #.`,
       });
     }
     return {
@@ -249,7 +260,9 @@ function collectEnvOverrides(
       stage.problems.push(
         new ConfigError(`${name}: ${coerced.error}`, {
           path: leaf.path,
-          userMessage: `The setting ${leaf.path} was not something I could read.`,
+          userMessage:
+            `${name} is set to something I could not read as ${leaf.type}. ` +
+            `${coerced.error}. Fix it in your environment or .env, or unset it to use the default.`,
         }),
       );
     }
@@ -330,7 +343,9 @@ export function loadConfig(options: LoadOptions): Result<LoadedConfig, ConfigErr
       stage.problems.push(
         new ConfigError(`${issue.path}: ${issue.message}`, {
           path: issue.path,
-          userMessage: 'One of my settings was not valid, so I did not start.',
+          userMessage:
+            `The setting ${issue.path} is not valid: ${issue.message}. I did not start rather ` +
+            'than run with a setting I did not understand. Fix it, or remove it to use the default.',
         }),
       );
     }

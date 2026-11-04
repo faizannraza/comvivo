@@ -73,7 +73,7 @@ export function checkSettings(policy: Record<string, unknown>): PolicyProblem[] 
     problems.push({
       kind: 'setting',
       message:
-        `pnpm-workspace.yaml: minimumReleaseAgeExclude has ${exclude.length} entr(ies). ` +
+        `pnpm-workspace.yaml: minimumReleaseAgeExclude has ${String(exclude.length)} entr(ies). ` +
         'Each one is a package that skips the three-day quarantine, so it needs a linked advisory, ' +
         'two maintainer approvals, and removal once the version ages out (08 §3.15).',
     });

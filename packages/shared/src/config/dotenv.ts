@@ -59,7 +59,18 @@ export function parseDotenv(contents: string): DotenvResult {
     if (text.trim() === '' || text.trimStart().startsWith('#')) return;
     const match = ASSIGNMENT.exec(text);
     if (match === null) {
-      malformedLines.push({ line, text: text.slice(0, 80) });
+      // Report the **first token only**, never the line.
+      //
+      // The commonest way to produce a malformed line is to omit the `=` after a key — that is,
+      // on exactly the line holding a credential. Echoing the text would then put the secret in
+      // the warning, and from there into whatever logs it (`08` §3.10 S2 forbids secrets in logs
+      // outright). Found by the M0 independent review, which reproduced it with a real-shaped
+      // Anthropic key.
+      //
+      // The first token is almost always the variable name, which is the one piece a host needs
+      // to find the line, and is not itself a secret.
+      const firstToken = text.trim().split(/\s+/)[0] ?? '';
+      malformedLines.push({ line, text: firstToken.slice(0, 48) });
       return;
     }
     entries.push({ key: match[1] as string, value: unquote(match[2] as string), line });

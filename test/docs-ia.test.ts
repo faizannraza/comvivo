@@ -52,10 +52,11 @@ function fileFor(path: string): string {
 const pages = informationArchitecture();
 
 describe('the information architecture', () => {
-  it('has the page count `13` §3.C.3 declares', () => {
-    // A guard against the parser silently matching nothing — the failure mode that would make
-    // every assertion below vacuous.
-    expect(pages.length).toBeGreaterThan(100);
+  it('has exactly the page count `13` §3.C.3 declares', () => {
+    // An exact count, not a floor. A floor guards against the parser silently matching nothing —
+    // the failure mode that would make every assertion below vacuous — but it would not notice a
+    // page quietly dropped from the plan, which is the other direction worth catching.
+    expect(pages).toHaveLength(104);
   });
 
   it('has no legacy codename in a page path', () => {
@@ -79,6 +80,28 @@ describe('the information architecture', () => {
       expect(existsSync(fileFor(path)), `missing: ${fileFor(path).replace(ROOT, '')}`).toBe(true);
     },
   );
+});
+
+describe('the 404 page', () => {
+  // Outside the IA list, so the assertions above do not reach it — and it is the page a reader
+  // most likely lands on while almost everything else is a draft.
+  const file = `${DOCS}/404.md`;
+
+  it('exists and is not a draft', () => {
+    expect(existsSync(file)).toBe(true);
+    const frontmatter = parseYaml(
+      /^---\n([\s\S]*?)\n---/.exec(readFileSync(file, 'utf8'))?.[1] ?? '',
+    ) as Record<string, unknown>;
+    expect(frontmatter['draft']).not.toBe(true);
+    expect(typeof frontmatter['title']).toBe('string');
+  });
+
+  it('carries no stale codename and explains why the page is missing', () => {
+    const source = readFileSync(file, 'utf8');
+    expect(/\bvillage\b/i.test(source)).toBe(false);
+    // The reader has probably not done anything wrong, and the page should say so.
+    expect(source).toContain('not been written yet');
+  });
 });
 
 describe('the docs site stays out of the code graph', () => {
@@ -147,6 +170,21 @@ describe('every page', () => {
         expect(frontmatter['draft'], `${path} should be draft: true`).toBe(true);
       }
     }
+  });
+
+  it('gives the home page a document title that is not the site title twice', () => {
+    // Starlight appends the site title to every page title, so the home page of a site called
+    // Comvivo rendered `<title>Comvivo | Comvivo</title>`. That string is what a search result and
+    // a bookmark show, on the one page most people see first. Found by opening the dev server
+    // during the M0 gate demo, not by reading the frontmatter.
+    const frontmatter = parseYaml(
+      /^---\n([\s\S]*?)\n---/.exec(readFileSync(fileFor('/'), 'utf8'))?.[1] ?? '',
+    ) as Record<string, unknown>;
+    const head = frontmatter['head'] as { tag?: string; content?: string }[] | undefined;
+    const title = head?.find((entry) => entry.tag === 'title');
+    expect(title, 'the splash needs a head title override').toBeDefined();
+    expect(String(title?.content)).not.toBe(String(frontmatter['title']));
+    expect(String(title?.content).length).toBeGreaterThan(20);
   });
 
   it('carries no stale codename', () => {

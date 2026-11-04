@@ -55,6 +55,12 @@ jobs:
       - name: Brand literals
         run: pnpm run brand:check
 
+      # `names:check` was in `pnpm verify` and in no workflow, so the two had drifted apart —
+      # `CLAUDE.md` §4 defines verify as "everything CI runs on a PR", and that relationship has to
+      # hold in both directions. Found by the M0 independent review.
+      - name: Distribution names
+        run: pnpm run names:check
+
       - name: Native build policy
         run: pnpm run supply:check
 
@@ -282,8 +288,25 @@ jobs:
         run: |
           set -euo pipefail
           echo "$NEEDS"
-          failed=$(echo "$NEEDS" | grep -c '"result": "\(failure\|cancelled\)"' || true)
-          skipped=$(echo "$NEEDS" | grep -c '"result": "skipped"' || true)
+          # `node`, not `grep`: the previous version matched '"result": "failure"' with one literal
+          # space, so a change in how GitHub formats `toJSON(needs)` would have made this count
+          # zero failures and pass vacuously. GitHub does not document that formatting.
+          counts=$(node -e '
+            const needs = JSON.parse(process.env.NEEDS);
+            const results = Object.values(needs).map((job) => job.result);
+            const bad = results.filter((r) => r === "failure" || r === "cancelled").length;
+            const skipped = results.filter((r) => r === "skipped").length;
+            const ok = results.filter((r) => r === "success").length;
+            // Space-separated by console.log itself, not a template literal: a dollar-brace
+            // inside this single-quoted script reads to shellcheck as a shell expansion.
+            console.log(bad, skipped, ok, results.length);
+          ')
+          read -r failed skipped succeeded total <<< "$counts"
+          echo "needed jobs: ${total} (ok ${succeeded}, failed ${failed}, skipped ${skipped})"
+          if [ "$total" -eq 0 ]; then
+            echo "ci-ok: no needed jobs reported, so nothing was checked." >&2
+            exit 1
+          fi
           if [ "$failed" -ne 0 ] || [ "$skipped" -ne 0 ]; then
             echo "ci-ok: ${failed} failed/cancelled and ${skipped} skipped job(s)." >&2
             echo "No job in ci.yml is skipped by design, so a skip means a dependency failed" >&2

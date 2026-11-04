@@ -23,10 +23,10 @@ from typing import Iterable, Sequence
 # `trace` is a stdlib module name, so load the script by path under a distinct
 # name instead of relying on sys.path ordering.
 _SCRIPT = Path(__file__).resolve().parent / "trace.py"
-_spec = importlib.util.spec_from_file_location("village_plan_trace", _SCRIPT)
+_spec = importlib.util.spec_from_file_location("comvivo_plan_trace", _SCRIPT)
 assert _spec is not None and _spec.loader is not None
 pt = importlib.util.module_from_spec(_spec)
-sys.modules["village_plan_trace"] = pt
+sys.modules["comvivo_plan_trace"] = pt
 _spec.loader.exec_module(pt)
 
 
@@ -724,6 +724,57 @@ class TestIdAndNumbering(unittest.TestCase):
         gaps = [f for f in findings if f.code == "W-ID-GAP"]
         self.assertEqual(len(gaps), 1)
         self.assertIn("never renumber", gaps[0].message)
+
+
+class TestTableShape(unittest.TestCase):
+    """A doubled table row is corruption of the record, not a formatting nit.
+
+    Two rows were appended to `STATUS.md`'s *Plan changes* table without a
+    newline between them, producing one line with twice the columns. Nothing
+    caught it: the checker reads the rows it cares about by name, Vale reads
+    prose, and the rendered table merely looks odd.
+    """
+
+    #: A `Plan changes`-shaped table with two rows glued into one line.
+    GLUED = textwrap.dedent(
+        """\
+        ## Plan changes
+
+        | Date | Task | File | Change | Reason |
+        |---|---|---|---|---|
+        | 2026-11-03 | M0-T1 | `14` | first | because || 2026-11-03 | M0-T2 | `14` | second | because |
+        """
+    )
+
+    def test_a_glued_row_is_an_error(self) -> None:
+        _, findings = analyse(make_plan(WELL_FORMED_TABLE, WELL_FORMED_STATUS + self.GLUED))
+        self.assertIn("E-TABLE-SHAPE", codes(findings, "ERROR"))
+
+    def test_the_message_names_both_counts(self) -> None:
+        _, findings = analyse(make_plan(WELL_FORMED_TABLE, WELL_FORMED_STATUS + self.GLUED))
+        shape = [f for f in findings if f.code == "E-TABLE-SHAPE"]
+        self.assertEqual(len(shape), 1)
+        self.assertIn("11 columns", shape[0].message)
+        self.assertIn("has 5", shape[0].message)
+
+    def test_a_well_formed_table_is_silent(self) -> None:
+        fixed = self.GLUED.replace("because || 2026", "because |\n| 2026")
+        _, findings = analyse(make_plan(WELL_FORMED_TABLE, WELL_FORMED_STATUS + fixed))
+        self.assertEqual([f for f in findings if f.code == "E-TABLE-SHAPE"], [])
+
+    def test_the_real_plan_is_clean(self) -> None:
+        # Non-vacuity: the check has to be looking at the documents it claims to.
+        real = Path(__file__).resolve().parents[2] / "docs" / "plan"
+        _, findings = analyse(real)
+        self.assertEqual([f.render() for f in findings if f.code == "E-TABLE-SHAPE"], [])
+
+    def test_a_short_row_is_an_error_too(self) -> None:
+        short = self.GLUED.replace(
+            "| 2026-11-03 | M0-T1 | `14` | first | because || 2026-11-03 | M0-T2 | `14` | second | because |",
+            "| 2026-11-03 | M0-T1 | `14` |",
+        )
+        _, findings = analyse(make_plan(WELL_FORMED_TABLE, WELL_FORMED_STATUS + short))
+        self.assertIn("E-TABLE-SHAPE", codes(findings, "ERROR"))
 
 
 class TestCli(unittest.TestCase):
