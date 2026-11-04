@@ -15,12 +15,14 @@ import { BRAND } from '../../packages/shared/src/brand.js';
 import {
   addLegacyBrand,
   addLegacyNames,
+  addLegacyVocabulary,
   type CurrentBrand,
   findLeftovers,
   isAllowedLeftover,
   isBinary,
   isFixture,
   isHistory,
+  isVocabulary,
   type Leftover,
   rewriteContent,
   rewriteHistoryTitle,
@@ -113,6 +115,7 @@ for (const path of tracked) {
   if (path === 'deploy/names.json') {
     next = addLegacyNames(next, from, `${BRAND.repo.owner}/${BRAND.repo.name}`);
   }
+  if (isVocabulary(path)) next = addLegacyVocabulary(next, from);
 
   if (next === source) continue;
   rewritten.push(path);

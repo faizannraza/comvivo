@@ -4,6 +4,7 @@ import { BRAND } from '../../packages/shared/src/brand.js';
 import {
   addLegacyBrand,
   addLegacyNames,
+  addLegacyVocabulary,
   type CurrentBrand,
   findLeftovers,
   HISTORY,
@@ -11,6 +12,7 @@ import {
   isBinary,
   isFixture,
   isHistory,
+  isVocabulary,
   LEFTOVER_ALLOWLIST,
   rewriteContent,
   rewriteHistoryTitle,
@@ -405,5 +407,48 @@ describe('the policy patterns name paths that exist', () => {
   it('checks at least a few patterns, so the filter cannot make this vacuous', () => {
     const checked = LEFTOVER_ALLOWLIST.map(literalPath).filter((p) => p !== undefined);
     expect(checked.length).toBeGreaterThanOrEqual(5);
+  });
+});
+
+describe('addLegacyVocabulary', () => {
+  const VOCAB = '.vale/styles/config/vocabularies/Comvivo/accept.txt';
+
+  it('recognises the vocabulary file whatever the directory is called', () => {
+    expect(isVocabulary(VOCAB)).toBe(true);
+    expect(isVocabulary('.vale/styles/config/vocabularies/Zzbrand/accept.txt')).toBe(true);
+  });
+
+  it('is not fooled by a neighbouring file', () => {
+    expect(isVocabulary('.vale/styles/config/vocabularies/Comvivo/reject.txt')).toBe(false);
+    expect(isVocabulary('.vale/styles/Comvivo/Marketing.yml')).toBe(false);
+    expect(isVocabulary('.vale.ini')).toBe(false);
+  });
+
+  it('adds the outgoing names, because history keeps using them', () => {
+    // The drill failed on `docs/adr/README.md:32` — "Did you really mean 'Comvivo'?" — because
+    // ADRs are history and are never rewritten, while the vocabulary is.
+    const after = addLegacyVocabulary('Zzbrand\nzzbrand\nStarlight\n', FROM);
+    expect(after.split(/\r?\n/)).toContain('Comvivo');
+    expect(after.split(/\r?\n/)).toContain('comvivo');
+  });
+
+  it('keeps the entries that were already there', () => {
+    const after = addLegacyVocabulary('Zzbrand\nzzbrand\nStarlight\n', FROM);
+    expect(after.split(/\r?\n/)).toContain('Starlight');
+    expect(after.split(/\r?\n/)).toContain('Zzbrand');
+  });
+
+  it('says in the file why the entries are there', () => {
+    expect(addLegacyVocabulary('Zzbrand\n', FROM)).toMatch(/never rewritten/);
+  });
+
+  it('is idempotent, so two renames do not duplicate an entry', () => {
+    const once = addLegacyVocabulary('Zzbrand\nzzbrand\n', FROM);
+    expect(addLegacyVocabulary(once, FROM)).toBe(once);
+  });
+
+  it('matches a whole line, so a longer word containing the name does not count as present', () => {
+    const after = addLegacyVocabulary('Comvivos\n', FROM);
+    expect(after.split(/\r?\n/)).toContain('Comvivo');
   });
 });

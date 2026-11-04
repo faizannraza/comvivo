@@ -206,6 +206,41 @@ export function findLeftovers(path: string, source: string, slug: string): Lefto
   return found;
 }
 
+/** Vale's accepted-words list, wherever the vocabulary directory happens to be named. */
+const VOCABULARY = /(^|\/)\.vale\/styles\/config\/vocabularies\/[^/]+\/accept\.txt$/;
+
+export function isVocabulary(path: string): boolean {
+  return VOCABULARY.test(path);
+}
+
+/**
+ * Keep the **outgoing** product name in Vale's accepted-words list.
+ *
+ * HISTORY files are deliberately not rewritten — an ADR that records the rename has to keep saying
+ * what the product used to be called. Vale's vocabulary, though, *is* rewritten, so after a rename
+ * the vocabulary accepts only the new name and every one of those historical mentions becomes a
+ * spelling error. The weekly drill failed on exactly that: `docs/adr/README.md:32` — "Did you
+ * really mean 'Comvivo'?" — one line, from a 147-file prose run, in a repository the rename had
+ * otherwise got completely right.
+ *
+ * Same shape as `addLegacyBrand` and `addLegacyNames`: run **after** the rewrite, so the names
+ * added are the old ones. An accepted word is also the one kind of entry that is safe to keep
+ * forever: it widens what prose may say, never what it must.
+ */
+export function addLegacyVocabulary(source: string, from: CurrentBrand): string {
+  const present = (word: string): boolean =>
+    source.split(/\r?\n/).some((line) => line.trim() === word);
+  const missing = [from.display, from.slug].filter((word) => !present(word));
+  if (missing.length === 0) return source;
+  const body = source.replace(/\n*$/, '\n');
+  return `${body}
+# Previous product names, added by \`pnpm brand:rename\`. History — ADRs, STATUS, changelogs,
+# changeset entries — is deliberately never rewritten, so the old name stays in this
+# repository's prose permanently and the spell checker has to keep accepting it.
+${missing.join('\n')}
+`;
+}
+
 /**
  * Add the outgoing names to `BRAND.legacy`, so the config loader keeps accepting them.
  *
