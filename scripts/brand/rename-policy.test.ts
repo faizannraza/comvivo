@@ -424,6 +424,13 @@ describe('addLegacyVocabulary', () => {
     expect(isVocabulary('.vale.ini')).toBe(false);
   });
 
+  it('is in the leftover allowlist, or the codemod reports its own deliberate entries', () => {
+    // The first version of `addLegacyVocabulary` was not, and the drill failed on the two lines it
+    // had just added on purpose — the same shape as `brand.ts` and `names.json`.
+    expect(isAllowedLeftover(VOCAB)).toBe(true);
+    expect(isAllowedLeftover('.vale/styles/config/vocabularies/Zzbrand/accept.txt')).toBe(true);
+  });
+
   it('adds the outgoing names, because history keeps using them', () => {
     // The drill failed on `docs/adr/README.md:32` — "Did you really mean 'Comvivo'?" — because
     // ADRs are history and are never rewritten, while the vocabulary is.

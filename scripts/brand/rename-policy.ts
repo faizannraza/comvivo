@@ -173,6 +173,9 @@ export interface Leftover {
  * of this tool that matters: a green drill with a non-empty report is a rename that looked like it
  * worked.
  */
+/** Vale's accepted-words list, wherever the vocabulary directory happens to be named. */
+const VOCABULARY = /(^|\/)\.vale\/styles\/config\/vocabularies\/[^/]+\/accept\.txt$/;
+
 export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   ...HISTORY,
   ...FIXTURES,
@@ -180,6 +183,9 @@ export const LEFTOVER_ALLOWLIST: readonly RegExp[] = [
   // installed the old build is not stranded (`13` §3.A.6, legacy compatibility).
   /^packages\/shared\/src\/brand\.ts$/,
   /^deploy\/names\.json$/,
+  // Vale's vocabulary keeps the outgoing names on purpose too (`addLegacyVocabulary`), because the
+  // history this repository deliberately does not rewrite goes on using them.
+  VOCABULARY,
   // The rename tooling itself: these files describe the mechanism and name both sides of it.
   /^scripts\/brand\//,
   /^\.github\/workflows\/rename-drill\.yml$/,
@@ -205,9 +211,6 @@ export function findLeftovers(path: string, source: string, slug: string): Lefto
   });
   return found;
 }
-
-/** Vale's accepted-words list, wherever the vocabulary directory happens to be named. */
-const VOCABULARY = /(^|\/)\.vale\/styles\/config\/vocabularies\/[^/]+\/accept\.txt$/;
 
 export function isVocabulary(path: string): boolean {
   return VOCABULARY.test(path);
