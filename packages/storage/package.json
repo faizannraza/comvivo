@@ -27,12 +27,14 @@
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
     "test": "pnpm -w exec vitest run packages/storage",
+    "bench:storage": "tsx spike/bench.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@comvivo/core": "workspace:*",
     "@comvivo/shared": "workspace:*",
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@13.0.3",
     "better-sqlite3-multiple-ciphers": "catalog:",
     "drizzle-orm": "catalog:",
     "libsodium-wrappers": "catalog:",

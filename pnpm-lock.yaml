@@ -649,12 +649,15 @@ importers:
       '@comvivo/shared':
         specifier: workspace:*
         version: link:../shared
+      better-sqlite3:
+        specifier: npm:better-sqlite3-multiple-ciphers@13.0.3
+        version: better-sqlite3-multiple-ciphers@13.0.3
       better-sqlite3-multiple-ciphers:
         specifier: 'catalog:'
         version: 13.0.3
       drizzle-orm:
         specifier: 'catalog:'
-        version: 0.45.4
+        version: 0.45.4(better-sqlite3-multiple-ciphers@13.0.3)
       libsodium-wrappers:
         specifier: 'catalog:'
         version: 0.8.4
@@ -5638,7 +5641,9 @@ snapshots:
       esbuild: 0.25.12
       tsx: 4.23.15
 
-  drizzle-orm@0.45.4: {}
+  drizzle-orm@0.45.4(better-sqlite3-multiple-ciphers@13.0.3):
+    optionalDependencies:
+      better-sqlite3: better-sqlite3-multiple-ciphers@13.0.3
 
   dset@3.1.4: {}
 

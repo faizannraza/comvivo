@@ -27,7 +27,7 @@
   },
   "scripts": {
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:test && pnpm run plan:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
-    "lint": "biome ci . --colors=off && eslint .",
+    "lint": "biome ci . --colors=off && eslint . --max-warnings 0",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
     "typecheck": "tsc -b --pretty && tsc -p tsconfig.scripts.json --pretty && tsc -p tsconfig.test.json --pretty",

@@ -1680,7 +1680,7 @@ INSERT INTO messages_fts(messages_fts, rank) VALUES('secure-delete', 1);   -- li
 | Option | Strengths | Weaknesses | Used for |
 |---|---|---|---|
 | `unicode61 remove_diacritics 2` | Correct word boundaries for EN/ES/PT/DE/FR/HI-Latin/AR. Folds "José"→"jose" and "Müller"→"muller". Index about 1–1.5× text size | No segmentation for CJK/Thai. No German compound splitting. No stemming | `messages_fts`, `memory_fts`, `entity_fts` |
-| `trigram remove_diacritics 1` | Language-agnostic substring matches (CJK, compounds, typos-in-middle). Needs ≥ 3 characters | About 3× larger. Weaker relevance | `memory_fts_tri` only (≤ 50k rows) |
+| `trigram remove_diacritics 1` | Language-agnostic substring matches (CJK, compounds, typos-in-middle). Needs ≥ 3 characters | About 3× larger. Weaker relevance. **A 1–2 character query matches nothing at all** — measured in `M1-T2`, and for CJK that is most short queries, because two characters is a whole word. `M6` retrieval must fall back to vector search below three characters rather than returning an empty result. The trigram tokenizer accepts `remove_diacritics` 0, 1 **and** 2 (SQLite 3.53.4); 1 and 2 fold identically and 0 does not fold at all, so the value that matters is "not 0" | `memory_fts_tri` only (≤ 50k rows) |
 | `porter unicode61` | English stemming | Mangles non-English tokens | not used. Morphology is covered by vector search |
 
 **Scope token.** The `scope` column holds `'g' || substr(group_id, 5)`, a single alphanumeric token such as `g01jd8…`. Queries always include `scope : "<token>"`, so the FTS index intersects with the group's doclist instead of scanning other groups' matches. The scope column's `bm25()` weight is `0.0`, so scope never affects ranking. `memory_fts_tri` has no scope column; trigram-tokenizing the token would be wasteful, so a join on `memory_items.group_id` filters by group instead.
@@ -1779,6 +1779,21 @@ This costs a lookup, not a re-embed. If step 1 finds no row, the repository sets
 | `chunk_size` | 256 | The default of 1,024 × 1.5 KB preallocates 1.5 MB per partition. 256 → 384 KB. Must be divisible by 8 |
 | Max k | 200 | 04 asks for ≤ 64. The cap protects latency |
 
+**Three vec0 constraints measured in `M1-T2`, each of which shapes the repository rather than the
+schema:**
+
+1. **A KNN query may only `ORDER BY distance`.** Any other ordering is rejected outright:
+   `Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries, not on other
+   columns`. So a caller that wants results in another order sorts them after the fact, and
+   `M1-T18` never builds a query that orders by `rowid` or by recency.
+2. **A rowid must bind as a SQLite integer.** better-sqlite3 binds a plain JavaScript `number` as
+   a float, so `.run(1, embedding)` fails with `Only integers are allows for primary key values`.
+   Every vec0 write binds a `BigInt` (or the statement opts into safe integers).
+3. **`trusted_schema` must stay ON.** With `OFF`, vec0 DML inside a trigger is refused at **run**
+   time (`unsafe use of virtual table`) while the DDL is accepted — so the memory-delete trigger
+   would look installed and throw on the first retraction. FTS5 is unaffected, which is why this
+   is one global switch over two different answers.
+
 **Insert path.** The `embed.items` job (payload per 04 §3.8.3: the listed memory ids, else the Q-JOB-6 backlog) processes ≤ 64 non-retracted memories with `embedding_state='pending'`. It embeds outside any transaction (CPU work, in the embedding worker), then in one `store.write`:
 1. Re-check that each row is still non-retracted with the same `label_id`.
 2. `INSERT INTO vec_… (rid, group_id, embedding, label_id, kind, state, valid_to_ms) VALUES (?,?,?,?,?,?,?)`, with the embedding bound as a little-endian `Float32Array` buffer.
@@ -1841,11 +1856,27 @@ export function openDatabase(o: OpenOptions): Database {
   return db;
 }
 ```
+- **`cacheSizeKiB` defaults to 196,608 (192 MiB), and that is not a tuning knob.** Measured in
+  `M1-T2`: with SQLCipher and a page cache smaller than the vector index, **every KNN query
+  re-reads and re-decrypts the whole partition.**
+
+  | 50k × 384-d vectors, k=16, label filter | p50 |
+  |---|---|
+  | SQLCipher, 8 MiB cache | **508 ms** |
+  | SQLCipher, 192 MiB cache | **5 ms** |
+  | plaintext, either cache | 15 ms |
+
+  A 100× cliff from one pragma, and it falls on the wrong side of §3.16.4's 60 ms KNN budget by
+  8×. The index is ~1.6 KiB per vector (77 MiB for 50k × 384-d), so 192 MiB covers the
+  `stress-50k-1m` profile's largest partition with room to spare, and costs 2.4% of a Pi 5's
+  memory. `comvivo doctor` warns when the configured cache is smaller than the largest vector
+  partition (`09` §C), because the symptom otherwise is "search feels slow" with nothing in the
+  logs. `M1-T33` confirms the default against the real seed profiles on both architectures.
 - `auto_vacuum = INCREMENTAL` is set once, on creation (before the first table), by `initDatabase()`. After large purges, `PRAGMA incremental_vacuum(4096)` runs in chunks.
 - `mmap_size` stays 0, because memory-mapped I/O bypasses the codec.
 - `trusted_schema` stays at its default (ON). `OFF` would be good hardening, but with `OFF` SQLite allows a virtual table inside triggers only if it is marked `SQLITE_VTAB_INNOCUOUS`, and vec0 may not be marked that way (unverified). The spike tests FTS and vec triggers under `trusted_schema=OFF` (U6) and turns it on only if every trigger still works.
 - **WAL interplay.** WAL frames are expected to be encrypted (U2; the spike greps for canaries).
-  - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt.
+  - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt. **Measured in `M1-T2`: `PRAGMA rekey` works directly in WAL mode too, and after either sequence the old key is refused and no plaintext remains in the file.** So the `journal_mode=DELETE` step is kept for the **salt**, not for correctness — `M1-T5` owns that part and should confirm the salt actually changes, because a rotation that reuses the salt is a rotation that did less than the host was told.
   - Converting a plaintext DB to encrypted (`encryptAtRest` flipped to true) uses the same procedure with `PRAGMA rekey` on a non-WAL DB.
   - After erasure flows and backups, run `PRAGMA wal_checkpoint(TRUNCATE)` so deleted content does not linger in the WAL.
 - **Process lock** (`src/db/lock.ts`). `data/comvivo.lock` is created with `O_EXCL` and holds `{pid, bootId, startedAt, role}`.
@@ -2625,6 +2656,11 @@ village-export-<groupId|memberId>-<YYYYMMDDTHHmmssZ>/
 Audit growth dominates long-run size in busy groups. If it exceeds 25% of the DB, 03 can opt into `audit.compactAfterDays` (fold old events into signed checkpoints); that is not in v1. Stress fixture: 1M messages + 50k memories ≈ 0.7 GB + 0.18 GB ≈ **0.9 GB**.
 
 #### 3.16.4 Expected latencies on Raspberry Pi 5 (8 GB, NVMe; all **estimates, U7**, to be replaced by M1-T25 measurements)
+
+> **Every KNN row below assumes a page cache larger than the vector index** (§3.6.2's 192 MiB
+> default). `M1-T2` measured the same query at 508 ms p50 with an 8 MiB cache and 5 ms with 192 MiB
+> on an Apple M1 — a 100× difference from one pragma, with the small-cache figure 8× outside the
+> budget. The estimates here are only reachable on the right side of that cliff.
 
 | Operation | Data size | p50 | p95 | Budget |
 |---|---|---|---|---|

@@ -32,6 +32,9 @@ export const DB_FILENAME = `${BRAND.slug}.db`;
 /** Prefix for the spike's throwaway directories, so a stray one is identifiable. */
 export const TMP_PREFIX = `${BRAND.slug}-spike-`;
 
+/** Prefix for the benchmark's throwaway directories. */
+export const BENCH_PREFIX = `${BRAND.slug}-bench-`;
+
 export type Cipher = 'sqlcipher' | 'chacha20';
 
 export interface SpikeOpenOptions {
@@ -126,6 +129,24 @@ export function withSpikeDir<T>(fn: (dir: string) => T): T {
   const dir = mkdtempSync(join(tmpdir(), TMP_PREFIX));
   try {
     return fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/**
+ * The asynchronous sibling of `withSpikeDir`.
+ *
+ * Needed because `withSpikeDir` removes the directory in its `finally`, which for an async `fn`
+ * runs the moment the **promise** is returned rather than when it settles — so the first version
+ * of the crash spike deleted its own database before the child process had opened it, and failed
+ * with "the writer only committed 0 rows". A synchronous scope guard around asynchronous work is
+ * a mistake that looks right.
+ */
+export async function withSpikeDirAsync<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = mkdtempSync(join(tmpdir(), TMP_PREFIX));
+  try {
+    return await fn(dir);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

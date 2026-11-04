@@ -21,6 +21,24 @@ Biome
 zod
 SQLCipher
 sqlite-vec
+# SQLite and sqlite-vec vocabulary (M1). These are identifiers from somebody else's SQL surface,
+# so they appear in prose exactly as they appear in a query; spelling them out would make the docs
+# disagree with the code.
+vec0?
+rowids?
+bm25
+FTS5?
+trigram
+trigrams
+tokenizer
+tokenizers
+tokenise[sd]?
+secretstream
+pragma
+pragmas
+rekeys?
+rekeyed
+rekeying
 Anthropic
 Ollama
 llama\.cpp

@@ -54,10 +54,13 @@ describe('the storage dependency pins', () => {
     expect(workspace.catalog[name]).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
-  it('declares every runtime dependency through the catalog or the workspace', () => {
+  it('declares every runtime dependency through the catalog, the workspace, or the one alias', () => {
     // A literal version here would be a second source of truth for the same decision, and the
-    // failure mode is that one of them gets bumped.
+    // failure mode is that one of them gets bumped. The single exception is the `better-sqlite3`
+    // alias, which pnpm's catalog protocol cannot express — asserted against the catalog in its
+    // own test below, so the two still cannot drift.
     for (const [name, range] of Object.entries(manifest.dependencies ?? {})) {
+      if (name === 'better-sqlite3') continue;
       expect(range, `${name} is pinned in package.json instead of the catalog`).toMatch(
         /^(catalog:|workspace:)/,
       );
@@ -79,6 +82,7 @@ describe('the storage dependency pins', () => {
       [
         `${BRAND.npmScope}/core`,
         `${BRAND.npmScope}/shared`,
+        'better-sqlite3',
         'better-sqlite3-multiple-ciphers',
         'drizzle-orm',
         'libsodium-wrappers',
@@ -98,6 +102,22 @@ describe('the storage dependency pins', () => {
       'vitest',
       'yaml',
     ]);
+  });
+
+  it('aliases better-sqlite3 to the fork, at exactly the catalog version', () => {
+    // Measured in `M1-T2`: `drizzle-orm/better-sqlite3/driver.js` does a top-level
+    // `import 'better-sqlite3'`, so Drizzle cannot load at all against the multiple-ciphers fork
+    // without this alias — "Cannot find package 'better-sqlite3'". `02` §3.6.3 step 6 anticipated
+    // a *type* problem and permitted a cast; the real problem was module resolution, and with the
+    // alias in place no cast is needed either.
+    //
+    // The version is derived from the catalog rather than compared to a literal, so the alias and
+    // the real dependency cannot drift apart into two different copies of SQLite in one process —
+    // which would be very hard to notice and very bad.
+    const expected = `npm:better-sqlite3-multiple-ciphers@${String(
+      workspace.catalog['better-sqlite3-multiple-ciphers'],
+    )}`;
+    expect(manifest.dependencies?.['better-sqlite3']).toBe(expected);
   });
 
   it('keeps drizzle-kit out of the runtime, because it is build tooling', () => {

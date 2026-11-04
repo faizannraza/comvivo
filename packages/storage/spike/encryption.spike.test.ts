@@ -298,3 +298,99 @@ describe('U1 / SP-3 — is a VACUUM INTO snapshot encrypted?', { tags: ['db', 's
     });
   });
 });
+
+describe('PRAGMA rekey — rotating the data key', { tags: ['db', 'slow'] }, () => {
+  /**
+   * `02` §3.6.2 specifies key rotation as `journal_mode=DELETE`, `PRAGMA rekey`, `journal_mode=WAL`,
+   * offline with the server stopped, and notes that this "also gives a fresh salt". `02` M1-T2's
+   * acceptance criterion asks whether WAL rekey works at all (SQLite3MC ≥ 2.4.0).
+   *
+   * Measured 2026-11-04: **both** sequences work, and after either one the old key is refused. So
+   * the `journal_mode=DELETE` step is not needed for *correctness* — it is there for the salt, and
+   * `M1-T5` owns that part. Worth having as a test either way, because "rotate the data key" is a
+   * command a host runs when they think something has leaked, and it is the worst possible moment
+   * for it to half-work.
+   */
+  const writeCanary = (path: string, key: Buffer): void => {
+    const db = openSpikeDatabase({ path, key });
+    try {
+      db.exec('create table t (id integer primary key, s text)');
+      db.prepare('insert into t (s) values (?)').run(CANARY);
+    } finally {
+      db.close();
+    }
+  };
+
+  const readCanary = (path: string, key: Buffer): unknown => {
+    const db = openSpikeDatabase({ path, key, fileMustExist: true });
+    try {
+      return db.prepare('select s from t').get();
+    } finally {
+      db.close();
+    }
+  };
+
+  it('rekeys in WAL mode, and the old key stops working', () => {
+    withSpikeDir((dir) => {
+      const path = join(dir, DB_FILENAME);
+      const oldKey = randomBytes(32);
+      const newKey = randomBytes(32);
+      writeCanary(path, oldKey);
+
+      const db = openSpikeDatabase({ path, key: oldKey, fileMustExist: true });
+      try {
+        expect(db.pragma('journal_mode')).toEqual([{ journal_mode: 'wal' }]);
+        db.pragma(`rekey="x'${newKey.toString('hex')}'"`);
+      } finally {
+        db.close();
+      }
+
+      expect(readCanary(path, newKey)).toEqual({ s: CANARY });
+      expect(() => readCanary(path, oldKey)).toThrow(SpikeKeyInvalid);
+    });
+  });
+
+  it('rekeys through the `02` §3.6.2 sequence as well', () => {
+    withSpikeDir((dir) => {
+      const path = join(dir, DB_FILENAME);
+      const oldKey = randomBytes(32);
+      const newKey = randomBytes(32);
+      writeCanary(path, oldKey);
+
+      const db = openSpikeDatabase({ path, key: oldKey, fileMustExist: true });
+      try {
+        db.pragma('journal_mode = DELETE');
+        db.pragma(`rekey="x'${newKey.toString('hex')}'"`);
+        db.pragma('journal_mode = WAL');
+      } finally {
+        db.close();
+      }
+
+      expect(readCanary(path, newKey)).toEqual({ s: CANARY });
+      expect(() => readCanary(path, oldKey)).toThrow(SpikeKeyInvalid);
+    });
+  });
+
+  it('leaves no plaintext behind after a rotation', () => {
+    // The thing a host rotating a key actually cares about: the old contents are not sitting in
+    // the file in the clear, and not readable with the old key either.
+    withSpikeDir((dir) => {
+      const path = join(dir, DB_FILENAME);
+      const oldKey = randomBytes(32);
+      const newKey = randomBytes(32);
+      writeCanary(path, oldKey);
+      const db = openSpikeDatabase({ path, key: oldKey, fileMustExist: true });
+      try {
+        db.pragma(`rekey="x'${newKey.toString('hex')}'"`);
+        db.pragma('wal_checkpoint(TRUNCATE)');
+      } finally {
+        db.close();
+      }
+      for (const { file, bytes } of allBytes(dir)) {
+        for (const form of canaryForms()) {
+          expect(bytes.includes(form.bytes), `${file} (${form.label})`).toBe(false);
+        }
+      }
+    });
+  });
+});
