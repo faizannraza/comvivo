@@ -12,7 +12,8 @@
  * that the worker's copy is cleared whether the open succeeds or fails.
  */
 import { randomBytes } from 'node:crypto';
-import { join } from 'node:path';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { MessageChannel, type MessagePort, Worker } from 'node:worker_threads';
 import { StorageError } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
@@ -27,6 +28,42 @@ import {
 } from './worker-connection.js';
 
 const WORKER = new URL('./testing/read-worker.mjs', import.meta.url);
+const REPO_ROOT = new URL('../../../../', import.meta.url).pathname;
+
+/**
+ * A tsconfig for the worker, derived from `tsconfig.paths.json` with `.d.ts` targets removed.
+ *
+ * Two problems, one file. A `Worker` gets a fresh module graph with none of Vitest's
+ * `resolve.alias`, so `tsx` falls back to node resolution and follows the workspace symlink into
+ * `dist/` — present on a machine that has built, absent in CI's test jobs. That made four tests
+ * pass locally and fail on every runner with "Cannot find module .../@comvivo/shared/dist/index.js",
+ * which is the defect that opened M0 in the one place the alias cannot reach.
+ *
+ * Pointing `tsx` at the shared map fixes that and introduces the second problem: the map also
+ * redirects `better-sqlite3-multiple-ciphers` to the **declaration file** it ships but hides behind
+ * its `exports`, and `tsx` would then *execute* a `.d.ts` — `ReferenceError: Database is not
+ * defined`, the same trap `vitest.shared.ts` records hitting and filters for.
+ *
+ * So this applies the identical filter to the identical source of truth, rather than hand-writing a
+ * second map that could drift from the one `tsc`, dependency-cruiser and Vitest all read.
+ */
+function writeWorkerTsconfig(directory: string): string {
+  const source = JSON.parse(
+    readFileSync(join(REPO_ROOT, 'tsconfig.paths.json'), 'utf8').replaceAll(/^\s*\/\/.*$/gm, ''),
+  ) as { compilerOptions: { paths: Record<string, string[]> } };
+
+  const paths: Record<string, string[]> = {};
+  for (const [specifier, targets] of Object.entries(source.compilerOptions.paths)) {
+    const target = targets[0];
+    // A type-only entry has no runtime module behind it, and executing one throws.
+    if (target === undefined || target.endsWith('.d.ts')) continue;
+    paths[specifier] = [join(REPO_ROOT, target)];
+  }
+
+  const path = join(directory, 'tsconfig.worker.json');
+  writeFileSync(path, JSON.stringify({ compilerOptions: { paths } }, null, 2));
+  return path;
+}
 
 interface WorkerReply {
   readonly kind: string;
@@ -52,9 +89,13 @@ function startReader(
   query: (sql: string) => Promise<WorkerReply>;
   stop: () => Promise<void>;
 } {
-  // `tsx` so the worker can import the TypeScript it is testing. Without it the worker would have
-  // to import `dist/`, which may be stale — and a test against stale output is the M0 lesson.
-  const worker = new Worker(WORKER, { workerData: { path }, execArgv: ['--import', 'tsx'] });
+  // `tsx` so the worker can import the TypeScript it is testing, and `TSX_TSCONFIG_PATH` so it
+  // resolves `@comvivo/*` to source rather than to `dist/`. See `writeWorkerTsconfig`.
+  const worker = new Worker(WORKER, {
+    workerData: { path },
+    execArgv: ['--import', 'tsx'],
+    env: { ...process.env, TSX_TSCONFIG_PATH: writeWorkerTsconfig(dirname(path)) },
+  });
 
   const waiting: { resolve: (reply: WorkerReply) => void; reject: (error: unknown) => void }[] = [];
   const queued: WorkerReply[] = [];

@@ -176,7 +176,7 @@ describe('tsconfig.depcruise.json', () => {
   });
 });
 
-describe('the one mapping, read by three things', () => {
+describe('the one mapping, read by four things', () => {
   /**
    * `tsconfig.paths.json` exists because the same map is needed by dependency-cruiser (so it sees
    * `src/` rather than `dist/`), by `tsc -p tsconfig.test.json` (so a test that imports a sibling
@@ -189,6 +189,21 @@ describe('the one mapping, read by three things', () => {
    * the machine you are working on. Measured in `M1-T2`: the first three cross-package imports in
    * this repository's history were mine, and all three went green locally and red in CI with
    * "Failed to resolve entry for package".
+   *
+   * **The fourth reader is a worker thread**, added in `M1-T8`. A `Worker` gets a fresh module
+   * graph with none of Vitest's `resolve.alias`, so a worker that imports TypeScript resolves
+   * `@comvivo/*` by node resolution and lands in `dist/` — present on a machine that has built,
+   * absent in CI. Same symptom, same silence, in the one place the alias cannot reach;
+   * `storage/src/db/worker-connection.int.test.ts` derives a filtered tsconfig for it.
+   *
+   * There is deliberately **no test here** asserting that workers do that. One was written and
+   * deleted: it grepped the test sources for `TSX_TSCONFIG_PATH`, and it passed with the value
+   * replaced by `'nope'` — because the string was still in the file. A guard that survives the bug
+   * it exists to catch is worse than none. The protection that actually works is already in place:
+   * CI's `unit`, `integration` and `node24` jobs run the suite **without a prior build**, and they
+   * are what caught this. Note that `pnpm verify` structurally cannot — `typecheck` runs `tsc -b`
+   * and creates every `dist/` before `test` runs, so local verify is weaker than CI in exactly this
+   * dimension. To reproduce a fresh checkout: remove every `dist/` and run `vitest` on its own.
    */
   it('is extended by both the depcruise and the test tsconfig', () => {
     for (const file of ['tsconfig.depcruise.json', 'tsconfig.test.json']) {
