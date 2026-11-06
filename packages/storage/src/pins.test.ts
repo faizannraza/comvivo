@@ -97,8 +97,13 @@ describe('the storage dependency pins', () => {
     // `yaml` is here because this file parses `pnpm-workspace.yaml` to read the catalog. Declared
     // rather than relied on transitively: Biome's `noUndeclaredDependencies` refuses an undeclared
     // import, which is how a package ends up depending on something it never asked for.
+    //
+    // `fast-check` arrived with `M1-T6`: `08` §3.7.6's claim that the recovery-key checksum catches
+    // every single-character typo is a property, and the forgiving-transcription rules are
+    // properties too — a handful of examples would not establish either.
     expect(Object.keys(manifest.devDependencies ?? {}).sort()).toEqual([
       'drizzle-kit',
+      'fast-check',
       'vitest',
       'yaml',
     ]);

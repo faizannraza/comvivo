@@ -23,7 +23,7 @@ import {
   wrap,
 } from '@comvivo/shared/crypto';
 import type { Keyring } from '../keyring.js';
-import { sealSlot } from '../keyring.js';
+import { STATIC_SLOT_ID, sealSlot } from '../keyring.js';
 
 /** A fixed, syntactically valid instance id, so a failure message is readable. */
 export const FIXTURE_INSTANCE = 'inst_01jd8kqd7h3f9z2m4n6p8r0t2v' as InstanceId;
@@ -37,6 +37,13 @@ export interface KeyringFixture {
   readonly masterKey: Buffer;
   /** The recovery **slot key** — already HKDF-derived, as `08` §3.7.6 specifies. */
   readonly recoverySlotKey: Buffer;
+  /**
+   * The recovery key itself, before the HKDF step.
+   *
+   * Returned so `key-ops` tests can encode it and type the printed form back in — the whole of
+   * `08` §3.7.6's ceremony and `recover` operate on the printed key, not on the slot key.
+   */
+  readonly recoveryKey: Buffer;
   /** The passphrase, when one was requested. */
   readonly passphrase?: string;
   /** The root data key, so a test can check what a slot unwrapped to. */
@@ -51,6 +58,8 @@ export interface FixtureOptions {
   readonly withPassphrase?: boolean;
   /** Extra retired generations, for rotation and `purge-retired` tests. */
   readonly retiredGenerations?: readonly number[];
+  /** A known recovery key, so a test can type its printed form. Random when absent. */
+  readonly recoveryKey?: Buffer;
 }
 
 /** A keyring with a master slot, a recovery slot, and optionally a passphrase slot. */
@@ -60,7 +69,7 @@ export function buildKeyring(options: FixtureOptions = {}): KeyringFixture {
 
   const rootDataKey = randomBytes(32);
   const masterKey = randomBytes(32);
-  const recoveryKey = randomBytes(32);
+  const recoveryKey = options.recoveryKey ?? randomBytes(32);
   // `08` §3.7.6: the recovery slot's key is HKDF(RK, salt=instanceId, info=…/rk-slot), not the
   // recovery key itself. Deriving it here rather than in the slot builder keeps the fixture honest
   // about what a caller has to do.
@@ -145,11 +154,15 @@ export function buildKeyring(options: FixtureOptions = {}): KeyringFixture {
         wrap: {
           alg: 'A256GCM',
           // The blob-id key is wrapped by the root data key itself, under a slot-shaped AAD with
-          // the reserved id `blobid` — matching `key-service.ts`'s `#unwrapStaticBlobIdKey`.
+          // the reserved id `STATIC_SLOT_ID` — matching `key-service.ts`'s unwrap and
+          // `key-ops.ts`'s rewrap. The AAD is spelled out here rather than built with
+          // `AAD.keyringSlot`, so the fixture is an independent statement of `08` §3.7.4's shape
+          // and not a reflection of the code under test; only the slot id is shared, because a
+          // mismatched id is an authentication failure rather than a format disagreement.
           sealed: wrap(
             rootDataKey,
             blobIdKey,
-            `${KEYRING_FORMAT}|${instanceId}|gen=${String(gen)}|slot=blobid|kind=master`,
+            `${KEYRING_FORMAT}|${instanceId}|gen=${String(gen)}|slot=${STATIC_SLOT_ID}|kind=master`,
           ).toString('base64url'),
         },
       },
@@ -160,6 +173,7 @@ export function buildKeyring(options: FixtureOptions = {}): KeyringFixture {
     keyring,
     masterKey,
     recoverySlotKey,
+    recoveryKey,
     ...(passphrase === undefined ? {} : { passphrase }),
     rootDataKey,
     blobIdKey,

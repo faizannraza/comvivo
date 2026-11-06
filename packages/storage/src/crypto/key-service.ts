@@ -41,6 +41,7 @@ import {
   KeyringError,
   type KeyringSlot,
   openSlot,
+  STATIC_SLOT_ID,
 } from './keyring.js';
 
 /** How the instance was unlocked, for the `keys.unlocked` log line (`08` §3.7.5 step 5). */
@@ -263,7 +264,7 @@ export class KeyService {
     const { blobId } = this.#keyring.static;
     if (blobId.gen !== this.#gen) return undefined;
 
-    const slot: KeyringSlot = { id: 'blobid', kind: 'master', wrap: blobId.wrap };
+    const slot: KeyringSlot = { id: STATIC_SLOT_ID, kind: 'master', wrap: blobId.wrap };
     const opened = openSlot({
       instanceId: this.#keyring.instanceId,
       gen: blobId.gen,

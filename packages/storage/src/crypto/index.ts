@@ -15,10 +15,39 @@
  * Those must not import `storage` to get an HMAC. (`02` M1-T4's file list said
  * `storage/src/crypto`; the deviation is logged in STATUS → Plan changes.)
  *
- * Arriving later, on top of this: the recovery-key codec and `comvivo keys` (`M1-T6`), the blob
- * cipher (`M1-T25`) and the `VBK1` envelope (`M1-T27`).
+ * Arriving later, on top of this: the blob cipher (`M1-T25`) and the `VBK1` envelope (`M1-T27`).
+ * The `comvivo keys` command surface itself is `09` §3.11.3, wired in `M3-T13` — `key-ops.ts` is
+ * the library it calls, so the dangerous operations are testable without a terminal.
  */
 
+export {
+  addPassphrase,
+  type GenerationStatusReport,
+  type KeyStatus,
+  type PurgeRetiredResult,
+  purgeRetired,
+  RECOVERY_NUDGE_DAYS,
+  type RecoverResult,
+  ROTATION_PHASES,
+  type RotateDataPorts,
+  type RotateDataResult,
+  type RotateMasterResult,
+  type RotateRecoveryResult,
+  type RotateSessionsResult,
+  type RotationJournal,
+  type RotationPhase,
+  recover,
+  removeKeySlot,
+  rotateData,
+  rotateMaster,
+  rotateRecovery,
+  rotateSessions,
+  type SessionEpochStore,
+  status,
+  type VerifyRecoveryResult,
+  verifyRecovery,
+  WRAP_COUNT_ADVISORY,
+} from './key-ops.js';
 export {
   isZeroed,
   KeyService,
@@ -78,6 +107,27 @@ export {
   nodeKeyringIo,
   type PermissionFinding,
 } from './keyring-store.js';
+export {
+  BODY_CHARS,
+  CHECKSUM_BITS,
+  CHECKSUM_CHARS,
+  decodeRecoveryKey,
+  encodeRecoveryKey,
+  GROUP_COUNT,
+  GROUP_SIZE,
+  newRecoveryKey,
+  normaliseRecoveryKey,
+  PAYLOAD_CHARS,
+  RECOVERY_KEY_PREFIX,
+  RETYPE_GROUPS,
+  type RecoveryKeyError,
+  type RecoveryKeyErrorCode,
+  type RecoveryKeyResult,
+  recoveryKeyChecksum,
+  recoveryKeyGroups,
+  recoverySlotKey,
+  retypedGroupMatches,
+} from './recovery-key.js';
 export {
   decodeMasterKey,
   disposeUnlock,

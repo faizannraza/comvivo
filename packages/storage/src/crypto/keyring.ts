@@ -36,6 +36,17 @@ import {
 export const SLOT_KINDS = ['master', 'recovery', 'passphrase'] as const;
 export type SlotKind = (typeof SLOT_KINDS)[number];
 
+/**
+ * The pseudo-slot id the static wrap's AAD uses (`08` §3.7.2).
+ *
+ * The static blob-id key is wrapped exactly like a slot but is not one, so it needs an id for the
+ * four-binding AAD. **Every reader and writer of that wrap must use this same value**, because the
+ * id is authenticated: a different one produces a wrap the other side rejects as tampered. Shared
+ * here, in the lowest of the three modules, rather than as two string literals that look alike in
+ * `key-service.ts` and `key-ops.ts`.
+ */
+export const STATIC_SLOT_ID = 'blobid';
+
 /** A generation's lifecycle (`08` §3.7.7's `rotate-data`). */
 export const GENERATION_STATUSES = ['active', 'retired'] as const;
 export type GenerationStatus = (typeof GENERATION_STATUSES)[number];
