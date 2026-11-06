@@ -23,6 +23,10 @@
       "types": "./dist/datadir/index.d.ts",
       "default": "./dist/datadir/index.js"
     },
+    "./db": {
+      "types": "./dist/db/index.d.ts",
+      "default": "./dist/db/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"

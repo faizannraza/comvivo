@@ -62,6 +62,7 @@
       "@comvivo/storage": ["./packages/storage/src/index.ts"],
       "@comvivo/storage/crypto": ["./packages/storage/src/crypto/index.ts"],
       "@comvivo/storage/datadir": ["./packages/storage/src/datadir/index.ts"],
+      "@comvivo/storage/db": ["./packages/storage/src/db/index.ts"],
       "@comvivo/storage/testing": ["./packages/storage/src/testing/index.ts"],
       "@comvivo/tools": ["./packages/tools/src/index.ts"],
       "comvivo": ["./apps/cli/src/index.ts"]
