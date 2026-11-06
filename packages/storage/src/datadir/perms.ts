@@ -87,71 +87,130 @@ export async function auditPermissions(
   root: string,
   options: AuditOptions = {},
 ): Promise<PermissionAudit> {
-  const platform = options.platform ?? process.platform;
-  if (platform === 'win32') {
+  if ((options.platform ?? process.platform) === 'win32') {
     return { refused: [], tightened: [], allowed: [], skipped: true };
   }
 
-  const layout = dataDirLayout(root);
+  const policy = policyFor(root, options);
   const refused: PermissionFinding[] = [];
   const tightened: string[] = [];
   const allowed: PermissionFinding[] = [];
-  const shouldTighten = options.tighten !== false;
-
-  // `12` §3.7: these three are the ones a writable bit is never acceptable on.
-  const noWriteByOthers = [root, layout.keys, layout.masterKey];
-  // Key material: readable by others is a refusal unless the flag is set.
-  const keyMaterial = [layout.keys, ...KEY_FILES.map((name) => join(layout.keys, name))];
-
-  const expectedUid = options.expectedUid ?? currentUid();
 
   for (const path of await auditPaths(root)) {
     const stats = await modeOf(path);
     if (stats === undefined) continue;
 
-    if (expectedUid !== undefined && stats.uid !== expectedUid) {
-      refused.push({ path, mode: stats.mode, reason: 'owner' });
-      continue;
-    }
-
-    if (isGroupOrWorldWritable(stats.mode) && noWriteByOthers.includes(path)) {
-      refused.push({ path, mode: stats.mode, reason: 'writable' });
-      continue;
-    }
-
-    if (keyMaterial.includes(path)) {
-      if (isGroupOrWorldReadable(stats.mode) || isGroupOrWorldWritable(stats.mode)) {
-        const finding: PermissionFinding = {
-          path,
-          mode: stats.mode,
-          reason: isGroupOrWorldWritable(stats.mode) ? 'writable' : 'readable',
-        };
-        // Writable is never waived, whatever the flag says. The flag is a privacy judgement, and
-        // "another user may replace my master key" is not a privacy judgement.
-        if (finding.reason === 'writable' || options.allowInsecureReads !== true) {
-          refused.push(finding);
-        } else {
-          allowed.push(finding);
+    const verdict = classify(path, stats, policy);
+    switch (verdict.kind) {
+      case 'refuse':
+        refused.push({ path, mode: stats.mode, reason: verdict.reason });
+        break;
+      case 'allow':
+        allowed.push({ path, mode: stats.mode, reason: verdict.reason });
+        break;
+      case 'tighten':
+        if (await applyTightening(path, stats, verdict.force, policy.shouldTighten)) {
+          tightened.push(path);
         }
-        continue;
-      }
-      // Private but not exactly 0600/0700 — tighten silently, since nothing is exposed.
-      if (await tightenIfNeeded(path, stats, shouldTighten)) tightened.push(path);
-      continue;
+        break;
+      // `ok` is named rather than left to a `default`, so adding a verdict to the union is a lint
+      // error here rather than a path that silently does nothing. With every case listed,
+      // `switch-exhaustiveness-check` is itself the `never` check `CLAUDE.md` §2 asks for — and it
+      // refuses a `default` on an exhaustive switch, because one would hide the next addition.
+      case 'ok':
+        break;
     }
-
-    if (isGroupOrWorldAccessible(stats.mode)) {
-      if (shouldTighten) {
-        await chmod(path, stats.isDirectory ? DIR_MODE : FILE_MODE);
-      }
-      tightened.push(path);
-      continue;
-    }
-
-    if (await tightenIfNeeded(path, stats, shouldTighten)) tightened.push(path);
   }
 
   return { refused, tightened, allowed, skipped: false };
+}
+
+/** What the audit is comparing each path against, resolved once. */
+interface AuditPolicy {
+  /** `12` §3.7: the three paths a writable bit is never acceptable on. */
+  readonly noWriteByOthers: readonly string[];
+  /** `keys/` and every file in it: readable by others is a refusal unless the flag is set. */
+  readonly keyMaterial: readonly string[];
+  readonly expectedUid: number | undefined;
+  readonly allowInsecureReads: boolean;
+  readonly shouldTighten: boolean;
+}
+
+function policyFor(root: string, options: AuditOptions): AuditPolicy {
+  const layout = dataDirLayout(root);
+  return {
+    noWriteByOthers: [root, layout.keys, layout.masterKey],
+    keyMaterial: [layout.keys, ...KEY_FILES.map((name) => join(layout.keys, name))],
+    expectedUid: options.expectedUid ?? currentUid(),
+    allowInsecureReads: options.allowInsecureReads === true,
+    shouldTighten: options.tighten !== false,
+  };
+}
+
+/** What should happen to one path. */
+type Verdict =
+  | { readonly kind: 'ok' }
+  | { readonly kind: 'refuse'; readonly reason: PermissionFinding['reason'] }
+  | { readonly kind: 'allow'; readonly reason: PermissionFinding['reason'] }
+  /** `force` tightens whatever the mode is; otherwise only a mode that is not already exact. */
+  | { readonly kind: 'tighten'; readonly force: boolean };
+
+/**
+ * Decide one path's verdict.
+ *
+ * Split out of `auditPermissions` because that function scored 37 against biome's cognitive-
+ * complexity limit of 20 — the same signal that split `rotateData` in `M1-T6`, and the same
+ * conclusion: a loop that both classifies and acts is one where the `12` §3.7 policy is hard to
+ * read off the code. The policy is four ordered rules, so it is now four ordered rules, and
+ * `auditPermissions` is a loop that applies whatever this returns.
+ *
+ * The order matters and is `12` §3.7's own:
+ *
+ *  1. **Owner mismatch** first, because a path owned by another user makes every mode reading moot
+ *     — they can change it.
+ *  2. **Writable key material**, which is never waivable: "another user may replace my master key"
+ *     is not a privacy judgement a host gets to make.
+ *  3. **Readable key material**, which is — `08` §3.7.3's ssh-style escape hatch.
+ *  4. Everything else is tightened and warned about, because a product that refused to start over
+ *     a 0755 `models/` would be a product nobody finishes installing.
+ */
+function classify(path: string, stats: PathStats, policy: AuditPolicy): Verdict {
+  if (policy.expectedUid !== undefined && stats.uid !== policy.expectedUid) {
+    return { kind: 'refuse', reason: 'owner' };
+  }
+
+  if (isGroupOrWorldWritable(stats.mode) && policy.noWriteByOthers.includes(path)) {
+    return { kind: 'refuse', reason: 'writable' };
+  }
+
+  if (policy.keyMaterial.includes(path)) {
+    if (isGroupOrWorldWritable(stats.mode)) return { kind: 'refuse', reason: 'writable' };
+    if (isGroupOrWorldReadable(stats.mode)) {
+      return policy.allowInsecureReads
+        ? { kind: 'allow', reason: 'readable' }
+        : { kind: 'refuse', reason: 'readable' };
+    }
+    // Private but not exactly 0600/0700 — tighten silently, since nothing is exposed.
+    return { kind: 'tighten', force: false };
+  }
+
+  // Not key material: anything another user can reach is corrected and warned about.
+  return isGroupOrWorldAccessible(stats.mode)
+    ? { kind: 'tighten', force: true }
+    : { kind: 'tighten', force: false };
+}
+
+/** Apply a tightening verdict. Returns whether the path's mode needed changing. */
+async function applyTightening(
+  path: string,
+  stats: PathStats,
+  force: boolean,
+  shouldTighten: boolean,
+): Promise<boolean> {
+  const target = stats.isDirectory ? DIR_MODE : FILE_MODE;
+  if (!force && stats.mode === target) return false;
+  if (shouldTighten) await chmod(path, target);
+  return true;
 }
 
 /**
@@ -228,17 +287,6 @@ async function modeOf(path: string): Promise<PathStats | undefined> {
   } catch {
     return undefined;
   }
-}
-
-async function tightenIfNeeded(
-  path: string,
-  stats: PathStats,
-  shouldTighten: boolean,
-): Promise<boolean> {
-  const target = stats.isDirectory ? DIR_MODE : FILE_MODE;
-  if (stats.mode === target) return false;
-  if (shouldTighten) await chmod(path, target);
-  return true;
 }
 
 function currentUid(): number | undefined {

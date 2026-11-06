@@ -146,6 +146,100 @@ export const UNFILTERED_READ_BAN: Linter.RulesRecord = {
 };
 
 /**
+ * `01` §1 and `02` §3.7.2: a transaction callback must be synchronous.
+ *
+ * better-sqlite3 is a **synchronous** driver. `db.transaction(fn)` commits the moment `fn`
+ * returns, so an `async fn` returns a promise immediately, the transaction commits around nothing,
+ * and the work then runs outside it with no isolation and no rollback. **Nothing throws.** The data
+ * is simply wrong, intermittently, under concurrency — which is the worst possible failure shape
+ * for a product that keeps a family's messages.
+ *
+ * This is guard 2 of the four in `core/src/ports/storage/store.ts`. `NotPromise<T>` is guard 1 and
+ * catches it at the type level; this one catches the cases the type cannot reach — a widened
+ * return type, an untyped call site, a callback written against `any`.
+ *
+ * The selector is `02` §3.7.2's, verbatim. It matches an `async` function passed directly to
+ * anything named `write`, `read` or `transaction`, which does mean a false positive is possible on
+ * an unrelated `read` — accepted, because the alternative is narrowing it to one receiver type that
+ * a lint rule cannot see, and because an `async` callback to a method called `read` is worth a
+ * second look anyway.
+ */
+export const SYNC_TX_BAN: Linter.RulesRecord = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector:
+        'CallExpression[callee.property.name=/^(write|read|transaction)$/] > :function[async=true]',
+      message:
+        'Transaction callbacks must be synchronous (01 §1, 02 §3.7.2). better-sqlite3 commits when ' +
+        'the callback returns, so an async one commits an empty transaction and then does its work ' +
+        'outside it — no isolation, no rollback, and nothing thrown. Move the awaiting outside the ' +
+        'transaction, or gather what you need first and pass it in.',
+    },
+  ],
+};
+
+/**
+ * Files that may call the driver's own `transaction()`.
+ *
+ * `packages/storage/src/db/tx.ts` is the implementation — `SqliteStore` *is* the single entry
+ * point, so it is the one place that may open a transaction. The spike is measuring the driver
+ * itself (`02` §3.6.3), so going through `SqliteStore` there would mean measuring our wrapper
+ * instead of the thing under test.
+ */
+export const RAW_TRANSACTION_ALLOWED_GLOBS = [
+  'packages/storage/src/db/tx.ts',
+  'packages/storage/spike/**',
+];
+
+/**
+ * Paths exempt from **both** the raw-transaction ban and the `…Unfiltered` ban.
+ *
+ * Enumerated rather than computed, because ESLint flat config cannot express the intersection of
+ * two glob sets and the `files`/`ignores` pair can only subtract. Without this class the last
+ * matching block re-adds a ban the path is supposed to be exempt from — which is what happened the
+ * first time this was written, and `test/boundaries/lint-bans.int.test.ts` asserts all four classes
+ * so a new entry in either allowlist cannot silently drift from this one.
+ *
+ * It is the intersection of `RAW_TRANSACTION_ALLOWED_GLOBS` with
+ * `UNFILTERED_ALLOWED_GLOBS ∪ {tests, doubles}`:
+ *
+ *  - `tx.ts` is under `packages/storage/src/**`, which is an allowlisted `…Unfiltered` caller;
+ *  - a spike **test** is a test, and tests are exempt from the `…Unfiltered` ban.
+ *
+ * A spike file that is *not* a test (`bench.ts`, `open.ts`) is deliberately **not** here: it keeps
+ * the `…Unfiltered` ban, because nothing about measuring the driver needs to skip a label filter.
+ */
+export const RAW_TX_AND_UNFILTERED_EXEMPT_GLOBS = [
+  'packages/storage/src/db/tx.ts',
+  'packages/storage/spike/**/*.test.ts',
+  'packages/storage/spike/*.test.ts',
+];
+
+/**
+ * `02` §3.7.2 and `CLAUDE.md` §2: `SqliteStore` is the only transaction entry.
+ *
+ * Banning the driver's `transaction()` elsewhere is what makes that true rather than aspirational.
+ * Everything the wrapper adds is lost to a raw call: the `IMMEDIATE` lock (so a read-then-write
+ * transaction can fail to upgrade and get `SQLITE_BUSY`), the async guard, the `afterCommit`
+ * ordering and its savepoint truncation, and the slow-transaction log. None of those absences
+ * produce an error — they produce a transaction that looks like it worked.
+ */
+export const RAW_TRANSACTION_BAN: Linter.RulesRecord = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: 'CallExpression > MemberExpression[property.name="transaction"]',
+      message:
+        'Only `SqliteStore` may open a transaction (02 §3.7.2, CLAUDE.md §2). Use `store.write(fn)` ' +
+        'or `store.read(fn)`: a raw `db.transaction()` loses the IMMEDIATE lock, the ' +
+        'synchronous-callback guard, afterCommit ordering and the slow-transaction log — and none ' +
+        'of those absences raise an error.',
+    },
+  ],
+};
+
+/**
  * Repository-wide bans from `08` §3.20's SAST row. Each one is a code-execution or injection path
  * that has no legitimate use in this codebase.
  */

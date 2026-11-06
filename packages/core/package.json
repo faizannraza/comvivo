@@ -29,7 +29,8 @@
     "test": "pnpm -w exec vitest run packages/core"
   },
   "dependencies": {
-    "@comvivo/shared": "workspace:*"
+    "@comvivo/shared": "workspace:*",
+    "temporal-polyfill": "catalog:"
   },
   "devDependencies": {
     "vitest": "catalog:"

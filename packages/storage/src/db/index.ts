@@ -12,6 +12,10 @@
  *    saving.
  *  - `onCreated` exists because `auto_vacuum` can only be set **before** `journal_mode = WAL`, and
  *    the pragma fails silently otherwise. Measured; see `OpenOptions.onCreated`.
+ *
+ * `SqliteStore` (`M1-T9`) is the **only** thing here that may open a transaction, and a lint rule
+ * enforces it: a raw `db.transaction()` loses the `IMMEDIATE` lock, the synchronous-callback guard,
+ * `afterCommit` ordering and the slow-transaction log, and none of those absences raise an error.
  */
 
 export {
@@ -49,6 +53,12 @@ export {
   pragmaValue,
   RUNTIME_PRAGMAS,
 } from './open.js';
+export {
+  DEFAULT_SLOW_TX_MS,
+  isThenable,
+  SqliteStore,
+  type SqliteStoreOptions,
+} from './tx.js';
 export {
   openWorkerConnection,
   receiveHandshake,

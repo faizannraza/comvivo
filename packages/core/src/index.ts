@@ -6,3 +6,14 @@
  * Scaffolded by M0-T1. The implementation lands in this package's own milestone; see
  * `docs/plan/14-milestones.md`.
  */
+
+// --- Ports: storage (M1-T9) ---------------------------------------------------------------------
+export type {
+  NotPromise,
+  ReadScope,
+  Store,
+  TxMeta,
+  TxToken,
+  UnitOfWork,
+  WriteResult,
+} from './ports/storage/store.js';
