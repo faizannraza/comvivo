@@ -337,14 +337,14 @@ flowchart TB
   RK[RK — 256-bit recovery key<br/>printed, never stored] -->|HKDF → wrap| SLOT2
   PP[Passphrase optional] -->|scrypt → wrap| SLOT3
   SLOT1 & SLOT2 & SLOT3 --> RDK[RDK gen g — 256-bit random]
-  RDK -->|HKDF info=village/v1/db| DBK[SQLCipher raw key]
+  RDK -->|HKDF info=comvivo/v1/db| DBK[SQLCipher raw key]
   RDK -->|…/blob-kek| BKEK[Blob KEK] -->|wraps| DEK[per-blob DEKs]
   RDK -->|…/backup-kek| BUKEK[Backup KEK] -->|wraps| BDEK[per-backup DEKs]
   RDK -->|…/token-mac/epoch=e| TMAC[Token MAC key]
   RDK -->|…/vault| VK[Vault key]
   RDK -->|wraps| STATIC[Static keys: blob-id key]
 ```
-- HKDF parameters: `salt = UTF-8(instanceId)`, `info = "village/v1/<purpose>[/epoch=<e>]"`, length 32. Registered purposes: `db`, `blob-kek`, `backup-kek`, `token-mac`, `vault`, `field`, `store/<adapter>` (§3.10) and `fts-token` (used only by `02` §3.6.1's FTS fallback mode).
+- HKDF parameters: `salt = UTF-8(instanceId)`, `info = "comvivo/v1/<purpose>[/epoch=<e>]"`, length 32. Registered purposes: `db`, `blob-kek`, `backup-kek`, `token-mac`, `vault`, `field`, `store/<adapter>` (§3.10) and `fts-token` (used only by `02` §3.6.1's FTS fallback mode).
 - The `sessionEpoch` lives in the encrypted DB settings, so a file-level edit cannot roll it back.
 - **Static keys** (blob-id key) are random, stored wrapped by the current RDK in the keyring, and rewrapped on data rotation, so blob addresses stay stable across generations.
 
@@ -367,7 +367,7 @@ Rules:
 #### 3.7.4 Keyring file (`data/keys/keyring.json`, 0600)
 ```json
 {
-  "format": "village-keyring/1",
+  "format": "comvivo-keyring/1",
   "instanceId": "ins_01j…",
   "current": 2,
   "wrapCount": 1844,
@@ -377,12 +377,12 @@ Rules:
     { "gen": 2, "status": "active", "createdAt": "2026-10-01T10:00:00Z",
       "slots": [
         { "id": "mk2", "kind": "master",     "wrap": { "alg": "A256GCM", "nonce": "…", "ct": "…" } },
-        { "id": "rk1", "kind": "recovery",   "kdf": { "alg": "hkdf-sha256", "info": "village/v1/rk-slot" }, "wrap": { "…": "…" } },
+        { "id": "rk1", "kind": "recovery",   "kdf": { "alg": "hkdf-sha256", "info": "comvivo/v1/rk-slot" }, "wrap": { "…": "…" } },
         { "id": "pp1", "kind": "passphrase", "kdf": { "alg": "scrypt", "N": 131072, "r": 8, "p": 1, "salt": "…" }, "wrap": { "…": "…" } } ] } ],
   "static": { "blobId": { "gen": 2, "wrap": { "alg": "A256GCM", "nonce": "…", "ct": "…" } } }
 }
 ```
-- Every wrap uses `AAD = "village-keyring/1|<instanceId>|gen=<g>|slot=<id>|kind=<kind>"`, so slots cannot be swapped between generations or instances.
+- Every wrap uses `AAD = "comvivo-keyring/1|<instanceId>|gen=<g>|slot=<id>|kind=<kind>"`, so slots cannot be swapped between generations or instances.
 - Writes are atomic: write `keyring.json.tmp`, fsync, rename, fsync the directory. The previous file is kept as `keyring.json.prev` until the next successful boot.
 
 #### 3.7.5 Unlock at boot
@@ -398,7 +398,7 @@ Rules:
   1. Print the key with "Write this down or print it. It is the only way to restore your data if this machine or its key file is lost. Village cannot show it again."
   2. The user retypes groups 3 and 11.
   3. Optional `--recovery-key-out <file>` (`09` §3.11.3; required in non-interactive mode) with a warning; never into `dataDir`.
-- **Slot key:** `HKDF(RK, salt=instanceId, info="village/v1/rk-slot")`.
+- **Slot key:** `HKDF(RK, salt=instanceId, info="comvivo/v1/rk-slot")`.
 - `village keys verify-recovery` checks a typed key against the slot without changing anything; doctor nudges every 180 days.
 
 #### 3.7.7 Rotation procedures (all CLI-only, never exposed over HTTP)
@@ -432,14 +432,14 @@ Compromise playbook (host-facing doc): `rotate-master` → `rotate-data --reencr
 - Hex is validated against `^[0-9a-f]{64}$` before interpolation, and the statement is never logged.
 - `PRAGMA temp_store=MEMORY` so temp tables never touch disk in plaintext.
 - FTS5 and sqlite-vec tables live in the same file. The M1 spike (M1-T80) proves all three work together, that WAL rekey works, and how `VACUUM INTO`/the online backup API behave with encryption.
-- **ADR-005 fallback** (no SQLCipher): sensitive columns are envelope-encrypted with AES-256-GCM under `HKDF(RDK,"village/v1/field")`, with AAD = table|column|rowId. Doctor reports "partial encryption".
+- **ADR-005 fallback** (no SQLCipher): sensitive columns are envelope-encrypted with AES-256-GCM under `HKDF(RDK,"comvivo/v1/field")`, with AAD = table|column|rowId. Doctor reports "partial encryption".
 
 #### 3.7.10 Blob encryption
 - **Per blob:** a random 32-byte DEK; the body is a secretstream with the header in the file.
-  - First-chunk AD = `"village/blob/v1|" + blobAddr + "|" + mime`.
+  - First-chunk AD = `"comvivo/blob/v1|" + blobAddr + "|" + mime`.
   - Last chunk is `TAG_FINAL`, so truncation is detected.
 - **File:** `VBL1` magic (4 bytes) ‖ secretstream header (24 bytes) ‖ chunks (64 KiB + 17-byte ABYTES each).
-- **DB row (`02`):** `blobAddr`, `dekWrapped` (AES-256-GCM under the blob KEK, AAD = `"village/blob-dek/v1|"+blobAddr+"|gen="+g`), `kekGen`, `label`, `size`, `mime`.
+- **DB row (`02`):** `blobAddr`, `dekWrapped` (AES-256-GCM under the blob KEK, AAD = `"comvivo/blob-dek/v1|"+blobAddr+"|gen="+g`), `kekGen`, `label`, `size`, `mime`.
 - **Deleting** the row's `dekWrapped` crypto-shreds the blob even if file deletion fails. Retention sweeps delete both (`02`).
 - **Dedup** works within an instance via the keyed address. Two blobs with different labels and the same content share bytes but have separate rows and labels (`02` resolves label semantics).
 
@@ -611,8 +611,8 @@ Rules:
 - **Never in** DB, YAML, traces, exports or logs (S2).
 - **Runtime-acquired credentials** (MCP OAuth tokens, Matrix device tokens from login flows) go to the **vault**: `data/keys/vault.enc`, AES-256-GCM under the vault key, versioned, atomic writes. The vault is included in backups (encrypted) and never in exports.
 - **Host-entered extension secrets** (`village plugin secret set`, `village mcp client secret set`; `10` §3.3.2, §3.9.1) are also vault entries, namespaced `plugin/<id>/[<groupId>/]<key>` and `mcp/<id>/<name>`, never plaintext files. `COMVIVO_PLUGIN_<ID>_<KEY>` / `COMVIVO_MCP_CLIENT_<ID>_<NAME>` env (or `_FILE`) take precedence. A plugin receives only its declared secrets, over RPC, bound to `boundHosts`.
-- **Appliance secrets** (01 §14 A29). On Home Assistant, Umbrel and CasaOS installs the host may enter host-only secrets (provider API keys, bot tokens, `COMVIVO_IMAP_PASSWORD`) once through the token-gated web setup page (`09`). They are stored in `data/keys/secrets.enc`: the same AEAD container as the vault (AES-256-GCM, 96-bit random nonce, versioned, atomic write, 0600), keyed by the vault key with AAD `"village/v1/secrets.enc" ‖ instanceId ‖ version` for domain separation. Entries are `{name, value, setAt, setVia}`; names are restricted to the secret names above. Precedence: env and `*_FILE` > `secrets.enc`. Never in the DB, YAML, traces, exports or logs (S2); included in encrypted backups like the vault. Changing an entry requires the setup token (before the host claim) or host step-up (A9). They remain host-only keys (A14).
-- **Adapter state dirs** (Matrix crypto store, signal-cli data) live under `dataDir` at 0700. If an SDK offers a store passphrase, it is derived via `HKDF(RDK, "village/v1/store/<adapter>")` (`06`).
+- **Appliance secrets** (01 §14 A29). On Home Assistant, Umbrel and CasaOS installs the host may enter host-only secrets (provider API keys, bot tokens, `COMVIVO_IMAP_PASSWORD`) once through the token-gated web setup page (`09`). They are stored in `data/keys/secrets.enc`: the same AEAD container as the vault (AES-256-GCM, 96-bit random nonce, versioned, atomic write, 0600), keyed by the vault key with AAD `"comvivo/v1/secrets.enc" ‖ instanceId ‖ version` for domain separation. Entries are `{name, value, setAt, setVia}`; names are restricted to the secret names above. Precedence: env and `*_FILE` > `secrets.enc`. Never in the DB, YAML, traces, exports or logs (S2); included in encrypted backups like the vault. Changing an entry requires the setup token (before the host claim) or host step-up (A9). They remain host-only keys (A14).
+- **Adapter state dirs** (Matrix crypto store, signal-cli data) live under `dataDir` at 0700. If an SDK offers a store passphrase, it is derived via `HKDF(RDK, "comvivo/v1/store/<adapter>")` (`06`).
 - **Redaction** (`@comvivo/shared/logger`) has three layers:
   1. pino `redact` paths: `*.token`, `*.apiKey`, `*.password`, `*.secret`, `*.authorization`, `headers.cookie`, `headers.authorization`, `*.key`;
   2. a pattern scrubber on every serialized string field: Village prefixes (`vs1_`, `vmcp_`, `vml1.`, `vlp_`, `vics_`, `vctl_`, `VLG-`, `VRK1-`), `sk-ant-…`, `sk-…`, `xoxb-`/`xoxp-`/`xapp-`, the Telegram token shape `\d{6,12}:[A-Za-z0-9_-]{30,}`, `AIza[0-9A-Za-z_-]{35}`, Discord token shape, PEM blocks, and long base64 blobs adjacent to `key`/`secret`;

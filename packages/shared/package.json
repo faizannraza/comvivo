@@ -34,9 +34,11 @@
   },
   "devDependencies": {
     "fast-check": "catalog:",
+    "sodium-native": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
+    "libsodium-wrappers": "catalog:",
     "pino": "catalog:",
     "pure-rand": "catalog:",
     "temporal-polyfill": "catalog:",

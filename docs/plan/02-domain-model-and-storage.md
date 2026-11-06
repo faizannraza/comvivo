@@ -1818,11 +1818,11 @@ A second statement then hydrates `memory_items` by `rid IN json_each(?)`. For sa
 
 #### 3.6.1 Key derivation (mechanics; the key tree is owned by 08 §3.7.2)
 ```
-unlock slots (keyring.json, 08 format "village-keyring/1", 0600):
+unlock slots (keyring.json, 08 format "comvivo-keyring/1", 0600):
   MK (master key: data/keys/master.key | OS keychain | env)  ─┐
   RK (printed recovery key "VRK1-…", never stored on host)    ─┼─ each wraps RDK_g (root data key of generation g)
   optional passphrase (scrypt N=2^17, r=8, p=1)               ─┘
-derive(purpose)  = HKDF-SHA256(ikm=RDK_g, salt=UTF-8(instanceId), info="village/v1/" + purpose, L=32)   // node:crypto.hkdfSync
+derive(purpose)  = HKDF-SHA256(ikm=RDK_g, salt=UTF-8(instanceId), info="comvivo/v1/" + purpose, L=32)   // node:crypto.hkdfSync
   db_key         = derive("db")
   blob_kek_g     = derive("blob-kek")             // blobs.kek_version stores g
   backup_kek     = derive("backup-kek")           // VBK1 backup-kek slot (§3.14)
@@ -2338,7 +2338,7 @@ offset  size  field
               chunk 0 AD = bytes[0..8) (magic ‖ version ‖ reserved); other chunks AD empty; last chunk TAG_FINAL
 ```
 **Binding.** The file cannot carry its own plaintext hash in AD, because the hash is only known at EOF and secretstream must be pushed in order. Identity binding comes from two things instead:
-- **Per-blob DEK.** The DEK is wrapped per 08 §3.7.10 (AES-256-GCM, `AAD = "village/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g`); `addr` already binds `groupId` and `sha256`, so a file swapped between rows fails to unwrap.
+- **Per-blob DEK.** The DEK is wrapped per 08 §3.7.10 (AES-256-GCM, `AAD = "comvivo/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g`); `addr` already binds `groupId` and `sha256`, so a file swapped between rows fails to unwrap.
 - **EOF check.** The reader verifies `sha256(plaintext) == row.sha256` at EOF.
 
 Header tampering fails the chunk-0 AD.
@@ -2356,7 +2356,7 @@ Header tampering fails the chunk-0 AD.
 6. rename(tmp → final path)   // overwrites only an orphan file left by a crash (no row) — never a live blob
    fsync(dir)
 7. store.write: INSERT blobs(..., wrapped_dek = AES-256-GCM(blob_kek_g, nonce,
-                AAD="village/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g, dek), kek_version = g); zero dek   // 08 §3.7.10
+                AAD="comvivo/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g, dek), kek_version = g); zero dek   // 08 §3.7.10
 ```
 - A crash before step 6 leaves a `.tmp` file, removed after 24 h.
 - A crash between steps 6 and 7 leaves an orphan file at its final path with no row. It is overwritten by the next `put` of the same content, or removed by orphan GC after 24 h.

@@ -100,7 +100,12 @@ export function randomTypedCode(groups = 2, groupSize = 4): string {
       // One rejection-sampled draw per character. Taking a byte and reducing it modulo 32 would be
       // unbiased only because 32 divides 256 — true here, and a trap the moment somebody changes
       // the alphabet. Drawing against the alphabet's real length cannot acquire that bug.
-      part += CROCKFORD[randomInt(CROCKFORD.length)] ?? '';
+      //
+      // `charAt` rather than `[index]`: the latter is `string | undefined` under
+      // `noUncheckedIndexedAccess`, and the `?? ''` it needs is an unreachable branch — the index
+      // is drawn from the alphabet's own length. A fallback that cannot run is worse than none: it
+      // reads as a handled case and shows up as missed coverage forever.
+      part += CROCKFORD.charAt(randomInt(CROCKFORD.length));
     }
     parts.push(part);
   }

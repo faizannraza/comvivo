@@ -130,6 +130,12 @@ catalog:
   drizzle-kit: 0.31.11
   libsodium-wrappers: 0.8.4
   tar-stream: 3.2.2
+  # Not shipped. `02` D13 makes `libsodium-wrappers` (WASM) the default and `sodium-native` the
+  # fallback **only if** SP-2 measures < 40 MB/s on a Pi 5 — and claims the switch is wire-
+  # identical. That claim is worth exactly nothing untested, so `M1-T4` keeps this as a
+  # devDependency of `@comvivo/shared` and cross-decrypts between the two implementations in both
+  # directions. No install script and no compiler: it loads a prebuilt addon via `require-addon`.
+  sodium-native: 5.2.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2
