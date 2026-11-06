@@ -54,6 +54,19 @@ function sections(): Map<string, string> {
   return out;
 }
 
+/**
+ * A name reversed, character by character.
+ *
+ * Indexed rather than spread: `no-misused-spread` is right that spreading a string yields code
+ * points, and a brand name is ASCII here — but the rule applies either way and an index loop says
+ * what it does.
+ */
+function reversed(name: string): string {
+  let out = '';
+  for (let index = name.length - 1; index >= 0; index -= 1) out += name.charAt(index);
+  return out;
+}
+
 /** Fill the template the way a caller would, so the rendered text can be read. */
 function render(values: Partial<Record<(typeof PLACEHOLDERS)[number], string>> = {}): string {
   const filled: Record<string, string> = {
@@ -220,9 +233,22 @@ describe('the name is never hard-coded', () => {
 
   it('survives a rename, which is the whole point', () => {
     // Proven rather than asserted: rendered under a different brand, nothing says the old name.
-    const renamed = render({ displayName: 'Zzbrand', cliName: 'zzbrand' });
-    expect(renamed).toContain('Zzbrand cannot show it again');
-    expect(renamed).toContain('zzbrand keys rotate-recovery');
+    //
+    // The foreign brand is **derived**, not written out. The first version used `'Zzbrand'`, which
+    // is exactly the throwaway slug the weekly rename drill renames the tree to — so during the
+    // drill `BRAND.codename` *was* `zzbrand` and this test's deliberately-foreign literal became a
+    // real hard-coded brand literal. Reversing the name guarantees a different one whatever the
+    // product is called, and the assertion below guarantees it is a usable counter-example.
+    const other = reversed(BRAND.displayName);
+    const otherCli = reversed(BRAND.cliName);
+    expect(
+      otherCli.toLowerCase().includes(BRAND.codename),
+      'the reversed name still contains the codename, so this test proves nothing',
+    ).toBe(false);
+
+    const renamed = render({ displayName: other, cliName: otherCli });
+    expect(renamed).toContain(`${other} cannot show it again`);
+    expect(renamed).toContain(`${otherCli} keys rotate-recovery`);
     expect(renamed.toLowerCase()).not.toContain(BRAND.codename);
   });
 });

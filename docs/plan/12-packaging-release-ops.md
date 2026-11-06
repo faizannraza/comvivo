@@ -1130,7 +1130,7 @@ The `09`/`shared` config loader must implement these. Each variable also accepts
 
 Written atomically (`tmp/` + `rename`):
 ```json
-{ "format": "village-data-dir", "formatVersion": 1, "instanceId": "ins_01j…", "createdAt": "2026-11-01T10:00:00Z", "createdBy": "0.1.0",
+{ "format": "comvivo-data-dir", "formatVersion": 1, "instanceId": "inst_01j…", "createdAt": "2026-11-01T10:00:00Z", "createdBy": "0.1.0",
   "lastBoot": { "version": "1.2.3", "schemaHead": "0057_poll_quorum", "at": "2026-11-01T10:00:05Z" }, "lastCleanShutdownAt": "2026-11-01T09:59:00Z" }
 ```
 

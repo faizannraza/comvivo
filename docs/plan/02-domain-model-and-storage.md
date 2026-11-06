@@ -1879,8 +1879,9 @@ export function openDatabase(o: OpenOptions): Database {
   - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt. **Measured in `M1-T2`: `PRAGMA rekey` works directly in WAL mode too, and after either sequence the old key is refused and no plaintext remains in the file.** So the `journal_mode=DELETE` step is kept for the **salt**, not for correctness — `M1-T5` owns that part and should confirm the salt actually changes, because a rotation that reuses the salt is a rotation that did less than the host was told.
   - Converting a plaintext DB to encrypted (`encryptAtRest` flipped to true) uses the same procedure with `PRAGMA rekey` on a non-WAL DB.
   - After erasure flows and backups, run `PRAGMA wal_checkpoint(TRUNCATE)` so deleted content does not linger in the WAL.
-- **Process lock** (`src/db/lock.ts`). `data/comvivo.lock` is created with `O_EXCL` and holds `{pid, bootId, startedAt, role}`.
-  - A stale lock (the pid is not alive) is replaced.
+- **Process lock** — **normative in `12` §3.7**, implemented in `src/datadir/lock.ts` as `run/comvivo.lock`. This section said `src/db/lock.ts` and `data/comvivo.lock` and described a three-field body; `12` §3.7 is the fuller specification (heartbeat, stale takeover, per-role locks) and is the one `M1-T7` built. Corrected here rather than in two places.
+  - Created with `O_EXCL`, holding `{pid, hostname, bootId, version, startedAt, heartbeatAt, role}`.
+  - A stale lock is replaced: the heartbeat is older than 60 s, or the hostname and boot id match and the pid is not alive.
   - A live lock means the CLI commands that need exclusivity (`restore`, `migrate`, offline `keys rotate-data`) exit with `STORAGE_LOCKED`.
   - Read-only CLI commands (`backup`, `export`) open their own connection with `busy_timeout`.
 - **Worker connections.** `openWorkerConnection(workerData)` re-derives `db_key` inside the worker from a `MessagePort`-transferred copy of the derived key. The copy is zeroed after open.

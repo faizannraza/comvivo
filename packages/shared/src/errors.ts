@@ -138,6 +138,119 @@ export class TimeoutError extends AppError {
 }
 
 /**
+ * The storage subsystem's own codes (`02` §4.3).
+ *
+ * Here rather than in `packages/storage` because `02` §4.3 puts them in `@comvivo/shared/errors`,
+ * and because the consumers are everywhere: the CLI maps them to exit codes, the HTTP layer maps
+ * them to statuses, and `doctor` explains them. A code is a **contract**, so it belongs at the
+ * bottom of the dependency graph with the rest of the contracts; the SQLite *mapping* onto these
+ * codes is `storage/src/db/errors.ts` and stays there (`M1-T8`).
+ */
+export type StorageErrorCode =
+  | 'STORAGE_KEY_MISSING'
+  | 'STORAGE_KEY_INVALID'
+  | 'STORAGE_EXTENSION_LOAD_FAILED'
+  | 'STORAGE_VERSION_UNSUPPORTED'
+  | 'STORAGE_LOCKED'
+  | 'STORAGE_BUSY'
+  | 'STORAGE_CORRUPT'
+  | 'STORAGE_DISK_SPACE_LOW'
+  | 'STORAGE_IO'
+  | 'STORAGE_TX_ASYNC_CALLBACK'
+  | 'STORAGE_WRITE_IN_READ'
+  | 'STORAGE_JSON_INVALID'
+  | 'STORAGE_ID_INVALID'
+  | 'STORAGE_CONSTRAINT'
+  | 'I4_LABEL_GROUP_MISMATCH'
+  | 'MEMORY_CONTENT_IMMUTABLE'
+  | 'AUDIT_APPEND_ONLY'
+  | 'SCHEMA_TOO_NEW'
+  | 'MIGRATION_FAILED'
+  | 'MIGRATION_CHECKSUM_MISMATCH'
+  | 'MIGRATION_FK_VIOLATION'
+  | 'JOB_PAYLOAD_INVALID'
+  | 'JOB_LEASE_LOST'
+  | 'SCHEDULE_NO_NEXT'
+  | 'BLOB_TOO_LARGE'
+  | 'BLOB_QUOTA_EXCEEDED'
+  | 'BLOB_DISK_LOW'
+  | 'BLOB_INTEGRITY'
+  | 'BLOB_MISSING_FILE'
+  | 'BACKUP_INTEGRITY'
+  | 'BACKUP_KEY_MISMATCH'
+  | 'RESTORE_SERVER_RUNNING'
+  | 'EXPORT_SCOPE_DENIED';
+
+/** Every `StorageErrorCode`, for exhaustiveness checks and for tests that enumerate them. */
+export const STORAGE_ERROR_CODES: readonly StorageErrorCode[] = [
+  'STORAGE_KEY_MISSING',
+  'STORAGE_KEY_INVALID',
+  'STORAGE_EXTENSION_LOAD_FAILED',
+  'STORAGE_VERSION_UNSUPPORTED',
+  'STORAGE_LOCKED',
+  'STORAGE_BUSY',
+  'STORAGE_CORRUPT',
+  'STORAGE_DISK_SPACE_LOW',
+  'STORAGE_IO',
+  'STORAGE_TX_ASYNC_CALLBACK',
+  'STORAGE_WRITE_IN_READ',
+  'STORAGE_JSON_INVALID',
+  'STORAGE_ID_INVALID',
+  'STORAGE_CONSTRAINT',
+  'I4_LABEL_GROUP_MISMATCH',
+  'MEMORY_CONTENT_IMMUTABLE',
+  'AUDIT_APPEND_ONLY',
+  'SCHEMA_TOO_NEW',
+  'MIGRATION_FAILED',
+  'MIGRATION_CHECKSUM_MISMATCH',
+  'MIGRATION_FK_VIOLATION',
+  'JOB_PAYLOAD_INVALID',
+  'JOB_LEASE_LOST',
+  'SCHEDULE_NO_NEXT',
+  'BLOB_TOO_LARGE',
+  'BLOB_QUOTA_EXCEEDED',
+  'BLOB_DISK_LOW',
+  'BLOB_INTEGRITY',
+  'BLOB_MISSING_FILE',
+  'BACKUP_INTEGRITY',
+  'BACKUP_KEY_MISMATCH',
+  'RESTORE_SERVER_RUNNING',
+  'EXPORT_SCOPE_DENIED',
+];
+
+/**
+ * A storage failure, carrying both the coarse category and `02` §4.3's specific code.
+ *
+ * Two codes rather than one, and the split is deliberate. `AppError.code` is what a generic
+ * handler branches on — "is this our bug, bad config, or the disk?" — and stays a small closed
+ * set so a `switch` over it is tractable. `storageCode` is what a host sees, what `doctor`
+ * explains and what the CLI maps to an exit code, and there are thirty-odd of them. Collapsing
+ * them into one union would either make every `switch` unmaintainable or throw away the specific
+ * code, and the specific code is the one that tells somebody what to do next.
+ */
+export class StorageError extends AppError {
+  readonly storageCode: StorageErrorCode;
+  /** What a host should do about it. Shown by `doctor`, so it names commands, not functions. */
+  readonly hint: string | undefined;
+
+  constructor(
+    storageCode: StorageErrorCode,
+    message: string,
+    options: ErrorContext & { readonly hint?: string; readonly category?: ErrorCode } = {},
+  ) {
+    const { hint, category, ...context } = options;
+    // `detail` is merged rather than replaced, so a caller's own detail does not lose the code —
+    // which is the one field a log line needs to be actionable.
+    super(category ?? 'io.failed', message, {
+      ...context,
+      detail: { storageCode, ...(context.detail ?? {}) },
+    });
+    this.storageCode = storageCode;
+    this.hint = hint;
+  }
+}
+
+/**
  * Turn an unknown caught value into a typed error, preserving the original as `cause`.
  *
  * Use this at the edge of a `try`, so the ban on silent catches has a one-line answer and a
