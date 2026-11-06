@@ -237,6 +237,55 @@ describe('the one mapping, read by three things', () => {
     expect(Object.keys(config.resolve?.alias ?? {}).length).toBeGreaterThan(20);
   });
 
+  it('orders the aliases longest-specifier-first, or a subpath resolves to nothing', async () => {
+    /**
+     * Vite's string aliases match by **prefix**, not exactly, and the first match wins.
+     *
+     * So with `@comvivo/shared` ahead of `@comvivo/shared/crypto`, the subpath import was
+     * rewritten to `…/shared/src/index.ts/crypto` and died with "Cannot find package". Found the
+     * moment `packages/storage` first imported `@comvivo/shared/crypto` — the first subpath import
+     * between workspace packages here, so nothing had exercised alias precedence before.
+     *
+     * Asserted on the **order** rather than on one pair, because the hazard is structural: any
+     * future `@comvivo/x` plus `@comvivo/x/y` has it.
+     */
+    const { WORKSPACE_ALIASES } = (await import('../../vitest.shared.js')) as {
+      WORKSPACE_ALIASES: Record<string, string>;
+    };
+    const keys = Object.keys(WORKSPACE_ALIASES);
+    for (const [index, key] of keys.entries()) {
+      for (const later of keys.slice(index + 1)) {
+        expect(
+          later.startsWith(`${key}/`),
+          `"${key}" is ordered before "${later}", which it shadows by prefix`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('resolves every subpath alias to its own module, not under its parent', async () => {
+    const { WORKSPACE_ALIASES } = (await import('../../vitest.shared.js')) as {
+      WORKSPACE_ALIASES: Record<string, string>;
+    };
+    // Non-vacuous: there has to be at least one parent/subpath pair for this to mean anything.
+    const subpaths = Object.keys(WORKSPACE_ALIASES).filter((key) =>
+      Object.keys(WORKSPACE_ALIASES).some((other) => other !== key && key.startsWith(`${other}/`)),
+    );
+    expect(subpaths.length).toBeGreaterThan(0);
+    for (const subpath of subpaths) {
+      const parent = Object.keys(WORKSPACE_ALIASES).find(
+        (other) => other !== subpath && subpath.startsWith(`${other}/`),
+      );
+      expect(parent).toBeDefined();
+      if (parent === undefined) continue;
+      const parentTarget = WORKSPACE_ALIASES[parent] ?? '';
+      expect(
+        WORKSPACE_ALIASES[subpath]?.startsWith(parentTarget),
+        `${subpath} resolves under ${parent}'s target, which is the prefix-shadowing bug`,
+      ).toBe(false);
+    }
+  });
+
   it('repeats the third-party driver mapping that `tsconfig.base.json` also needs', () => {
     // An `extends` array merges `compilerOptions` key by key, so the `paths` in
     // `tsconfig.paths.json` **replaces** the base's rather than adding to it. Leaving the driver

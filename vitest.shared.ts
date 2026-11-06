@@ -37,7 +37,18 @@ function workspaceAliases(): Record<string, string> {
     compilerOptions: { paths: Record<string, string[]> };
   };
   const out: Record<string, string> = {};
-  for (const [specifier, targets] of Object.entries(config.compilerOptions.paths)) {
+  // **Longest specifier first.** Vite's string aliases match by *prefix*, not exactly, and the
+  // first match wins — so with `@comvivo/shared` declared before `@comvivo/shared/crypto`, the
+  // subpath import was rewritten to `…/shared/src/index.ts/crypto` and failed with "Cannot find
+  // package". Sorting by descending length means the most specific alias is always tried first.
+  //
+  // Found the moment `packages/storage` first imported `@comvivo/shared/crypto` — the first
+  // subpath import between workspace packages in this repository's history, so nothing had
+  // exercised alias precedence before.
+  const entries = Object.entries(config.compilerOptions.paths).sort(
+    ([a], [b]) => b.length - a.length,
+  );
+  for (const [specifier, targets] of entries) {
     const target = targets[0];
     if (target === undefined) continue;
     // Type-only entries are excluded. `tsconfig.paths.json` also maps

@@ -32,6 +32,7 @@ export {
   AAD,
   DOMAIN_SEPARATOR_PARTS,
   KEY_PURPOSE,
+  KEYRING_FORMAT,
   type KeyPurpose,
   keyInfo,
   MAGIC,

@@ -220,4 +220,5 @@ export {
   formatIssues,
   parse,
   parseOrThrow,
+  z,
 } from './zod.js';

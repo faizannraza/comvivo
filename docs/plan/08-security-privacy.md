@@ -1284,7 +1284,7 @@ security:
   keys:
     store: keyfile            # ● keyfile | keychain | file | env | passphrase
     keyfilePath: ./data/keys/master.key   # ●
-    keychainService: village  # ●
+    keychainService: comvivo  # ● default: BRAND.slug; keep the old value after a rename
 dashboard:                    # one namespace with 09 §5.1 (session and auth keys live here, not under security.*)
   sessions: { idleHours: 12, absoluteDays: 7, rotateHours: 24, recentAuthMinutes: 10 }
   auth:
