@@ -11,7 +11,7 @@
  * send them to an issue tracker instead of to a local disk.
  */
 import { describe, expect, it } from 'vitest';
-import { checkFilesystem, type FsProbe, nodeFsProbe } from './fstype.js';
+import { checkFilesystem, type FsProbe, MAGIC_TYPES, nodeFsProbe } from './fstype.js';
 
 /** A probe that states a filesystem rather than needing one. */
 function probe(
@@ -202,6 +202,40 @@ describe('sync-folder markers (12 §3.7)', () => {
     // infinite loop at boot, which is the worst possible place for one.
     const check = await checkFilesystem('/', probe({ type: 'ext4' }));
     expect(check.verdict).toBe('ok');
+  });
+});
+
+describe('every magic number resolves (12 §3.7)', () => {
+  // The table exists for exactly one situation: no readable mount table, so the magic number is
+  // the only evidence. These cases therefore give the probe a magic and **no** mount entry, which
+  // is what makes them able to fail — a test that also supplied the type would be answered by
+  // `typeFromMounts` and would never touch the table.
+  //
+  // This is the test that was missing. `MAGIC_TYPES` was keyed by `'0x…'` strings and looked up
+  // with `toString(16)`, which emits no leading zero, so the `9p` entry spelled `'0x01021997'` was
+  // unreachable — an `UNSAFE_TYPES` filesystem with broken SQLite locking reported `ok`. Every
+  // other entry happened to be spelled without a leading zero and worked, which is why fifteen
+  // entries and one bug looked identical from the outside.
+  it.each(Object.entries(MAGIC_TYPES).map(([magic, name]) => ({ magic: Number(magic), name })))(
+    'reads magic $magic as $name',
+    async ({ magic, name }) => {
+      const check = await checkFilesystem('/data', probe({ magic }));
+      expect(check.type).toBe(name);
+    },
+  );
+
+  it('covers every entry, so the loop above cannot be emptied', () => {
+    // `it.each([])` runs no cases and passes, so a table that lost its entries would look green.
+    expect(Object.keys(MAGIC_TYPES)).toHaveLength(15);
+  });
+
+  it('calls a 9p mount unsafe from its magic alone', async () => {
+    // The regression, pinned on its own: 9p is WSL2's `/mnt/c` and QEMU virtfs, neither of which
+    // has a mount table a container can read, and both of which lose writes under SQLite locking.
+    const check = await checkFilesystem('/data', probe({ magic: 0x01021997 }));
+    expect(check.type).toBe('9p');
+    expect(check.verdict).toBe('unsafe');
+    expect(check.reason).toContain('9p');
   });
 });
 

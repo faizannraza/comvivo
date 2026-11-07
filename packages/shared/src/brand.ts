@@ -76,7 +76,24 @@ export interface Brand {
  * requires an explicit type on an exported value. The annotation keeps excess-property checking,
  * so a typo in a field name is still a compile error.
  */
-export const BRAND: Brand = {
+/**
+ * Freeze an object and everything reachable from it.
+ *
+ * `readonly` is erased at runtime, so `BRAND` was a plain mutable object that every module in the
+ * product shares by reference — one `BRAND.slug = …` anywhere and the metric names, the env prefix
+ * and the data directory all change under everyone. The test that was supposed to guard this
+ * asserted that calling `envVar()` did not mutate it, which pure string concatenation never could.
+ * Found by the M1 independent review.
+ */
+function deepFreeze<T>(value: T): T {
+  if (value === null || typeof value !== 'object') return value;
+  for (const key of Object.getOwnPropertyNames(value)) {
+    deepFreeze((value as Record<string, unknown>)[key]);
+  }
+  return Object.freeze(value);
+}
+
+export const BRAND: Brand = deepFreeze({
   codename: 'comvivo',
   displayName: 'Comvivo',
   slug: 'comvivo',
@@ -100,7 +117,7 @@ export const BRAND: Brand = {
   },
   emails: { security: 'faizanraza766@gmail.com', conduct: 'faizanraza766@gmail.com' },
   legacy: { envPrefixes: ['VILLAGE_'], configFileNames: ['village.yaml'] },
-};
+});
 
 /**
  * Build one of the project's own environment-variable names.

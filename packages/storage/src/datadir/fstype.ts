@@ -67,26 +67,42 @@ const WARN_TYPES = ['fuse.virtiofs', 'fuse.grpcfuse', 'osxfuse', 'macfuse', 'ove
 /**
  * `statfs` magic numbers, for the hosts where the mount table is unavailable.
  *
- * Hexadecimal because that is how every reference lists them, and because the decimal forms are
- * unrecognisable. Taken from the Linux `statfs(2)` manual page and `linux/magic.h`.
+ * Hexadecimal literals because that is how every reference lists them, and because the decimal
+ * forms are unrecognisable. Taken from the Linux `statfs(2)` manual page and `linux/magic.h`.
+ *
+ * **Keyed by number, not by string.** It was a `Record<string, string>` of `'0x…'` keys, looked up
+ * with `` `0x${magic.toString(16)}` `` — and `toString(16)` emits no leading zero, so the `9p`
+ * entry written `'0x01021997'` could never be found while `'0x1021994'` beside it could. 9p is in
+ * {@link UNSAFE_TYPES} and has broken SQLite locking, so on a host where `/proc/mounts` is
+ * unreadable — the one case this table exists for — a WSL2 `/mnt/c` or QEMU virtfs data directory
+ * was reported `ok`. Found by the M1 independent review.
+ *
+ * A numeric key cannot drift from the value it is compared against, which is why the fix is the
+ * key type rather than the missing digit: deleting one zero would have left the next entry one
+ * typo away from the same silent hole.
  */
-const MAGIC_TYPES: Readonly<Record<string, string>> = {
-  '0x6969': 'nfs',
-  '0xff534d42': 'cifs',
-  '0xfe534d42': 'smb2',
-  '0x517b': 'smbfs',
-  '0x01021997': '9p',
-  '0x65735546': 'fuse',
-  '0x794c7630': 'overlay',
-  '0xef53': 'ext4',
-  '0x58465342': 'xfs',
-  '0x9123683e': 'btrfs',
-  '0x2fc12fc1': 'zfs',
-  '0x1021994': 'tmpfs',
-  '0x4d44': 'vfat',
-  '0x482b': 'hfsplus',
-  '0x41505853': 'apfs',
+export const MAGIC_TYPES: Readonly<Record<number, string>> = {
+  26985: 'nfs',
+  4283649346: 'cifs',
+  4266872130: 'smb2',
+  20859: 'smbfs',
+  16914839: '9p',
+  1702057286: 'fuse',
+  2035054128: 'overlay',
+  61267: 'ext4',
+  1481003842: 'xfs',
+  2435016766: 'btrfs',
+  801189825: 'zfs',
+  16914836: 'tmpfs',
+  19780: 'vfat',
+  18475: 'hfsplus',
+  1095784531: 'apfs',
 };
+
+/** The filesystem {@link MAGIC_TYPES} names for a `statfs` magic number, if it knows one. */
+export function typeFromMagic(magic: number | undefined): string | undefined {
+  return magic === undefined ? undefined : MAGIC_TYPES[magic];
+}
 
 /** Markers that mean a sync client owns this directory (`12` §3.7). */
 const SYNC_MARKERS = [
@@ -169,7 +185,7 @@ export async function checkFilesystem(
   const named = await typeFromMounts(absolute, probe);
   // The mount table wins when it has an answer: it distinguishes `fuse.virtiofs` from
   // `fuse.sshfs`, which share one magic number and have opposite verdicts.
-  const type = named ?? (magicHex === undefined ? undefined : MAGIC_TYPES[magicHex]);
+  const type = named ?? typeFromMagic(magic);
   const syncMarkers = await findSyncMarkers(absolute, probe);
 
   const verdict = verdictFor(type, syncMarkers.length > 0);

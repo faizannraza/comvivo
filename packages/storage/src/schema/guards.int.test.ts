@@ -11,7 +11,7 @@
  * It runs as a test rather than as a `pnpm verify` step so that `pnpm test` and CI's dist-free
  * jobs both exercise it without lengthening the verify chain.
  */
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StorageError } from '@comvivo/shared';
@@ -25,7 +25,13 @@ import {
   VEC0_CHUNK_SIZE,
   vec0TableName,
 } from '../search/vec0.js';
-import { guardedTables, IMMUTABLE_GUARDS, parentLookups, schemaColumns } from './guards.sql.js';
+import {
+  guardedTables,
+  IMMUTABLE_GUARDS,
+  labeledColumns,
+  parentLookups,
+  schemaColumns,
+} from './guards.sql.js';
 import { FTS_TABLES } from './search.sql.js';
 import { seedGroup, withMigratedDb } from './testing/migrated-db.js';
 
@@ -49,6 +55,55 @@ describe('the committed migration is generated, not hand-written', () => {
       );
     }
     expect(committed).toContain('contentless_delete=1');
+  });
+});
+
+describe('every labeled column is detected', () => {
+  // The cross-check `guards.sql.ts` promises in two separate docstrings and that existed nowhere.
+  //
+  // `labeledColumns()` finds a label column **by name** — `label_id` or `*_label_id` — because
+  // `labelRef()` returns a plain `integer()` and drizzle keeps no marker on it. That is fine while
+  // the convention holds and silent when it does not: a `labelRef('visibility')` column would get
+  // no I4 trigger, the detected count would stay where it was, and `02` §9's "abort for every
+  // labeled table" would have a hole with every test green. Found by the M1 independent review,
+  // which also found that two comments already claimed this test existed.
+  const SCHEMA_DIR = resolve(dirname(fileURLToPath(import.meta.url)));
+
+  /** `labelRef(` call sites in the schema modules, with comments removed. */
+  function callSites(): { file: string; count: number }[] {
+    const files = readdirSync(SCHEMA_DIR)
+      .filter((name) => name.endsWith('.ts'))
+      // `_columns.ts` defines `labelRef`; `guards.sql.ts` and the tests only discuss it.
+      .filter((name) => !/^(?:_columns|guards\.sql|index)\.ts$/.test(name))
+      .filter((name) => !/\.test\.ts$/.test(name));
+    return files.map((file) => {
+      const source = readFileSync(resolve(SCHEMA_DIR, file), 'utf8')
+        .replaceAll(/\/\*[\s\S]*?\*\//g, '')
+        .replaceAll(/\/\/.*$/gm, '');
+      return { file, count: [...source.matchAll(/\blabelRef\s*\(/g)].length };
+    });
+  }
+
+  it('finds exactly as many columns as there are `labelRef(` call sites', () => {
+    const sites = callSites();
+    const total = sites.reduce((sum, entry) => sum + entry.count, 0);
+    expect(
+      labeledColumns().length,
+      'a `labelRef()` column whose name is not `label_id` or `*_label_id` is invisible to ' +
+        '`labeledColumns()` and therefore has no I4 trigger. Per-file call sites: ' +
+        sites
+          .filter((entry) => entry.count > 0)
+          .map((entry) => `${entry.file}=${String(entry.count)}`)
+          .join(' '),
+    ).toBe(total);
+  });
+
+  it('reads real files, so the comparison is not two zeroes', () => {
+    // Both sides of the assertion above are computed, so an empty scan would make it pass.
+    const sites = callSites();
+    expect(sites.length).toBeGreaterThan(10);
+    expect(sites.reduce((sum, entry) => sum + entry.count, 0)).toBe(31);
+    expect(labeledColumns()).toHaveLength(31);
   });
 });
 

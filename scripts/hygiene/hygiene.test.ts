@@ -110,9 +110,21 @@ describe('the test-hygiene rules', () => {
       'no-module-level-mutable-state',
       'no-only',
       'no-real-timers',
+      'no-self-satisfied-unreachable',
       'no-shared-temp-dir',
       'no-unjustified-skip',
     ]);
+  });
+
+  it('plants a fixture for every rule it declares', () => {
+    // The list above is hand-written, so a rule added without a planted case would leave it green
+    // while protecting nothing. This reads the rule inventory instead and requires each id to
+    // appear, which is the invariant `M0-T4` states and nothing enforced. Found by the M0
+    // independent review.
+    const fired = new Set(rulesIn(findHygieneViolations(ENGINE_TEST, fixture('hygiene-dirty'))));
+    const unplanted = HYGIENE_RULES.filter((rule) => !fired.has(rule.id)).map((rule) => rule.id);
+    expect(unplanted, 'every rule needs a case in hygiene-dirty.txt').toEqual([]);
+    expect(HYGIENE_RULES.length).toBeGreaterThan(0);
   });
 
   it('finds nothing in the clean fixture', () => {

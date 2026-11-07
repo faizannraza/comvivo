@@ -205,12 +205,20 @@ describe('what it refuses', () => {
   });
 
   it('names what it found, so a deep bad value is findable', () => {
+    // The sentinel, not `expect.unreachable` inside the `try`: that throws **into this same
+    // `catch`**, and its own message said "Infinity should be refused", which satisfied
+    // `toContain('Infinity')`. So the test passed whether or not `canonicalJson` refused anything.
+    // Found by the M1 independent review. The rule that now keeps this from coming back is
+    // `scripts/hygiene/unreachable-policy.ts`.
+    let caught: unknown;
     try {
       canonicalJson({ a: { b: Number.POSITIVE_INFINITY } } as CanonicalValue);
-      expect.unreachable('Infinity should be refused');
     } catch (error) {
-      expect((error as Error).message).toContain('Infinity');
+      caught = error;
     }
+    expect(caught, 'Infinity must be refused').toBeInstanceOf(BugError);
+    expect((caught as Error).message).toContain('Infinity');
+    expect((caught as Error).message).toContain('$.a.b');
   });
 
   it('names the path for an undefined, which has no value to print', () => {

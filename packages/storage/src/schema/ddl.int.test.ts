@@ -21,7 +21,7 @@
  * detection cannot quietly start returning nothing.
  */
 import { execFileSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -313,6 +313,35 @@ describe('CHECK constraints', () => {
         insert.run('mbr_01jtest0000000000000000300', 'child', 'teen', 'm3'),
       ).not.toThrow();
     });
+  });
+});
+
+describe('the committed base migration matches the schema', () => {
+  it('is byte-identical to a fresh `drizzle-kit generate`', () => {
+    // The drift guard `0001_search_and_guards.sql` has had since `M1-T13` (`guards.int.test.ts`
+    // byte-compares it against its generator) and `0000_initial_schema.sql` had not.
+    //
+    // Everything else in this file reads either `src/schema/*.ts` or this freshly generated DDL,
+    // and `migrations.int.test.ts` applies the *committed* SQL to both sides of its
+    // fresh-equals-migrated comparison — so a column type, CHECK, default or nullability edited in
+    // `src/schema/` without running `pnpm db:generate` shipped a stale 1400-line base migration
+    // with the entire suite green. Hosts run the migration; the tests ran the schema. Found by the
+    // M1 independent review.
+    //
+    // A byte comparison rather than a schema comparison, and it is exact today: the committed file
+    // is what this same generator produces. That is only true while nobody hand-edits it, which is
+    // the rule this makes enforceable — `02` §3.12.1 is forward-only, so a correction is a new
+    // migration, never an edit to this one.
+    const committed = readFileSync(
+      new URL('../../migrations/0000_initial_schema.sql', import.meta.url),
+      'utf8',
+    );
+    expect(
+      ddl(),
+      'the committed base migration no longer matches `src/schema/*.ts`. Run `pnpm db:generate`. ' +
+        'If the diff is a change to an already-released migration, add a new migration instead: ' +
+        'migrations are forward-only (`02` §3.12.1).',
+    ).toBe(committed);
   });
 });
 

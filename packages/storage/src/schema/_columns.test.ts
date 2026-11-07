@@ -105,12 +105,20 @@ describe('tid — TypeID columns (02 §3.1)', () => {
     // source trips `pnpm secrets:check` and every other scanner. The code under test still sees the
     // exact string; only the source text is split.
     const secretShaped = ['AKIA', 'IOSFODNN', '7EXAMPLE'].join('');
+    // The sentinel, not `expect.unreachable` inside the `try`. That throws into this same `catch`,
+    // and its message does not contain the fixture — so `not.toContain` was satisfied by the
+    // harness's own error and the test passed **when nothing was rejected at all**. A leak guard
+    // that reports green on an accepted credential is worse than no guard. Found by the M1
+    // independent review; `scripts/hygiene/unreachable-policy.ts` now refuses the shape.
+    let caught: unknown;
     try {
       probe.groupId.mapFromDriverValue(`grp_${secretShaped}`);
-      expect.unreachable('a malformed id must be refused');
-    } catch (caught) {
-      expect((caught as Error).message).not.toContain(secretShaped);
+    } catch (error) {
+      caught = error;
     }
+    expect(caught, 'a malformed id must be refused').toBeInstanceOf(Error);
+    expect((caught as Error).message).toMatch(/STORAGE_ID_INVALID/);
+    expect((caught as Error).message).not.toContain(secretShaped);
   });
 });
 

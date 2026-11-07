@@ -97,11 +97,16 @@ function splitCodeUnits(value: string): string[] {
  *  - `NaN` and `±Infinity` are refused. `JSON.stringify` turns them into `null`, which would make
  *    a corrupt value silently canonical.
  */
-function canonicalNumber(value: number): string {
+function canonicalNumber(value: number, path: string): string {
   if (!Number.isFinite(value)) {
+    // The path matters as much as the value. A caller canonicalising an audit row or a memory
+    // envelope gets one `NaN` out of a hundred fields, and "cannot represent NaN" with no location
+    // sends them reading the whole object. The bigint, undefined and function branches all name
+    // their path; this one did not, which surfaced the moment the test covering it stopped being
+    // satisfied by its own harness error (M1 independent review).
     throw new BugError(
-      `canonical JSON cannot represent ${String(value)}: RFC 8785 has no NaN or Infinity, and ` +
-        'JSON.stringify would silently turn it into null',
+      `canonical JSON cannot represent ${String(value)} at ${path}: RFC 8785 has no NaN or ` +
+        'Infinity, and JSON.stringify would silently turn it into null',
     );
   }
   if (value === 0) return '0';
@@ -126,7 +131,7 @@ function canonicalize(value: unknown, path: string): string {
     case 'boolean':
       return value ? 'true' : 'false';
     case 'number':
-      return canonicalNumber(value);
+      return canonicalNumber(value, path);
     case 'string':
       return canonicalString(value);
     case 'object':

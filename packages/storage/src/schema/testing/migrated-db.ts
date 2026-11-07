@@ -20,14 +20,31 @@ import * as sqliteVec from 'sqlite-vec';
 
 const MIGRATIONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../migrations');
 
-/** The committed migrations, in order. */
-export const MIGRATION_FILES = ['0000_initial_schema.sql', '0001_search_and_guards.sql'] as const;
+/**
+ * The committed migrations, in order, read from the journal rather than listed.
+ *
+ * It was a hardcoded two-element literal. A third migration would have been added to
+ * `migrations/`, applied by the real runner on every host, and **not** applied here — so the I4,
+ * FTS and vec0 guard suites would have gone on testing a stale schema and passing. Found by the M1
+ * independent review.
+ *
+ * `meta/_journal.json` is the same source of truth `M1-T14`'s `fileMigrationSource` reads, and
+ * that module already cross-checks the journal against the files on disk in both directions, so
+ * this helper can trust the order without repeating the check.
+ */
+export const MIGRATION_FILES: readonly string[] = (
+  JSON.parse(readFileSync(resolve(MIGRATIONS_DIR, 'meta/_journal.json'), 'utf8')) as {
+    entries: { idx: number; tag: string }[];
+  }
+).entries
+  .toSorted((left, right) => left.idx - right.idx)
+  .map((entry) => `${entry.tag}.sql`);
 
 /** drizzle's statement separator, which the real runner (`M1-T14`) also splits on. */
 const BREAKPOINT = '--> statement-breakpoint';
 
 /** Read one committed migration's SQL. */
-export function migrationSql(file: (typeof MIGRATION_FILES)[number]): string {
+export function migrationSql(file: string): string {
   return readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
 }
 

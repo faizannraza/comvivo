@@ -19,6 +19,8 @@
     "packages/evals/scenarios/**/*.scenario.ts",
     "apps/**/src/**/*.test.ts",
     "scripts/**/*.test.ts",
-    "packages/**/spike/**/*.ts"
+    "packages/**/spike/**/*.ts",
+    "tools/**/*.test.ts",
+    "test/**/*.ts"
   ]
 }

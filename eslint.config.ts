@@ -371,4 +371,38 @@ export default defineConfig(
     files: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts', '*.ts'],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  {
+    // The two promise rules come back on for tests, with type information.
+    //
+    // `comvivo/no-type-info` above turns the whole type-checked family off for every test file,
+    // and most of it should be off: a test reads untyped JSON, asserts on `unknown`, and uses a
+    // non-null assertion on a fixture it just built. But switching off `no-floating-promises` and
+    // `no-misused-promises` switches off the only automatic detector of a **missing `await`**, and
+    // a missing `await` in a test is not a style problem — `expect(f()).rejects.toThrow()` without
+    // one passes whatever `f` does. That is a test that cannot fail, which `CLAUDE.md` §8 calls
+    // faked evidence, and until now it was reachable only by someone reading every assertion.
+    //
+    // `project`, not `projectService`: there is no `tsconfig.json` under `test/`, and the root one
+    // is a solution file of `references`, so the service would report every file as "not found"
+    // and leave both rules configured and inert — the M0 defect, which this project has now hit in
+    // four separate directories. `tsconfig.test.json` covers all 113 test files; a test file added
+    // outside its `include` fails loudly here rather than going quietly unchecked.
+    name: 'comvivo/tests-await-rules',
+    files: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts'],
+    // The plugin has to be registered in the same object as the rules: this block deliberately
+    // does not `extends` a preset, because the point is to re-enable three rules rather than a
+    // family, and a flat-config object can only name rules from a plugin it declares itself.
+    plugins: { '@typescript-eslint': tseslint.plugin },
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/await-thenable': 'error',
+    },
+  },
 );
