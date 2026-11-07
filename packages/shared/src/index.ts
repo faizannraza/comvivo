@@ -68,10 +68,100 @@ export {
   type ErrorContext,
   IoError,
   isAppError,
+  STORAGE_ERROR_CODES,
+  StorageError,
+  type StorageErrorCode,
   TimeoutError,
   toAppError,
   ValidationError,
 } from './errors.js';
+// --- Ids, time and canonical JSON (M1-T3) ------------------------------------------------------
+export { SystemRng, TypeIdGenerator } from './id-generator.js';
+export {
+  type AttachmentId,
+  type AuditId,
+  type CalendarSubscriptionId,
+  type ChannelIdentityId,
+  type ChatBindingId,
+  type ClaimCodeId,
+  type ConfirmationId,
+  type ConsentEventId,
+  type ConstitutionVersionId,
+  type ConstraintId,
+  type ConversationId,
+  type DecisionId,
+  type DeclassificationId,
+  type DelegationId,
+  type DeletionId,
+  type EmbeddingSpaceId,
+  type EntityId,
+  type EventId,
+  type ExportId,
+  type FeedbackId,
+  type GroupExtensionId,
+  type GroupId,
+  type IcsFeedTokenId,
+  ID_PREFIX,
+  type Id,
+  type IdEntity,
+  type IdError,
+  type IdErrorKind,
+  type IdPrefix,
+  type InstanceId,
+  type InteractionTokenId,
+  type InternedId,
+  type InviteCodeId,
+  idSchema,
+  internedId,
+  isId,
+  isValidPrefix,
+  type JobId,
+  type JobScheduleId,
+  KNOWN_PREFIXES,
+  type LabelId,
+  type LedgerEntryId,
+  type LinkCodeId,
+  type ListId,
+  type ListItemId,
+  type LoginTokenId,
+  type McpServerId,
+  type McpTokenId,
+  type MemberId,
+  type MemoryId,
+  type MessageId,
+  type OutboxId,
+  type PairingId,
+  type PersonId,
+  type PlanId,
+  type PlanStepId,
+  type PluginId,
+  type PluginVersionId,
+  type PollId,
+  type ProactiveCandidateId,
+  type ProposalId,
+  parseId,
+  prefixOf,
+  type ReaderSetId,
+  type ReminderFiringId,
+  type ReminderId,
+  type RotationId,
+  type SessionId,
+  type SkillId,
+  type StandingApprovalId,
+  type StepUpId,
+  type TaskId,
+  type TaskSwapId,
+  type TurnEffectId,
+  type TurnId,
+  type TurnTraceId,
+  type UsageId,
+  unwrapId,
+} from './ids.js';
+export {
+  type CanonicalValue,
+  canonicalJson,
+  canonicalJsonBytes,
+} from './json/canonical.js';
 // --- Logging (M0-T8) ---------------------------------------------------------------------------
 // Four layers protect `01` §11.7's "logs never contain message or memory content above debug":
 // the closed `LogFields` type, the content gate, depth-unlimited field stripping, and scrubbing.
@@ -102,7 +192,7 @@ export {
   toLoggedError,
 } from './logger/index.js';
 export type { Clock, TimerHandle, Timers } from './ports/clock.js';
-export type { IdGenerator, IdPrefix, TypedId } from './ports/ids.js';
+export type { IdGenerator } from './ports/ids.js';
 export type { Rng } from './ports/rng.js';
 export {
   all,
@@ -120,12 +210,31 @@ export {
 } from './result.js';
 // --- Secrets (M0-T8) ---------------------------------------------------------------------------
 export { isSecretString, REDACTED, SecretString, secret } from './secrets/index.js';
+export { SystemClock, SystemTimers, systemClock } from './time/clock.js';
+export {
+  isCanonicalTimeZoneId,
+  isTimeZoneId,
+  parseTimeZoneId,
+  type TimeZoneId,
+  timeZoneIdSchema,
+  UTC,
+} from './time/timezone.js';
+export {
+  COUNTER_BITS,
+  COUNTER_MAX,
+  isUuidV7,
+  MAX_MS,
+  type RandomBytes,
+  timestampOf,
+  UuidV7Source,
+} from './uuidv7.js';
 export {
   type Branded,
-  brandedId,
+  capped,
   describeIssues,
   type FormattedIssue,
   formatIssues,
   parse,
   parseOrThrow,
+  z,
 } from './zod.js';

@@ -23,6 +23,18 @@ const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 /** Paths the guard does not read at all. */
 const EXCLUDED_FILES = [
   /^packages\/shared\/src\/brand\.ts$/,
+  // The cryptographic domain separators (`08` §3.7, `02` §3.6.1). The **only** exemption here
+  // that is a correctness requirement rather than a convenience: those strings go into every
+  // HKDF `info` and every AEAD AAD, so deriving them from `BRAND` would make the next rename
+  // silently destroy every existing host's database, blobs and backups. There is no migration for
+  // a changed domain separator, only data loss. `crypto/labels.ts` explains it at length, and
+  // `labels.test.ts` asserts the file imports nothing from `BRAND`.
+  /^packages\/shared\/src\/crypto\/labels\.(ts|test\.ts)$/,
+  // The data-directory marker (`12` §4.5), for the same reason and on the same terms. `12` §3.8.1
+  // step 2 exits 65 on a directory that holds data but no recognisable `FORMAT`, so deriving this
+  // string from `BRAND` would make every existing install refuse to start at the next rename.
+  // `marker.test.ts` asserts the file imports nothing and never mentions `BRAND`.
+  /^packages\/storage\/src\/datadir\/marker\.(ts|test\.ts)$/,
   /^apps\/docs\/src\/content\//,
   /\/__fixtures__\//,
   /\/__snapshots__\//,

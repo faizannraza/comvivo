@@ -1032,6 +1032,31 @@ def check_plan(model: PlanModel) -> list[Finding]:
     return out
 
 
+#: Any npm scope, e.g. `@comvivo/` or `@village/`.
+NPM_SCOPE_RE: Final[re.Pattern[str]] = re.compile(r"@[a-z0-9][a-z0-9-]*/")
+
+
+def scope_agnostic(title: str) -> str:
+    """Normalise every npm scope to `@*/`, for comparing a STATUS tick to its plan title.
+
+    `docs/plan/STATUS.md` is deliberately **not** rewritten by the rename codemod
+    (`scripts/brand/rename-policy.py`'s HISTORY list): its body is the record of what things used
+    to be called, and striking that out would destroy it. `14-milestones.md` *is* rewritten.
+
+    Those two correct rules collide the moment a task title contains the scope, which `M1-T1`
+    (`@comvivo/storage scaffold & pins`) and `M12-T19` (`@comvivo/mcp-bridge`) do. After a rename
+    the plan says `@zzbrand/storage` and STATUS still says `@comvivo/storage`, and a literal
+    comparison reports drift where there is none. The weekly rename drill found exactly that.
+
+    Normalising the scope away is the right fix rather than a workaround, because of the division
+    of labour: this checker's job is to catch **drift** between STATUS and the plan, and
+    `pnpm names:check` already owns the separate question of whether every published name agrees
+    with `BRAND`. A title differing only by npm scope is not drift. A title differing by a word,
+    or punctuation, still fails.
+    """
+    return NPM_SCOPE_RE.sub("@*/", title)
+
+
 def _check_table_shape(model: PlanModel) -> list[Finding]:
     """Flag a markdown table row whose column count does not match its header.
 
@@ -1318,7 +1343,7 @@ def _check_status(model: PlanModel) -> list[Finding]:
                     )
                 )
                 continue
-            if not entry.rest.startswith(task.title):
+            if not scope_agnostic(entry.rest).startswith(scope_agnostic(task.title)):
                 out.append(
                     Finding(
                         "ERROR",

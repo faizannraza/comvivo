@@ -20,7 +20,11 @@ import {
   CORE_PURITY_RULES,
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
+  RAW_TRANSACTION_BAN,
   SECURITY_RULES,
+  SYNC_TX_BAN,
+  UNFILTERED_ALLOWED_GLOBS,
+  UNFILTERED_READ_BAN,
 } from '../../scripts/lint/rules.js';
 
 const REPO = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
@@ -191,6 +195,68 @@ describe('the guarded-egress ban bites', { tags: ['slow'] }, () => {
   });
 });
 
+describe('the unfiltered-read ban bites', { tags: ['slow'] }, () => {
+  it('rejects a `…Unfiltered` call, which is a labeled read with the label check removed', async () => {
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const all = (repo: { listMessagesUnfiltered(): string[] }) => repo.listMessagesUnfiltered();',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toContain('no-restricted-syntax');
+  });
+
+  it('catches it on any repository shape, since the suffix is the whole convention', async () => {
+    for (const call of [
+      'repo.searchMemoriesUnfiltered(q)',
+      'uow.messages.listUnfiltered()',
+      'store.repos.memory.recentUnfiltered(10)',
+    ]) {
+      expect(
+        await rulesFiredFor(
+          UNFILTERED_READ_BAN,
+          `export const x = (repo: never, uow: never, store: never, q: never) => ${call};`,
+          'packages/engine/src/digest/build.ts',
+        ),
+        call,
+      ).toContain('no-restricted-syntax');
+    }
+  });
+
+  it('says what to do instead, rather than only refusing', async () => {
+    const message = await firstMessageFor(
+      UNFILTERED_READ_BAN,
+      'export const all = (repo: never) => repo.listMessagesUnfiltered();',
+      'packages/engine/src/digest/build.ts',
+    );
+    expect(message).toContain('EligibleLabelSet');
+    expect(message).toContain('02 §3.7.1');
+    expect(message).toContain('I1');
+  });
+
+  it('leaves an ordinary filtered read alone', async () => {
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const all = (repo: never, eligible: never) => repo.listMessages(eligible);',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toEqual([]);
+  });
+
+  it('is not fooled by a name that merely contains the word', async () => {
+    // `unfilteredCount` is not an unfiltered *read*; banning it would teach people to work around
+    // the rule, which is worse than not having it.
+    expect(
+      await rulesFiredFor(
+        UNFILTERED_READ_BAN,
+        'export const n = (repo: never) => repo.unfilteredCount();',
+        'packages/engine/src/digest/build.ts',
+      ),
+    ).toEqual([]);
+  });
+});
+
 describe('the real eslint.config.ts wires the bans to the right files', { tags: ['slow'] }, () => {
   /**
    * The effective **options**, not just the rule name.
@@ -279,6 +345,61 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
     }
   });
 
+  /** The `no-restricted-syntax` selectors the real config would apply to a path. */
+  const selectorsFor = async (file: string): Promise<string[]> => {
+    const rules = await configuredRulesFor(file);
+    const entry = rules['no-restricted-syntax'];
+    if (!Array.isArray(entry)) return [];
+    return entry
+      .slice(1)
+      .map((option) => (option as { selector?: string }).selector ?? '')
+      .filter((selector) => selector !== '')
+      .sort();
+  };
+
+  const UNFILTERED_SELECTOR = 'CallExpression > MemberExpression[property.name=/Unfiltered$/]';
+
+  it('bans the unfiltered-read call shape in the engine', async () => {
+    expect(await selectorsFor('packages/engine/src/digest/build.ts')).toContain(
+      UNFILTERED_SELECTOR,
+    );
+  });
+
+  it('allows it in the tool executor and in storage, which are the two listed callers', async () => {
+    for (const path of [
+      'packages/engine/src/tools-executor/scoped-repos/messages.ts',
+      'packages/storage/src/retention/sweep.ts',
+    ]) {
+      expect(await selectorsFor(path), `the ban leaked into ${path}`).not.toContain(
+        UNFILTERED_SELECTOR,
+      );
+    }
+    // And the exemption is listed rather than implicit.
+    expect(UNFILTERED_ALLOWED_GLOBS).toEqual([
+      'packages/engine/src/tools-executor/**',
+      'packages/storage/src/**',
+    ]);
+  });
+
+  it('keeps every security selector wherever the unfiltered ban applies', async () => {
+    // The trap that left core's `Date` ban inert for most of M0: flat config **replaces** a rule's
+    // options. `comvivo/unfiltered-reads` sets `no-restricted-syntax`, which `comvivo/security-bans`
+    // also sets, so the later block has to carry both lists — asserted here rather than assumed.
+    const selectors = await selectorsFor('packages/engine/src/digest/build.ts');
+    const security = (SECURITY_RULES['no-restricted-syntax'] as { selector: string }[])
+      .slice(1)
+      .map((option) => option.selector);
+    for (const selector of security) {
+      expect(selectors, `the security selector ${selector} was replaced`).toContain(selector);
+    }
+  });
+
+  it('keeps the security selectors where the unfiltered ban is lifted', async () => {
+    const selectors = await selectorsFor('packages/storage/src/retention/sweep.ts');
+    expect(selectors.length).toBeGreaterThan(0);
+    expect(selectors).not.toContain(UNFILTERED_SELECTOR);
+  });
+
   it('bans the fetch global in the engine but allows it in an adapter', async () => {
     const engine = await configuredRulesFor('packages/engine/src/turn/engine.ts');
     expect(Object.keys(engine)).toContain('no-restricted-globals');
@@ -292,5 +413,156 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
       adapterRestricted,
       'the fetch ban leaked into a channel adapter, which must call its platform directly',
     ).toBeUndefined();
+  });
+});
+
+describe('the synchronous-transaction ban bites (01 §1, 02 §3.7.2)', { tags: ['slow'] }, () => {
+  // `M1-T9`'s acceptance criterion: "the lint rule fails on a fixture that awaits inside a tx".
+  // These *are* the fixtures — lint snippets rather than committed files, so a fixture cannot rot
+  // into something the rule no longer looks at while the test keeps passing.
+  it.each([
+    ['store.write with an async arrow', 'export const f = (s: any) => s.write(async () => 1);'],
+    [
+      'store.read with an async arrow',
+      'export const f = (s: any) => s.read(async () => { await 0; return 1; });',
+    ],
+    [
+      'an async function expression',
+      'export const f = (s: any) => s.write(async function () { await 0; });',
+    ],
+    [
+      'an await actually inside the callback',
+      'export const f = (s: any) => s.write(async () => { await Promise.resolve(); });',
+    ],
+    [
+      'a raw db.transaction with an async callback',
+      'export const f = (d: any) => d.transaction(async () => 1);',
+    ],
+  ])('rejects %s', async (_label, code) => {
+    expect(await rulesFiredFor(SYNC_TX_BAN, code, 'packages/engine/src/planted.ts')).toContain(
+      'no-restricted-syntax',
+    );
+  });
+
+  it.each([
+    ['a synchronous callback', 'export const f = (s: any) => s.write(() => 1);'],
+    [
+      'an async function that is not a transaction callback',
+      'export const f = async (): Promise<number> => { await 0; return 1; };',
+    ],
+    [
+      'awaiting outside the transaction, which is the correct shape',
+      'export const f = async (s: any) => { const v = await Promise.resolve(1); return s.write(() => v); };',
+    ],
+  ])('allows %s', async (_label, code) => {
+    expect(await rulesFiredFor(SYNC_TX_BAN, code, 'packages/engine/src/planted.ts')).not.toContain(
+      'no-restricted-syntax',
+    );
+  });
+
+  it('explains the consequence, not only the rule', async () => {
+    // A message that says "callbacks must be synchronous" teaches nothing. The reason — an empty
+    // commit, no isolation, nothing thrown — is what stops somebody working around it.
+    const message = await firstMessageFor(
+      SYNC_TX_BAN,
+      'export const f = (s: any) => s.write(async () => 1);',
+      'packages/engine/src/planted.ts',
+    );
+    expect(message).toMatch(/commits an empty transaction/);
+    expect(message).toMatch(/no isolation, no rollback/);
+  });
+});
+
+describe('only SqliteStore may open a transaction (02 §3.7.2)', { tags: ['slow'] }, () => {
+  it.each([
+    ['db.transaction', 'export const f = (d: any) => d.transaction(() => 1);'],
+    ['orm.transaction', 'export const f = (o: any) => o.transaction(() => 1);'],
+    ['a transaction called immediately', 'export const f = (d: any) => d.transaction(() => 1)();'],
+  ])('rejects %s', async (_label, code) => {
+    expect(
+      await rulesFiredFor(RAW_TRANSACTION_BAN, code, 'packages/engine/src/planted.ts'),
+    ).toContain('no-restricted-syntax');
+  });
+
+  it.each([
+    ['store.write', 'export const f = (s: any) => s.write(() => 1);'],
+    ['a variable merely named transaction', 'export const transaction = 1;'],
+    ['a property read without a call', 'export const f = (d: any) => d.transaction;'],
+  ])('allows %s', async (_label, code) => {
+    expect(
+      await rulesFiredFor(RAW_TRANSACTION_BAN, code, 'packages/engine/src/planted.ts'),
+    ).not.toContain('no-restricted-syntax');
+  });
+
+  it('names the alternative, so the rule is actionable', async () => {
+    const message = await firstMessageFor(
+      RAW_TRANSACTION_BAN,
+      'export const f = (d: any) => d.transaction(() => 1);',
+      'packages/engine/src/planted.ts',
+    );
+    expect(message).toMatch(/store\.write\(fn\)/);
+    expect(message).toMatch(/IMMEDIATE lock/);
+  });
+});
+
+describe('the four no-restricted-syntax classes get exactly their own union', {
+  tags: ['slow'],
+}, () => {
+  /**
+   * The assertion that catches the flat-config trap.
+   *
+   * ESLint flat config **replaces** a rule's options and the last matching block wins, so two
+   * independent allowlists produce four path classes that each have to restate their whole union.
+   * Both failure directions have happened here: `comvivo/guarded-egress` silently removed core's
+   * `Date` ban for most of M0, and the first version of `restrictedSyntaxBlocks` flagged the
+   * spike's legitimate `db.transaction()` calls while handing `tx.ts` back the `…Unfiltered` ban it
+   * is allowlisted against.
+   *
+   * Asserted on the **effective options** per path rather than on the config's shape, because the
+   * shape is exactly what looks right while the effect is wrong.
+   */
+  const selectorsFor = async (file: string): Promise<string[]> => {
+    const rules = await configuredRulesFor(file);
+    const entry = rules['no-restricted-syntax'];
+    const options = Array.isArray(entry) ? entry.slice(1) : [];
+    return options.map((option) => (option as { selector: string }).selector);
+  };
+
+  const fragmentOf = (rules: typeof SYNC_TX_BAN): string =>
+    ((rules['no-restricted-syntax'] as { selector: string }[])[1] as { selector: string }).selector;
+
+  it.each([
+    // [path, raw-transaction ban applies?, `…Unfiltered` ban applies?]
+    ['packages/engine/src/index.ts', true, true],
+    ['packages/storage/src/db/open.ts', true, false],
+    ['packages/storage/spike/bench.ts', false, true],
+    ['packages/storage/src/db/tx.ts', false, false],
+    ['packages/storage/spike/vec.spike.test.ts', false, false],
+  ])('%s — rawTx: %s, unfiltered: %s', async (file, rawTx, unfiltered) => {
+    const selectors = await selectorsFor(file);
+    const syncTx = fragmentOf(SYNC_TX_BAN);
+    const raw = fragmentOf(RAW_TRANSACTION_BAN);
+    const unfilteredSelector = fragmentOf(UNFILTERED_READ_BAN);
+
+    // The synchronous-transaction ban is never exempt — a transaction callback that awaits is
+    // wrong in a test, in the spike, and in `tx.ts` itself.
+    expect(selectors, `${file} must keep the sync-transaction ban`).toContain(syncTx);
+    expect(selectors.includes(raw), `${file} raw-transaction ban`).toBe(rawTx);
+    expect(selectors.includes(unfilteredSelector), `${file} …Unfiltered ban`).toBe(unfiltered);
+  });
+
+  it('keeps the security selectors on every class', async () => {
+    // The M0 defect in its original form: a narrower block quietly dropping a ban it never
+    // mentioned.
+    const security = fragmentOf(SECURITY_RULES);
+    for (const file of [
+      'packages/engine/src/index.ts',
+      'packages/storage/src/db/open.ts',
+      'packages/storage/spike/bench.ts',
+      'packages/storage/src/db/tx.ts',
+      'packages/storage/spike/vec.spike.test.ts',
+    ]) {
+      expect(await selectorsFor(file), `${file} must keep the security bans`).toContain(security);
+    }
   });
 });

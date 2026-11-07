@@ -33,6 +33,24 @@ export const LOG_EVENTS = {
   'secret.loaded': 'secret loaded',
   'secret.missing': 'secret missing',
 
+  // --- Storage ---------------------------------------------------------------------------------
+  /**
+   * A transaction held the write lock longer than `storage.slowTxMs` (`02` §3.7.2).
+   *
+   * `op` and a duration, never parameters. On a Pi the write lock is the one resource everything
+   * else waits on, so this is the signal that separates "the Pi is slow" from "one transaction is
+   * holding the database".
+   */
+  'storage.slow_tx': 'a transaction held the database longer than the threshold',
+  /**
+   * An `afterCommit` hook threw.
+   *
+   * The transaction already committed, so the hook's failure is logged and swallowed — reporting a
+   * committed write as a failure would invite a retry of a change that already landed, which for
+   * the outbox means sending twice (I6).
+   */
+  'storage.after_commit_failed': 'an afterCommit hook failed',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',

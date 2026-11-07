@@ -15,6 +15,22 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "default": "./dist/crypto/index.js"
+    },
+    "./datadir": {
+      "types": "./dist/datadir/index.d.ts",
+      "default": "./dist/datadir/index.js"
+    },
+    "./db": {
+      "types": "./dist/db/index.d.ts",
+      "default": "./dist/db/index.js"
+    },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"
@@ -26,13 +42,26 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
-    "test": "vitest run"
+    "test": "pnpm -w exec vitest run packages/storage",
+    "bench:storage": "tsx spike/bench.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {
     "@comvivo/core": "workspace:*",
-    "@comvivo/shared": "workspace:*"
+    "@comvivo/shared": "workspace:*",
+    "better-sqlite3": "npm:better-sqlite3-multiple-ciphers@13.0.3",
+    "better-sqlite3-multiple-ciphers": "catalog:",
+    "drizzle-orm": "catalog:",
+    "libsodium-wrappers": "catalog:",
+    "sqlite-vec": "catalog:",
+    "tar-stream": "catalog:",
+    "temporal-polyfill": "catalog:"
   },
   "devDependencies": {
-    "vitest": "catalog:"
+    "drizzle-kit": "catalog:",
+    "fast-check": "catalog:",
+    "vitest": "catalog:",
+    "yaml": "catalog:"
   }
 }

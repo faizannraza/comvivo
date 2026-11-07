@@ -1,7 +1,7 @@
 # 02 — Domain Model & Storage
 
 > Status: **draft for review**. Elaborates `01-architecture.md` §1 ("Atomic effects plus turn journal"), §5 (domain model), §6.4 (jobs), §8 (reliability), ADR-005, ADR-007, ADR-011, ADR-012 and ADR-019. It must not contradict `00` or `01`. Suggested spine changes are listed in §12 only.
-> Package: `@village/storage` (`packages/storage`). Ports live in `@village/core` (`packages/core/src/ports/storage/`). IDs and time helpers live in `@village/shared`.
+> Package: `@comvivo/storage` (`packages/storage`). Ports live in `@comvivo/core` (`packages/core/src/ports/storage/`). IDs and time helpers live in `@comvivo/shared`.
 > Milestones: **M1** (primary). Follow-ups in M3, M5, M6, M7, M8, M9, M12 and M14.
 > Reconciled with spine v1.1 (`01` §14 A1–A28) and `15` §2. Per A7, **this document is authoritative for the physical schema of every entity in the plan**, including those introduced by `03`–`11`; the owning document stays authoritative for semantics. Crypto constructions (key tree, wrap algorithms, `VBK1`) are owned by `08` §3.7 (A8, A10); this document gives the storage mechanics.
 
@@ -97,7 +97,7 @@ This document specifies how Village persists state: correctly, privately, crash-
 
 **Naming.** Tables use `snake_case` plural nouns. Columns use `snake_case`; the TS properties are `camelCase`. Indexes are named `<table>_<cols>_idx`, unique indexes `<table>_<cols>_uq`, checks `<table>_<what>_ck` and triggers `trg_<table>_<what>`.
 
-**IDs (`@village/shared/src/ids.ts`).**
+**IDs (`@comvivo/shared/src/ids.ts`).**
 ```ts
 export const ID_PREFIX = {
   instance: 'inst', person: 'prs', channelIdentity: 'chid', group: 'grp', member: 'mbr', conversation: 'cnv',
@@ -283,8 +283,11 @@ export const groups = sqliteTable('groups', {
   id: tid('grp')('id').primaryKey(),
   name: text('name').notNull(),
   archetype: text('archetype', { enum: ARCHETYPES }).notNull(),   // 00 §5 list
-  constitutionVersionId: tid('cnst')('constitution_version_id')
-    .references((): AnySQLiteColumn => constitutionVersions.id),   // NULL only inside the creation tx
+  // NULL only inside the creation tx. **No foreign key**: `governance.ts` must import `groups.ts`
+  // for `constitution_versions.group_id`, so the reverse reference is a module cycle that
+  // dependency-cruiser refuses (found at M1-T12). The cascading direction is the one that matters;
+  // see the note in `packages/storage/src/schema/groups.ts`.
+  constitutionVersionId: tid('cnst')('constitution_version_id'),
   historyVisibility: text('history_visibility', { enum: ['since_join', 'all'] }).notNull().default('since_join'),
   timezone: tzText('timezone').notNull(),                  // 07 SC-2
   locale: text('locale').notNull().default('en'),           // 07 SC-2
@@ -402,7 +405,7 @@ export const labels = sqliteTable('labels', {
   groupId: tid('grp')('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
   readerSetId: integer('reader_set_id').notNull().references(() => readerSets.id),
   ownerMemberId: tid('mbr')('owner_member_id').references(() => members.id),        // NULL = 'group'
-  coOwnerMemberIds: jsonOf(z.array(idSchema('mbr')).max(64), 'labels.co_owners')('co_owner_member_ids').notNull(), // sorted; excludes owner (A5)
+  coOwnerMemberIds: jsonOf(z.array(idSchema('mbr')).max(64), 'labels.co_owner_member_ids')('co_owner_member_ids').notNull(), // sorted; excludes owner (A5)
   sensitivity: text('sensitivity', { enum: ['normal', 'personal', 'sensitive'] }).notNull(),
   influence: text('influence', { enum: ['none', 'constraints'] }).notNull(),
   untrusted: bool('untrusted').notNull(),
@@ -433,20 +436,28 @@ export const declassifications = sqliteTable('declassifications', {   // I2 "rec
 
 #### 3.3.3 Messages & attachments — `messages.ts`
 ```ts
-> **`kind='assistant'`, not `kind='village'`** (decided 2026-11-03, M0 exit gate; STATUS → Plan
-> changes). The enum value was named after the product. A column **value** named after the brand
-> turns a rename into a data migration, which is precisely what ADR-024's `BRAND` indirection and
-> the rename codemod exist to prevent — and the product has already been renamed once. Changed here
-> rather than at use, because `M1-T5` writes this table's first migration and that is the last
-> moment the change is free. Every later reference in this document and in `06` reads `village` for
-> historical reasons; implement `assistant`.
+> **`kind` uses `'assistant'` for the agent's own messages, never the product's name** (decided
+> 2026-11-03, M0 exit gate; STATUS → Plan changes). The value was originally named after the
+> product. A column **value** named after the brand turns a rename into a data migration, which is
+> precisely what ADR-024's `BRAND` indirection and the rename codemod exist to prevent — and the
+> product has already been renamed once. Changed at the schema rather than at each use, because the
+> migration that creates this table (`02:M1-T9`, canonical `M1-T13`) is the last moment the change
+> is free.
+>
+> **This note demonstrated its own point, and was corrected at `M1-T11`.** It used to name the old
+> value as a contrast — "`'assistant'`, not `'<brand>'`" — and the rename codemod rewrote *both*
+> sides, leaving a sentence that said a thing was not itself. Its closing line, that later
+> references still read the old name, had stopped being true for the same reason. The codemod
+> exempts only the **bodies of HISTORY files** (`scripts/brand/rename-policy.ts`), so any other
+> passage that depends on quoting the superseded name will be erased on the next rename. State the
+> rule instead of quoting the old value, as this note now does.
 
 export const messages = sqliteTable('messages', {
   rid: integer('rid').primaryKey({ autoIncrement: true }),
   id: tid('msg')('id').notNull().unique(),
   groupId: tid('grp')('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
   conversationId: tid('cnv')('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['member', 'assistant', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`; was 'village' — see note below
+  kind: text('kind', { enum: ['member', 'assistant', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`; renamed off the brand — see the note above
   senderMemberId: tid('mbr')('sender_member_id').references(() => members.id),
   senderIdentityId: tid('chid')('sender_identity_id').references(() => channelIdentities.id, { onDelete: 'set null' }),
   platformMessageId: text('platform_message_id'),
@@ -684,8 +695,13 @@ export const events = sqliteTable('events', {
   index('events_group_start_idx').on(t.groupId, t.startAt),                                    // Q-CTX-6
   index('events_group_recurring_idx').on(t.groupId, t.recurrenceUntilAt).where(sql`${t.rrule} IS NOT NULL`), // Q-CTX-6b
   index('events_series_idx').on(t.seriesId),
-  uniqueIndex('events_subscription_src_uq').on(t.subscriptionId, t.sourceUid, sql`coalesce(${t.sourceRecurrenceId}, '')`)
-    .where(sql`${t.subscriptionId} IS NOT NULL`),                                              // Q-COO-6 feed diff
+  // Q-COO-6 feed diff, split in two: drizzle-kit 0.31.11 mangles a multi-argument function call in
+  // an index column list (it splits on the comma inside `coalesce`), so the equivalent pair of
+  // disjoint partial unique indexes is used instead. Found at M1-T12; see STATUS → Plan changes.
+  uniqueIndex('events_subscription_src_uq').on(t.subscriptionId, t.sourceUid)
+    .where(sql`${t.subscriptionId} IS NOT NULL AND ${t.sourceRecurrenceId} IS NULL`),
+  uniqueIndex('events_subscription_src_rec_uq').on(t.subscriptionId, t.sourceUid, t.sourceRecurrenceId)
+    .where(sql`${t.subscriptionId} IS NOT NULL AND ${t.sourceRecurrenceId} IS NOT NULL`),
 ]);
 export const eventOverrides = sqliteTable('event_overrides', {   // 07 EventOverride (A7)
   eventId: tid('evt')('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
@@ -1195,7 +1211,7 @@ export const turnTraces = sqliteTable('turn_traces', {
   createdAt: createdAt(), expiresAt: instantMs('expires_at').notNull(),
 }, (t) => [index('turn_traces_group_created_idx').on(t.groupId, t.createdAt),                 // Q-DASH-2
            index('turn_traces_expires_idx').on(t.expiresAt)]);                                // Q-RET-2
-export const turnTraceDebug = sqliteTable('turn_trace_debug', {   // 05 §3.10.1: only with VILLAGE_DEBUG_CONTENT=1; host-only; never exported
+export const turnTraceDebug = sqliteTable('turn_trace_debug', {   // 05 §3.10.1: only with COMVIVO_DEBUG_CONTENT=1; host-only; never exported
   turnId: tid('trn')('turn_id').primaryKey().references(() => turns.id, { onDelete: 'cascade' }),
   ciphertext: blob('ciphertext', { mode: 'buffer' }).notNull(),     // rendered requests/responses, field-encrypted
   expiresAt: instantMs('expires_at').notNull(),                      // 24 h (11 captured model I/O: configurable 1–30 d)
@@ -1229,7 +1245,7 @@ export const outboxMessages = sqliteTable('outbox_messages', {
   priority: text('priority', { enum: ['interactive', 'scheduled', 'background'] }).notNull().default('interactive'),  // 06
   expiryClass: text('expiry_class', { enum: ['must_deliver', 'timely', 'best_effort'] }).notNull().default('timely'),   // 06
   payload: jsonOf(OutboundPayloadSchema, 'outbox_messages.payload')('payload').notNull(),
-  parts: jsonOf(OutboxPartsSchema, 'outbox_messages.parts')('parts_json').notNull(),   // 06: [{index, platformMessageId, sentAt, possibleDuplicate?}]
+  parts: jsonOf(OutboxPartsSchema, 'outbox_messages.parts_json')('parts_json').notNull(),   // 06: [{index, platformMessageId, sentAt, possibleDuplicate?}]
   contentHash: blob('content_hash', { mode: 'buffer' }).notNull(),   // sha256 of normalized rendered text
   audienceReaderSetId: integer('audience_reader_set_id').notNull().references(() => readerSets.id),
   labelId: labelRef(),
@@ -1286,7 +1302,7 @@ export const jobs = sqliteTable('jobs', {
   kind: text('kind').notNull(),                           // JobKind registry key, e.g. 'extract.conversation'
   partitionKey: text('partition_key').notNull(),          // groupId | '_instance'
   serial: bool('serial').notNull(),                       // ≤ 1 leased job per partition for serial kinds
-  payload: text('payload').notNull(),                     // JSON; validated by JobKind.payload schema
+  payload: text('payload').notNull(),                     // JSON; validated by JobKind.payload schema; §3.3.9's 64 KiB cap is a CHECK (jobs_payload_size_ck), since the schema is per-kind
   status: text('status', { enum: ['queued', 'leased', 'succeeded', 'dead', 'cancelled'] }).notNull(),
   priority: integer('priority').notNull().default(0),     // higher first; −10..10
   runAt: instantMs('run_at').notNull(),
@@ -1371,7 +1387,7 @@ Tables for 06 onboarding, 09 auth, 10 extensions and 11 feedback are in §3.3.11
 
 | Column | Schema (exported from) | Owner | Max size (enforced by schema) |
 |---|---|---|---|
-| `messages.rich_text` | `RichTextSchema` (`@village/core/domain/rich-text`, §12 P1) | 06 | 64 KiB |
+| `messages.rich_text` | `RichTextSchema` (`@comvivo/core/domain/rich-text`, §12 P1) | 06 | 64 KiB |
 | `messages.forwarded` | `ForwardInfoSchema` (core) | 06 | 1 KiB |
 | `message_attachments.platform_ref` | `AttachmentRefSchema` (core) | 06 | 2 KiB |
 | `memory_items.content` / `.provenance` | `MemoryContentSchema` / `MemoryProvenanceSchema` (core/memory) | 04 | 8 KiB / 4 KiB |
@@ -1387,7 +1403,7 @@ Tables for 06 onboarding, 09 auth, 10 extensions and 11 feedback are in §3.3.11
 | `turn_effects.summary_params` / `.entity_refs` | `EffectSummaryParamsSchema` (`Record<string, string \| number \| boolean>`, ≤ 20 keys) / `EntityRef[] ≤ 50` | 05 | 4 KiB |
 | `turn_traces.*` | `TraceTriggerSchema`, `ContextManifestSchema` (ids + label ids only), `ModelCallTraceSchema`, `ToolCallTraceSchema`, `PolicyDecisionTraceSchema`, `GuardResultTraceSchema`, `LatencyTraceSchema` | 05 | 512 KiB total |
 | `audit_events.actor` / `.decision` / `.details` | `AuditActorSchema`, `AuditDecisionSchema`, `AuditDetailsSchema` (no free text) | 03 | 4 KiB |
-| `outbox_messages.payload` | `OutboundPayloadSchema` (`@village/core/domain/outbound`, §12 P1) | 05/06 | 64 KiB |
+| `outbox_messages.payload` | `OutboundPayloadSchema` (`@comvivo/core/domain/outbound`, §12 P1) | 05/06 | 64 KiB |
 | `jobs.payload` | per-kind `JobKindDef.payload` (§3.10.1) | each kind's owner | 64 KiB |
 | `job_schedules.spec` | `ScheduleSpecSchema` (§3.10.5) | 02 | — |
 | `*.last_error` | `ErrorInfoSchema` `{ code, message ≤ 500, retryable, at }`; never contains content | 02 | — |
@@ -1680,7 +1696,7 @@ INSERT INTO messages_fts(messages_fts, rank) VALUES('secure-delete', 1);   -- li
 | Option | Strengths | Weaknesses | Used for |
 |---|---|---|---|
 | `unicode61 remove_diacritics 2` | Correct word boundaries for EN/ES/PT/DE/FR/HI-Latin/AR. Folds "José"→"jose" and "Müller"→"muller". Index about 1–1.5× text size | No segmentation for CJK/Thai. No German compound splitting. No stemming | `messages_fts`, `memory_fts`, `entity_fts` |
-| `trigram remove_diacritics 1` | Language-agnostic substring matches (CJK, compounds, typos-in-middle). Needs ≥ 3 characters | About 3× larger. Weaker relevance | `memory_fts_tri` only (≤ 50k rows) |
+| `trigram remove_diacritics 1` | Language-agnostic substring matches (CJK, compounds, typos-in-middle). Needs ≥ 3 characters | About 3× larger. Weaker relevance. **A 1–2 character query matches nothing at all** — measured in `M1-T2`, and for CJK that is most short queries, because two characters is a whole word. `M6` retrieval must fall back to vector search below three characters rather than returning an empty result. The trigram tokenizer accepts `remove_diacritics` 0, 1 **and** 2 (SQLite 3.53.4); 1 and 2 fold identically and 0 does not fold at all, so the value that matters is "not 0" | `memory_fts_tri` only (≤ 50k rows) |
 | `porter unicode61` | English stemming | Mangles non-English tokens | not used. Morphology is covered by vector search |
 
 **Scope token.** The `scope` column holds `'g' || substr(group_id, 5)`, a single alphanumeric token such as `g01jd8…`. Queries always include `scope : "<token>"`, so the FTS index intersects with the group's doclist instead of scanning other groups' matches. The scope column's `bm25()` weight is `0.0`, so scope never affects ranking. `memory_fts_tri` has no scope column; trigram-tokenizing the token would be wasteful, so a join on `memory_items.group_id` filters by group instead.
@@ -1779,6 +1795,21 @@ This costs a lookup, not a re-embed. If step 1 finds no row, the repository sets
 | `chunk_size` | 256 | The default of 1,024 × 1.5 KB preallocates 1.5 MB per partition. 256 → 384 KB. Must be divisible by 8 |
 | Max k | 200 | 04 asks for ≤ 64. The cap protects latency |
 
+**Three vec0 constraints measured in `M1-T2`, each of which shapes the repository rather than the
+schema:**
+
+1. **A KNN query may only `ORDER BY distance`.** Any other ordering is rejected outright:
+   `Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries, not on other
+   columns`. So a caller that wants results in another order sorts them after the fact, and
+   `M1-T18` never builds a query that orders by `rowid` or by recency.
+2. **A rowid must bind as a SQLite integer.** better-sqlite3 binds a plain JavaScript `number` as
+   a float, so `.run(1, embedding)` fails with `Only integers are allows for primary key values`.
+   Every vec0 write binds a `BigInt` (or the statement opts into safe integers).
+3. **`trusted_schema` must stay ON.** With `OFF`, vec0 DML inside a trigger is refused at **run**
+   time (`unsafe use of virtual table`) while the DDL is accepted — so the memory-delete trigger
+   would look installed and throw on the first retraction. FTS5 is unaffected, which is why this
+   is one global switch over two different answers.
+
 **Insert path.** The `embed.items` job (payload per 04 §3.8.3: the listed memory ids, else the Q-JOB-6 backlog) processes ≤ 64 non-retracted memories with `embedding_state='pending'`. It embeds outside any transaction (CPU work, in the embedding worker), then in one `store.write`:
 1. Re-check that each row is still non-retracted with the same `label_id`.
 2. `INSERT INTO vec_… (rid, group_id, embedding, label_id, kind, state, valid_to_ms) VALUES (?,?,?,?,?,?,?)`, with the embedding bound as a little-endian `Float32Array` buffer.
@@ -1803,11 +1834,11 @@ A second statement then hydrates `memory_items` by `rid IN json_each(?)`. For sa
 
 #### 3.6.1 Key derivation (mechanics; the key tree is owned by 08 §3.7.2)
 ```
-unlock slots (keyring.json, 08 format "village-keyring/1", 0600):
+unlock slots (keyring.json, 08 format "comvivo-keyring/1", 0600):
   MK (master key: data/keys/master.key | OS keychain | env)  ─┐
   RK (printed recovery key "VRK1-…", never stored on host)    ─┼─ each wraps RDK_g (root data key of generation g)
   optional passphrase (scrypt N=2^17, r=8, p=1)               ─┘
-derive(purpose)  = HKDF-SHA256(ikm=RDK_g, salt=UTF-8(instanceId), info="village/v1/" + purpose, L=32)   // node:crypto.hkdfSync
+derive(purpose)  = HKDF-SHA256(ikm=RDK_g, salt=UTF-8(instanceId), info="comvivo/v1/" + purpose, L=32)   // node:crypto.hkdfSync
   db_key         = derive("db")
   blob_kek_g     = derive("blob-kek")             // blobs.kek_version stores g
   backup_kek     = derive("backup-kek")           // VBK1 backup-kek slot (§3.14)
@@ -1841,15 +1872,32 @@ export function openDatabase(o: OpenOptions): Database {
   return db;
 }
 ```
-- `auto_vacuum = INCREMENTAL` is set once, on creation (before the first table), by `initDatabase()`. After large purges, `PRAGMA incremental_vacuum(4096)` runs in chunks.
+- **`cacheSizeKiB` defaults to 196,608 (192 MiB), and that is not a tuning knob.** Measured in
+  `M1-T2`: with SQLCipher and a page cache smaller than the vector index, **every KNN query
+  re-reads and re-decrypts the whole partition.**
+
+  | 50k × 384-d vectors, k=16, label filter | p50 |
+  |---|---|
+  | SQLCipher, 8 MiB cache | **508 ms** |
+  | SQLCipher, 192 MiB cache | **5 ms** |
+  | plaintext, either cache | 15 ms |
+
+  A 100× cliff from one pragma, and it falls on the wrong side of §3.16.4's 60 ms KNN budget by
+  8×. The index is ~1.6 KiB per vector (77 MiB for 50k × 384-d), so 192 MiB covers the
+  `stress-50k-1m` profile's largest partition with room to spare, and costs 2.4% of a Pi 5's
+  memory. `comvivo doctor` warns when the configured cache is smaller than the largest vector
+  partition (`09` §C), because the symptom otherwise is "search feels slow" with nothing in the
+  logs. `M1-T33` confirms the default against the real seed profiles on both architectures.
+- `auto_vacuum = INCREMENTAL` is set once, on creation, by `initDatabase()` — **before `journal_mode = WAL`**, not merely before the first table. Measured in `M1-T8` on better-sqlite3-multiple-ciphers 13.0.3, encrypted and plain: once WAL is recorded in the file header the pragma **reports success and leaves the setting at 0**, and it cannot be recovered by switching back to `journal_mode = DELETE` or by acting before the first table. So `openDatabase` takes an `onCreated` hook that runs after the key check and before the pragma list, and `initDatabase` sets `auto_vacuum` there and reads it back. A boot that created the file and then failed before any table leaves a database that can never reclaim space; `initDatabase` removes such a file (zero tables ⇒ zero rows) and creates it again. After large purges, `PRAGMA incremental_vacuum(4096)` runs in chunks.
 - `mmap_size` stays 0, because memory-mapped I/O bypasses the codec.
 - `trusted_schema` stays at its default (ON). `OFF` would be good hardening, but with `OFF` SQLite allows a virtual table inside triggers only if it is marked `SQLITE_VTAB_INNOCUOUS`, and vec0 may not be marked that way (unverified). The spike tests FTS and vec triggers under `trusted_schema=OFF` (U6) and turns it on only if every trigger still works.
 - **WAL interplay.** WAL frames are expected to be encrypted (U2; the spike greps for canaries).
-  - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt.
+  - Rotating the data key (`village keys rotate-data`, semantics in 08 §3.7; CLI per 09 §C) re-derives `db_key` from the new RDK generation and, offline with the server stopped, runs `journal_mode=DELETE`, `PRAGMA rekey="x'…'"`, then `journal_mode=WAL`. This also gives a fresh salt. **Measured in `M1-T2`: `PRAGMA rekey` works directly in WAL mode too, and after either sequence the old key is refused and no plaintext remains in the file.** So the `journal_mode=DELETE` step is kept for the **salt**, not for correctness — `M1-T5` owns that part and should confirm the salt actually changes, because a rotation that reuses the salt is a rotation that did less than the host was told.
   - Converting a plaintext DB to encrypted (`encryptAtRest` flipped to true) uses the same procedure with `PRAGMA rekey` on a non-WAL DB.
   - After erasure flows and backups, run `PRAGMA wal_checkpoint(TRUNCATE)` so deleted content does not linger in the WAL.
-- **Process lock** (`src/db/lock.ts`). `data/village.lock` is created with `O_EXCL` and holds `{pid, bootId, startedAt, role}`.
-  - A stale lock (the pid is not alive) is replaced.
+- **Process lock** — **normative in `12` §3.7**, implemented in `src/datadir/lock.ts` as `run/comvivo.lock`. This section said `src/db/lock.ts` and `data/comvivo.lock` and described a three-field body; `12` §3.7 is the fuller specification (heartbeat, stale takeover, per-role locks) and is the one `M1-T7` built. Corrected here rather than in two places.
+  - Created with `O_EXCL`, holding `{pid, hostname, bootId, version, startedAt, heartbeatAt, role}`.
+  - A stale lock is replaced: the heartbeat is older than 60 s, or the hostname and boot id match and the pid is not alive.
   - A live lock means the CLI commands that need exclusivity (`restore`, `migrate`, offline `keys rotate-data`) exit with `STORAGE_LOCKED`.
   - Read-only CLI commands (`backup`, `export`) open their own connection with `busy_timeout`.
 - **Worker connections.** `openWorkerConnection(workerData)` re-derives `db_key` inside the worker from a `MessagePort`-transferred copy of the derived key. The copy is zeroed after open.
@@ -1860,7 +1908,7 @@ Run on **Node 26 (primary) and Node 24 ≥ 24.11** (`01` §14 A1) × darwin-arm6
 
 1. Pin `better-sqlite3-multiple-ciphers@13.0.3`, `sqlite-vec@0.1.9`, `drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`, `libsodium-wrappers` (exact version pinned in M1-T1) and, for the SP-2 comparison only, `sodium-native@5.2.0`. Record `sqlite_version()`, `sqlite3mc_version()` and `vec_version()`.
 2. Open via `openDatabase()` with a random raw key. Time 100 opens; the p50 must be < 20 ms. A larger number means the KDF is running, which fails U4 for that variant.
-3. Insert 10k rows containing the canary `VILLAGE-CANARY-7f3a` into a normal table, FTS5 (both tokenizers) and vec0. Verify that the canary does not appear in `village.db`, `-wal` or `-shm` (grep for raw bytes, UTF-16 and lowercase forms). Verify the file header is not `SQLite format 3\0`. (U2)
+3. Insert 10k rows containing the canary `COMVIVO-CANARY-7f3a` into a normal table, FTS5 (both tokenizers) and vec0. Verify that the canary does not appear in `comvivo.db`, `-wal` or `-shm` (grep for raw bytes, UTF-16 and lowercase forms). Verify the file header is not `SQLite format 3\0`. (U2)
 4. vec0:
    - partition key + metadata `IN` + `valid_to_ms` range KNN;
    - DELETE, including inside a trigger (U6);
@@ -2067,7 +2115,7 @@ SELECT e.* FROM turn_effects e JOIN outbox_messages o ON o.id = e.ack_outbox_id 
 stateDiagram-v2
   [*] --> pending: enqueued in turn/reminder tx
   pending --> sending: claim (lease 30 s)
-  sending --> sent: receipt (same tx inserts messages kind='village')
+  sending --> sent: receipt (same tx inserts messages kind='assistant')
   sending --> pending: retryable error (next_attempt_at = backoff)
   sending --> pending: lease expired / boot (maybe_sent = 1)
   sending --> dead: permanent error or attempts ≥ max
@@ -2088,7 +2136,7 @@ stateDiagram-v2
     ORDER BY o.next_attempt_at LIMIT :n)
   RETURNING *;
   ```
-- **Receipt.** `markSent(uow, id, attempts, platformMessageId)` runs `WHERE id=? AND status='sending' AND attempts=?` (fencing). In the same transaction it inserts the Village message into `messages` (`kind='village'`, the outbox `label_id`, a dedupe key derived from the receipt). The router can then detect "reply to a Village message" (Q-ING-5).
+- **Receipt.** `markSent(uow, id, attempts, platformMessageId)` runs `WHERE id=? AND status='sending' AND attempts=?` (fencing). In the same transaction it inserts the Village message into `messages` (`kind='assistant'`, the outbox `label_id`, a dedupe key derived from the receipt). The router can then detect "reply to a Village message" (Q-ING-5).
 - **Seq.** `seq = coalesce((SELECT max(seq) FROM outbox_messages WHERE conversation_id=?), 0) + 1`, computed inside the write transaction.
 - **Duplicate defense.**
   - (a) `idempotency_key UNIQUE` (I6). Enqueue uses `INSERT … ON CONFLICT(idempotency_key) DO NOTHING RETURNING id`; a missing row means it was already enqueued.
@@ -2129,7 +2177,7 @@ export interface JobKindDef<P> {
 | `declassify.item` | 03 | G | model | Private item with `influence=constraints` created/updated |
 | `proposal.deadline` / `confirmation.expire` / `consent.grace` / `constraint.expire` | 03 (confirmation also 05) | G | io | Durable governance timers |
 | `fairness.ledger.rollup` | 03 | G | maintenance | Nightly |
-| `privacy.debug_banner` | 03 | I | io | At boot and every 24 h while `VILLAGE_DEBUG_CONTENT=1` (03 §3.11) |
+| `privacy.debug_banner` | 03 | I | io | At boot and every 24 h while `COMVIVO_DEBUG_CONTENT=1` (03 §3.11) |
 | `route.interjection` | 05 | G | model | Debounced per conversation (8 s quiet / 6 msgs) |
 | `turn.continue` | 05 | G, serial | model | Continuation of a timed-out turn (≤ 1 per root turn) |
 | `notify.members` | 05 | G | io | After commit of an `allow{notify}` decision |
@@ -2260,7 +2308,7 @@ export const TzRefSchema = z.union([
   z.object({ member: idSchema('mbr') }),                 // resolved: person.timezone ?? group.timezone
   z.object({ group: idSchema('grp') }),
 ]);
-// pure, in @village/shared/src/time/schedule.ts (core may import)
+// pure, in @comvivo/shared/src/time/schedule.ts (core may import)
 export function nextFireAfter(spec: ScheduleSpec, after: Temporal.Instant, tz: string): Temporal.Instant;
 ```
 **Evaluation algorithm** (cron and daily/weekly compile to the same field matcher):
@@ -2307,7 +2355,7 @@ offset  size  field
               chunk 0 AD = bytes[0..8) (magic ‖ version ‖ reserved); other chunks AD empty; last chunk TAG_FINAL
 ```
 **Binding.** The file cannot carry its own plaintext hash in AD, because the hash is only known at EOF and secretstream must be pushed in order. Identity binding comes from two things instead:
-- **Per-blob DEK.** The DEK is wrapped per 08 §3.7.10 (AES-256-GCM, `AAD = "village/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g`); `addr` already binds `groupId` and `sha256`, so a file swapped between rows fails to unwrap.
+- **Per-blob DEK.** The DEK is wrapped per 08 §3.7.10 (AES-256-GCM, `AAD = "comvivo/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g`); `addr` already binds `groupId` and `sha256`, so a file swapped between rows fails to unwrap.
 - **EOF check.** The reader verifies `sha256(plaintext) == row.sha256` at EOF.
 
 Header tampering fails the chunk-0 AD.
@@ -2325,7 +2373,7 @@ Header tampering fails the chunk-0 AD.
 6. rename(tmp → final path)   // overwrites only an orphan file left by a crash (no row) — never a live blob
    fsync(dir)
 7. store.write: INSERT blobs(..., wrapped_dek = AES-256-GCM(blob_kek_g, nonce,
-                AAD="village/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g, dek), kek_version = g); zero dek   // 08 §3.7.10
+                AAD="comvivo/blob-dek/v1|" ‖ addr ‖ "|gen=" ‖ g, dek), kek_version = g); zero dek   // 08 §3.7.10
 ```
 - A crash before step 6 leaves a `.tmp` file, removed after 24 h.
 - A crash between steps 6 and 7 leaves an orphan file at its final path with no row. It is overwritten by the next `put` of the same content, or removed by orphan GC after 24 h.
@@ -2352,7 +2400,7 @@ Header tampering fails the chunk-0 AD.
 ### 3.12 Migrations
 
 #### 3.12.1 Authoring
-- **Schema changes:** edit `src/schema/*.ts`, then run `pnpm --filter @village/storage db:generate --name <slug>` (`drizzle-kit generate`).
+- **Schema changes:** edit `src/schema/*.ts`, then run `pnpm --filter @comvivo/storage db:generate --name <slug>` (`drizzle-kit generate`).
 - **Virtual tables, triggers and partial-index fixes:** run `drizzle-kit generate --custom --name <slug>` and write the SQL by hand.
 - **Data migrations:** add `src/migrate/data/<migrationId>.ts`, exporting `{ id, run(db: SyncDb, ctx: DataMigrationCtx): void }`. The function is synchronous, chunked internally, and idempotent. A data migration runs **after** the SQL migration with the same id, if one exists.
 - Generated SQL is committed and **never edited after release**. CI enforces this: `migrations.lock.json` holds a sha256 of every released migration, and the checksum test fails on drift.
@@ -2515,7 +2563,7 @@ The envelope, header fields, slot constructions and recovery-key format are **ow
 2. Run `PRAGMA quick_check` on the snapshot; anything other than `ok` → `BACKUP_INTEGRITY` and abort.
 3. Build `manifest.json` (below) with per-table row counts and the sha256 of the snapshot file.
 4. Shared blob store: for each `blobs` row, copy-if-absent `data/blobs/<path>` → `<backups>/blobstore/<addr>.vblob`. Use a hardlink when on the same filesystem. Files are already encrypted and immutable.
-5. Generate a random per-backup DEK; stream `tar(manifest.json, db/village.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
+5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
 6. Rotation: keep the newest `backups.keep` (14) archives. Remove `blobstore/` files not listed in any retained manifest's `blobs.jsonl`.
 
 The `--portable` flag (CLI) also embeds the referenced blob files under `blobs/` in the tar, giving a single file for off-site copies.
@@ -2542,7 +2590,7 @@ export const BackupManifestSchema = z.object({
   createdAt: z.string(), instanceId: idSchema('inst'),
   app: z.object({ version: z.string(), node: z.string(), sqlite: z.string(), sqlite3mc: z.string(), sqliteVec: z.string() }),
   schema: z.object({ lastMigrationId: z.string(), migrationCount: z.number().int() }),
-  db: z.object({ path: z.literal('db/village.db'), bytes: z.number().int(), sha256: z.string().length(64),
+  db: z.object({ path: z.literal('db/comvivo.db'), bytes: z.number().int(), sha256: z.string().length(64),
                  encrypted: z.boolean(), quickCheck: z.literal('ok') }),
   tables: z.record(z.string(), z.number().int()),                  // row counts
   embeddingSpaces: z.array(z.object({ id: z.string(), model: z.string(), dims: z.number().int(), status: z.string() })),
@@ -2560,7 +2608,7 @@ export const BackupManifestSchema = z.object({
 5. Verify blobs: every `blobs.jsonl` entry exists in `--blobs-from` (default `<backups>/blobstore`) or under `blobs/` in a portable archive, with matching size. A missing blob is a warning (`BLOB_MISSING_FILE`) unless `--strict`.
 6. If `manifest.schema` is newer than the binary → `SCHEMA_TOO_NEW` (upgrade first). If older → migrations run at next start.
 7. Swap atomically:
-   - rename `data/village.db*` → `data/pre-restore-<ts>/`;
+   - rename `data/comvivo.db*` → `data/pre-restore-<ts>/`;
    - move the restored DB in;
    - copy or link blobs into `data/blobs/`;
    - write `keyring.json`. If the archive's `RDK_g`/`instanceId` differ from the current keyring, the restored DB is **rekeyed** to the current `db_key` (offline `PRAGMA rekey` in DELETE journal mode), and blob DEKs are re-wrapped (`blob.rewrap`). Otherwise the archive's keyring generations are imported. On a fresh host restored with RK only, the user sets a new MK slot (08).
@@ -2626,6 +2674,11 @@ Audit growth dominates long-run size in busy groups. If it exceeds 25% of the DB
 
 #### 3.16.4 Expected latencies on Raspberry Pi 5 (8 GB, NVMe; all **estimates, U7**, to be replaced by M1-T25 measurements)
 
+> **Every KNN row below assumes a page cache larger than the vector index** (§3.6.2's 192 MiB
+> default). `M1-T2` measured the same query at 508 ms p50 with an 8 MiB cache and 5 ms with 192 MiB
+> on an Apple M1 — a 100× difference from one pragma, with the small-cache figure 8× outside the
+> budget. The estimates here are only reachable on the right side of that cliff.
+
 | Operation | Data size | p50 | p95 | Budget |
 |---|---|---|---|---|
 | Ingestion transaction (dedupe + identity + insert + FTS trigger + enqueue) | any | 0.6 ms | 2 ms | ≤ 3 ms of the 20 ms spine budget |
@@ -2660,7 +2713,7 @@ export interface SeedProfile {
 - **Vectors:** `normalize(centroid_c + N(0, σ))` with 64 random unit centroids per group. Uniform random vectors in high dimensions are nearly equidistant, which would make KNN timing and recall unrealistic.
 - **Write path:** raw prepared statements in 10k-row transactions with triggers enabled (so FTS is realistic) and vec inserts batched. It reports rows per second. Target: stress profile generated in ≤ 4 min on a GitHub `ubuntu-latest` runner and ≤ 15 min on a Pi 5 (estimates).
 - **Caching:** output goes to `.cache/perf-fixtures/<profile>-<hash(params, schemaLastId)>.db` (gitignored) and is reused across runs.
-- **CLI:** `pnpm --filter @village/storage seed --profile stress-50k-1m [--out path] [--seed 42]`.
+- **CLI:** `pnpm --filter @comvivo/storage seed --profile stress-50k-1m [--out path] [--seed 42]`.
 
 ---
 
@@ -2684,8 +2737,8 @@ export interface SeedProfile {
 | `migrate`, `MigrationSource`, `openDatabase`, `initDatabase`, `Keyring` | `storage` (not ports; infra) | `storage/migrate`, `storage/db`, `storage/crypto` | apps/server, apps/cli | ADR-005 |
 | `createBackup`, `restoreBackup`, `verifyBackup`, `exportGroup`, `exportMember` | `storage/backup`, `storage/export` | same | apps/cli, `backup.snapshot` job, 09 API | 01 §6.4 |
 | `seed(profile)` | `storage/perf/seed.ts` | same | evals, benches, 11 | 01 §11.10 |
-| `createTestDb({ encrypted?, seed? })`, `createTmpDbFile()`, `exportDomainState(groupId)` (canonical JSON of every domain table, for replay/chaos equality) | `@village/storage/testing` (`src/testing/*`) | same | 11 harness, every package's tests | 01 §11.5 |
-| In-memory repositories for the browser demo (M12-T70) | `@village/storage/memory` (browser-safe; no `node:*`) | same | 13 browser demo, 06 simulator in the browser | 01 §14 A11 |
+| `createTestDb({ encrypted?, seed? })`, `createTmpDbFile()`, `exportDomainState(groupId)` (canonical JSON of every domain table, for replay/chaos equality) | `@comvivo/storage/testing` (`src/testing/*`) | same | 11 harness, every package's tests | 01 §11.5 |
+| In-memory repositories for the browser demo (M12-T70) | `@comvivo/storage/memory` (browser-safe; no `node:*`) | same | 13 browser demo, 06 simulator in the browser | 01 §14 A11 |
 
 ### 4.2 Consumed
 
@@ -2698,7 +2751,7 @@ export interface SeedProfile {
 | `KeyedSerialExecutor` (group actors) | engine (05) | Job handlers' final writes run inside the actor |
 | Embedding provider (`ModelGateway.embed`) | models (ADR-007) | `embed.items`, `memory.reembed` |
 
-### 4.3 Error codes (`StorageErrorCode`, in `@village/shared/errors`)
+### 4.3 Error codes (`StorageErrorCode`, in `@comvivo/shared/errors`)
 ```ts
 export type StorageErrorCode =
   | 'STORAGE_KEY_MISSING' | 'STORAGE_KEY_INVALID' | 'STORAGE_EXTENSION_LOAD_FAILED' | 'STORAGE_VERSION_UNSUPPORTED'
@@ -2750,7 +2803,7 @@ The spine keys (01 §10) are unchanged. New keys sit under `storage`, `jobs`, `o
 | `backups.dir` ⓑ | `${dataDir}/backups` | writable | may be a mounted external disk |
 | `backups.schedule` | `{ kind: daily, at: '03:30', tz: { fixed: <instance tz> } }` | `ScheduleSpecSchema` | |
 | `backups.blobMode` | `shared` | `shared \| embedded \| none` | `none` = DB only |
-| `backups.passphraseSlot` | `false` | bool | the passphrase is entered via CLI/env `VILLAGE_BACKUP_PASSPHRASE`, never stored |
+| `backups.passphraseSlot` | `false` | bool | the passphrase is entered via CLI/env `COMVIVO_BACKUP_PASSPHRASE`, never stored |
 | `backups.preMigrationKeep` | 3 | 0–20 | |
 
 All keys are defined in `packages/shared/src/config/storage.ts` as zod schemas with `.describe()` text; the generated config reference (M9) uses them. Validation errors abort startup with the key path and the reason.
@@ -2762,7 +2815,7 @@ All keys are defined in `packages/shared/src/config/storage.ts` as zod schemas w
 | # | Failure / edge case | Detection | Handling |
 |---|---|---|---|
 | F1 | Wrong or missing master key | `STORAGE_KEY_INVALID` on the verify read; `STORAGE_KEY_MISSING` | Abort startup with guidance (`village doctor --check keys`; `village keys status`). Never create a new DB over an existing file |
-| F2 | sqlite-vec fails to load (unsupported platform, e.g. musl) | `STORAGE_EXTENSION_LOAD_FAILED` | Abort with a platform message. Hosts can set `VILLAGE_VECTOR_FALLBACK=memory` to use the §3.6.5 in-memory index (degraded mode logged and shown in the dashboard) |
+| F2 | sqlite-vec fails to load (unsupported platform, e.g. musl) | `STORAGE_EXTENSION_LOAD_FAILED` | Abort with a platform message. Hosts can set `COMVIVO_VECTOR_FALLBACK=memory` to use the §3.6.5 in-memory index (degraded mode logged and shown in the dashboard) |
 | F3 | Disk full mid-transaction | `SQLITE_FULL` → `STORAGE_IO` | The transaction rolls back. Ingestion acks the platform update but marks the conversation `degraded`. Proactive jobs pause, and an admin alert is sent once per hour. Blob writes check `minFreeBytes` first |
 | F4 | `kill -9` mid-transaction | — | WAL guarantees atomicity. Boot: lease recovery, `sending` → `pending maybe_sent`, orphan-turn recovery (§3.8) |
 | F5 | Crash between blob file write and DB row | GC | Orphan `.tmp` and final-path files are swept after 24 h. Rows are inserted only after the file is in place, so a row never points at a missing file (§3.11) |
@@ -2902,7 +2955,7 @@ All tests use Vitest. Property tests use fast-check 4 with `numRuns` 200 locally
 - `turn-journal.recovery.test`: effects without completion → recovery query finds them → `recover()` acks all → I7 query empty.
 - `outbox.crash.test` (child process `kill -9` at 5 injected points: after enqueue, after claim, after send-before-receipt, after receipt) → no logical duplicate and no loss across 50 iterations.
 - `migrations.*` (§3.12.6).
-- `encryption.at-rest.canary.test`: the canary is absent from `village.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
+- `encryption.at-rest.canary.test`: the canary is absent from `comvivo.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
 - `backup.roundtrip.test`: seed (`release-small` + blobs), `createBackup`, `restoreBackup` into a new dataDir, then a logical dump (all tables as sorted JSONL, excluding `app_meta.restored_from`) equals the original. A **recovery-key-only** restore into an empty dataDir succeeds (A10); a passphrase-slot restore succeeds when the slot exists.
 - `backup.tamper.test`: flip one byte in each region (header, chunk 0, middle, last) → `BACKUP_INTEGRITY` or `BACKUP_KEY_MISMATCH`. Truncation is detected.
 - `blob.tamper.test`, `blob.gc.test` (unreference → grace → deleted; orphan file swept), `blob.quota.test`.
@@ -2930,7 +2983,7 @@ Random `kill -9` every 0.5–5 s for 10 minutes under a simulated 5-group load. 
 
 | ID | Task | Files | Acceptance criteria | Deps |
 |---|---|---|---|---|
-| M1-T1 | Scaffold `@village/storage`. Pin deps exactly (`better-sqlite3-multiple-ciphers@13.0.3`, `sqlite-vec@0.1.9`, `drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`, `libsodium-wrappers` (exact version), `tar-stream`, `temporal-polyfill@1.0.6`; `sodium-native@5.2.0` only if SP-2 fails, D13). Add dependency-cruiser rules (storage → core, shared only; `…Unfiltered` import restrictions; `MemorySearchPort` only from `engine/context` and `engine/readmodels`, `01` §14 A11) | `packages/storage/package.json`, `tsconfig.json`, `drizzle.config.ts`, `.dependency-cruiser.cjs` | `pnpm -F @village/storage build test lint` green; depcruise rules fail on a planted violation | M0 |
+| M1-T1 | Scaffold `@comvivo/storage`. Pin deps exactly (`better-sqlite3-multiple-ciphers@13.0.3`, `sqlite-vec@0.1.9`, `drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`, `libsodium-wrappers` (exact version), `tar-stream`, `temporal-polyfill@1.0.6`; `sodium-native@5.2.0` only if SP-2 fails, D13). Add dependency-cruiser rules (storage → core, shared only; `…Unfiltered` import restrictions; `MemorySearchPort` only from `engine/context` and `engine/readmodels`, `01` §14 A11) | `packages/storage/package.json`, `tsconfig.json`, `drizzle.config.ts`, `.dependency-cruiser.cjs` | `pnpm -F @comvivo/storage build test lint` green; depcruise rules fail on a planted violation | M0 |
 | M1-T2 | **Encryption/extension spike** per §3.6.3 on darwin-arm64, linux-x64, linux-arm64 (Pi 5) and the Docker base. Record outcomes U1–U7 and pick the D8/D9 branch | `packages/storage/spike/*.test.ts`, `docs/architecture/storage-spike.md` | Written report with a decision-matrix outcome. Spike tests kept as the regression suite `spike.*`. ADR-005 addendum drafted | M1-T1 |
 | M1-T3 | IDs, clock and canonical JSON in shared: TypeID branded types, prefix registry, `parseId`, `idSchema`, monotonic `IdGenerator`, ms `Clock` with monotonic guard, RFC 8785 `canonicalJson` | `packages/shared/src/ids.ts`, `time/clock.ts`, `json/canonical.ts` | Unit + property tests (sortability, round-trip, JCS test vectors from RFC 8785 Appendix) | M0 |
 | M1-T4 | Keyring and crypto mechanics per 08 §3.7: keyring.json slots (MK, recovery key, optional scrypt passphrase) unwrapping RDK, HKDF derivations (§3.6.1), AES-256-GCM wraps, secretstream stream wrappers (Node `Transform`) over a `SecretStream` interface with `libsodium-wrappers` and `sodium-native` implementations | `src/crypto/{keyring,hkdf,aead,secretstream,passphrase}.ts` | Known-answer tests (libsodium vectors; RFC 5869). Both secretstream implementations produce identical bytes. Buffer zeroing verified. SP-2 throughput bench recorded (≥ 40 MB/s on Pi 5 or the sodium-native switch is filed) | M1-T1 |
@@ -2960,7 +3013,7 @@ Random `kill -9` every 0.5–5 s for 10 minutes under a simulated 5-group load. 
 ### Follow-ups
 | ID | Task | Files | Acceptance criteria | Deps |
 |---|---|---|---|---|
-| M3-T-S1 | Outbox dispatcher integration hooks (receipt → `messages(kind='village')`), ingestion dedupe-key computation shared with adapters | `src/outbox/*`, `engine/ingestion` | Real Telegram crash test: 0 duplicates in 50 kills (with 05/06) | M1-T18 |
+| M3-T-S1 | Outbox dispatcher integration hooks (receipt → `messages(kind='assistant')`), ingestion dedupe-key computation shared with adapters | `src/outbox/*`, `engine/ingestion` | Real Telegram crash test: 0 duplicates in 50 kills (with 05/06) | M1-T18 |
 | M3-T-S2 | 06 tables of §3.3.1/§3.3.11: `chat_bindings`, `channel_chat_aliases`, `dm_contexts`, `claim_codes`, `link_codes`, `interaction_tokens`, `channel_state`, `rate_limits`, `message_reactions`; ingestion writes `attachment.fetch` jobs | `src/schema/{groups,onboarding,messages}.ts`, `src/repos/{bindings,onboarding}.ts` | Unclaimed chat persists only a `chat_bindings` row (test asserts zero `messages`/`persons` rows); claim code single-use under concurrency; chat migration re-targets pending outbox rows in one tx; ingestion p95 ≤ 3 ms unchanged with attachments | M1-T13 |
 | M5-T-S1 | Swap the stub for the real 03 `InformationFlow` in `computeEligible`. Run `labels.eligibility-equivalence.property` and `export.member-scope.property` against it. Add the I1 storage-level red-team cases from 11 | `core/ifc/eligible.ts`, tests | Properties green at 1,000 runs nightly | 03 M5 |
 | M5-T-S2 | `deleteByLabelOwner` filters as specified by 03 departure policies; `ExportPolicy` hook wired | `src/retention/*`, `src/export/*` | 03 policy tests green | M5-T-S1 |
@@ -2971,7 +3024,7 @@ Random `kill -9` every 0.5–5 s for 10 minutes under a simulated 5-group load. 
 | M7-T-S2 | 07 tables of §3.3.5: `event_overrides`, `event_attendee_overrides`, `calendar_subscriptions`, `ics_feed_tokens`, `reminder_firings`, `task_swaps`, `list_category_overrides`, `poll_counts`, `catchup_cursors`; M8: `proactive_candidates`, `proactivity_feedback`, outbox `message_class` queries | `src/schema/{calendar,reminders,tasks,lists,polls,proactivity}.ts`, `src/repos/*` | `reminder_firings` unique key prevents a double fire under concurrent `reminder.fire` (property); Q-COO-6 subscription diff uses the unique index (`EXPLAIN`); Q-OBX-5 counts only `proactive` | M1-T15 |
 | M9-T-S1 | Auth tables of §3.3.11 (`sessions`, `login_tokens`, `pairings`, `claim_codes` hardening, `invite_codes`, `step_up_challenges`, `idempotency_keys`, `ha_links`, `domain_events`, `exports`) and the settings repository API for the dashboard | `src/schema/auth.ts`, `src/repos/{auth,settings}.ts` | Migration + contract tests; secrets stored only as hashes (a test greps every row for raw token bytes); atomic single-use consume for login tokens and claim codes | M1-T10 |
 | M12-T-S1 | 10/11 tables of §3.3.12 (`plugin_*`, `group_extensions`, `mcp_*`, `skill_records`, `feedback_items`) and `groups.extensions_version` bump in the same tx as any `group_extensions` change | `src/schema/{extensions,feedback}.ts`, `src/repos/{extensions,feedback}.ts` | Contract tests; MCP token lookup by embedded id + constant-time hash compare; snapshot approval creates `version+1`; retention of egress/access logs (30 d) and MCP idempotency (24 h) verified | M1-T10 |
-| M12-T70 | Browser-safe repository set for 13's browser demo (`@village/storage/memory`, requested by 13 §4.5; R4) | `src/memory/*`, `package.json#exports['./memory']` | Implements the same synchronous repository ports (A8) the simulator and demo use, including `LabelStore` and an `EligibleLabelSet` filter computed by core `canRead`; no `node:*` and no `better-sqlite3` import (A11 depcruise rule); passes the repository contract-test subset tagged `demo`; refuses to load when `NODE_ENV=production`; no encryption (demo data only). If SP-10 (M12) shows a WASM SQLite build is smaller and faster, ship that behind the same entry point instead and record the choice in an ADR | M12-T-S1, 13: browser demo |
+| M12-T70 | Browser-safe repository set for 13's browser demo (`@comvivo/storage/memory`, requested by 13 §4.5; R4) | `src/memory/*`, `package.json#exports['./memory']` | Implements the same synchronous repository ports (A8) the simulator and demo use, including `LabelStore` and an `EligibleLabelSet` filter computed by core `canRead`; no `node:*` and no `better-sqlite3` import (A11 depcruise rule); passes the repository contract-test subset tagged `demo`; refuses to load when `NODE_ENV=production`; no encryption (demo data only). If SP-10 (M12) shows a WASM SQLite build is smaller and faster, ship that behind the same entry point instead and record the choice in an ADR | M12-T-S1, 13: browser demo |
 | M14-T-S1 | CLI wiring hardening for `backup`/`restore`/`verify`/`prune`/`export`/`migrate` (with 12): progress, exit codes, `--portable` | `apps/cli` | E2E CLI tests on Linux/macOS/Pi | M1-T23, M1-T24 |
 | M14-T-S2 | Release DB fixtures + `migrations.upgrade-from-<v>` for every release; release checklist step | `fixtures/db/`, `.github/workflows/release.yml` | Upgrade tests run in CI for all released versions | M1-T10 |
 | M14-T-S3 | `backup.verify` weekly job + restore drill in CI (restore the newest nightly artifact, then run smoke evals) | `src/backup/verify.ts`, CI | Drill green for 7 consecutive nights | M1-T23 |
@@ -3003,7 +3056,7 @@ Random `kill -9` every 0.5–5 s for 10 minutes under a simulated 5-group load. 
 
 | # | Change | Rationale | Status |
 |---|---|---|---|
-| P1 | Move the **rich-text AST zod schema/types** and the **`OutboundPayload` schema** into `@village/core/domain` (`rich-text.ts`, `outbound.ts`). `@village/channel-sdk` re-exports them and keeps ownership of renderers. 01 §3 currently places the AST in `channels/sdk` | `storage` must validate `messages.rich_text` and `outbox_messages.payload` (01 §11.2), but by 01 §4 storage may import only `core` and `shared` | → Accepted, owned here (with 06): schemas live in `@village/core/domain`, channel-sdk re-exports them; consistent with A11 (no `node:*` in core) |
+| P1 | Move the **rich-text AST zod schema/types** and the **`OutboundPayload` schema** into `@comvivo/core/domain` (`rich-text.ts`, `outbound.ts`). `@comvivo/channel-sdk` re-exports them and keeps ownership of renderers. 01 §3 currently places the AST in `channels/sdk` | `storage` must validate `messages.rich_text` and `outbox_messages.payload` (01 §11.2), but by 01 §4 storage may import only `core` and `shared` | → Accepted, owned here (with 06): schemas live in `@comvivo/core/domain`, channel-sdk re-exports them; consistent with A11 (no `node:*` in core) |
 | P2 | Refine `Blob` (01 §5): identity is `(groupId, sha256)` and **the label lives on the referencing attachment**, not on the blob | Content-addressed blobs can be referenced by rows with different labels. Per-group identity keeps I4 and group purge simple | → Resolved: 01 §14 A8 |
 | P3 | ADR-005 clarification: repository ports are **synchronous** in 1.0, and code inside `store.write` callbacks may only call repositories and pure functions (lint-enforced). A post-1.0 Postgres adapter will need an async `Store` variant; this rule makes that conversion a mechanical codemod (`await` repo calls inside `async write`), and Postgres permits awaits inside a transaction | Makes the "Postgres later" promise honest without weakening the "no await inside a transaction" rule for SQLite | → Resolved: 01 §14 A8 |
 | P4 | ADR-005 addendum: SQLite3MC is configured explicitly with `cipher='sqlcipher', legacy=4` and a raw HKDF-derived key. Its default (sqleet/ChaCha20) is not SQLCipher-compatible | The spine says "SQLCipher-compatible", which holds only with explicit configuration | → Resolved: 01 §14 A8 |

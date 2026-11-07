@@ -15,6 +15,11 @@ naming/
 __pycache__/
 *.pyc
 
+# The storage spike generates a throwaway migration to prove `drizzle-kit` can express a partial
+# index, an expression index and a CHECK (`02` §3.6.3 step 6). It is an assertion, not an artefact:
+# the real migrations live in `packages/storage/migrations/`.
+packages/*/spike/.generated/
+
 # Build and tool caches
 .turbo/
 .vitest/

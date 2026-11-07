@@ -10,9 +10,9 @@
 
 Village must be extensible without weakening the five hard problems in `00` §2. Extensions have three shapes:
 
-1. **Plugins.** Third-party code built with `@village/plugin-sdk`. A plugin can add tools, channels, skills, digest sections and background jobs. It runs **out of process** and reaches Village state only through a host-mediated, policy-checked, IFC-filtered `ToolContext`.
+1. **Plugins.** Third-party code built with `@comvivo/plugin-sdk`. A plugin can add tools, channels, skills, digest sections and background jobs. It runs **out of process** and reaches Village state only through a host-mediated, policy-checked, IFC-filtered `ToolContext`.
 2. **MCP.**
-   - *Server* (`@village/mcp`): a member's personal agent (Claude Desktop/Code, Cursor, OpenClaw, …) can read and act on the group **with that member's authority and visibility, and nothing more**.
+   - *Server* (`@comvivo/mcp`): a member's personal agent (Claude Desktop/Code, Cursor, OpenClaw, …) can read and act on the group **with that member's authority and visibility, and nothing more**.
    - *Client*: hosts and admins can connect external MCP servers as gated, untrusted tool providers.
 3. **Skills.** `SKILL.md` behavior packs in the Agent Skills open format, for tasks like meal planning and trip planning. They load progressively and never grant power.
 
@@ -83,7 +83,7 @@ Re-verify all of these at implementation start (M12-T0). The SDK moves quickly.
 - **Registered tool**: the host's normalized, immutable view of a tool definition (§4.2). It carries a `definitionHash`.
 - **Invocation**: one execution of a plugin entry point (a tool call, job run, digest render or lifecycle hook). It has its own authority, audience, deadline and capability token.
 
-### 3.2 Plugin SDK (`@village/plugin-sdk`)
+### 3.2 Plugin SDK (`@comvivo/plugin-sdk`)
 
 #### 3.2.1 Package layout and exports
 
@@ -100,7 +100,7 @@ packages/plugin-sdk/
   api-extractor.json      # public API report → etc/plugin-sdk.api.md (CI-checked)
 ```
 
-Dependencies are `zod@^4` (peer), `@village/core` (types only), `@village/shared` and `@village/channel-sdk` (types only; see §12). There is **no runtime dependency on the engine**. Because `@village/tools` imports the root export (built-ins use `defineTool`), the root and `./testing` entry points must not import `node:*` (01 §14 A11); only `./runtime` and `src/cli/` may.
+Dependencies are `zod@^4` (peer), `@comvivo/core` (types only), `@comvivo/shared` and `@comvivo/channel-sdk` (types only; see §12). There is **no runtime dependency on the engine**. Because `@comvivo/tools` imports the root export (built-ins use `defineTool`), the root and `./testing` entry points must not import `node:*` (01 §14 A11); only `./runtime` and `src/cli/` may.
 
 #### 3.2.2 `definePlugin`
 
@@ -108,7 +108,7 @@ Dependencies are `zod@^4` (peer), `@village/core` (types only), `@village/shared
 export function definePlugin<const P extends PluginPermissions>(spec: {
   name: string;                 // provider id (must equal manifest village.id)
   version: string;              // must equal package.json version
-  hostApi: string;              // semver range over host API, e.g. '^1' or '^1.2'; was `villageApi` — see note below
+  hostApi: string;              // semver range over host API, e.g. '^1' or '^1.2'; was `hostApi` — see note below
   permissions: P;               // must be ⊆ manifest permissions (checked at load)
   settingsSchema?: { instance?: z.ZodObject; group?: z.ZodObject }; // non-secret settings
   tools?: ReadonlyArray<ToolDefinition<any, any, P>>;
@@ -121,13 +121,13 @@ export function definePlugin<const P extends PluginPermissions>(spec: {
 }): PluginDefinition<P>;
 ```
 
-> **`hostApi`, not `villageApi`** (decided 2026-11-03, M0 exit gate; STATUS → Plan changes). This is
+> **`hostApi`, not `hostApi`** (decided 2026-11-03, M0 exit gate; STATUS → Plan changes). This is
 > a **public manifest field**: every third-party plugin writes it, so a brand-named key would make a
 > product rename a breaking change for every plugin author — the one cost ADR-024's `BRAND`
 > indirection cannot absorb, because the field lives in other people's repositories. It also
 > removes an inconsistency this document already had: §3.8's `initialize` request sends `hostApi`
-> while the response returns `villageApi` for the same concept. Renamed at `M12-T3`, before any
-> plugin SDK is published. Later references to `villageApi` in this document and in `12` read as
+> while the response returns `hostApi` for the same concept. Renamed at `M12-T3`, before any
+> plugin SDK is published. Later references to `hostApi` in this document and in `12` read as
 > `hostApi`.
 
 
@@ -290,8 +290,8 @@ export function defineJob<P>(d: {
 #### 3.2.7 Stability guarantees and deprecation policy
 
 - **Two version axes.**
-  1. The *package* `@village/plugin-sdk` is semver.
-  2. The *host API* (`villageApi`) is `MAJOR.MINOR`: the RPC protocol plus `ToolContext` semantics plus the manifest schema. Host 1.x serves any plugin whose `villageApi` range intersects the host's version. A plugin needing `^1.4` on host `1.2` is refused with "requires Village ≥ 1.4".
+  1. The *package* `@comvivo/plugin-sdk` is semver.
+  2. The *host API* (`hostApi`) is `MAJOR.MINOR`: the RPC protocol plus `ToolContext` semantics plus the manifest schema. Host 1.x serves any plugin whose `hostApi` range intersects the host's version. A plugin needing `^1.4` on host `1.2` is refused with "requires Village ≥ 1.4".
 - **Stable** means every root export and `./testing` export carrying `@public` TSDoc. `@experimental` exports may change in minors; they log a one-time warning on load, and the `Experimental<T>` brand makes their use visible in types. `./rpc` and `./runtime` are `@internal`.
 - **API Extractor** report `etc/plugin-sdk.api.md` is checked in CI. Any diff requires a Changeset with the matching bump: removal or signature narrowing is major, an addition is minor.
 - **Deprecation.**
@@ -299,26 +299,26 @@ export function defineJob<P>(d: {
   - A deprecated API is kept for ≥ 2 minor releases **and** ≥ 6 months, and removed only in the next major.
   - The host supports API major N−1 for ≥ 12 months after N ships, which means it ships both RPC codecs.
 - **Wire stability.** Tool schemas cross the wire as JSON Schema 2020-12, so plugins may bundle any zod 4.x without coupling to the host's zod version.
-- **Behavioral contract tests.** The public conformance suite `@village/plugin-sdk/testing#conformance` is versioned with the API. Host releases must pass the suites of every supported API minor.
+- **Behavioral contract tests.** The public conformance suite `@comvivo/plugin-sdk/testing#conformance` is versioned with the API. Host releases must pass the suites of every supported API minor.
 
 ### 3.3 Packaging, discovery, installation, enablement
 
 #### 3.3.1 Naming and manifest
 
-- **npm names.** Community plugins use `village-plugin-<id>` or `@scope/village-plugin-<id>`. First-party plugins use `@village/plugin-<id>`. Names are only a search convention; the authoritative marker is `package.json#village.kind === "plugin"`. Every `village`/`@village` name in this document (packages, the `village` CLI, the `village` manifest key, `village-plugin`, `village-mcp`) is a codename placeholder derived from the `BRAND` constant until the final name is chosen (01 §14 A2; `13` §A).
+- **npm names.** Community plugins use `village-plugin-<id>` or `@scope/village-plugin-<id>`. First-party plugins use `@comvivo/plugin-<id>`. Names are only a search convention; the authoritative marker is `package.json#village.kind === "plugin"`. Every `village`/`@village` name in this document (packages, the `village` CLI, the `village` manifest key, `village-plugin`, `village-mcp`) is a codename placeholder derived from the `BRAND` constant until the final name is chosen (01 §14 A2; `13` §A).
 - **Manifest** (zod schema in `plugin-sdk/src/manifest`, version 1):
 
 ```jsonc
 {
-  "name": "@village/plugin-weather", "version": "1.0.0", "type": "module",
-  "peerDependencies": { "@village/plugin-sdk": "^1.0.0" },
+  "name": "@comvivo/plugin-weather", "version": "1.0.0", "type": "module",
+  "peerDependencies": { "@comvivo/plugin-sdk": "^1.0.0" },
   "village": {
     "manifestVersion": 1,
     "kind": "plugin",
     "id": "weather",
     "displayName": "Weather",
     "summary": "Forecasts from Open-Meteo (no API key).",          // ≤ 140 chars, shown at approval
-    "villageApi": "^1.0",
+    "hostApi": "^1.0",
     "entry": "./dist/plugin.js",                                   // ESM default export = definePlugin(...)
     "permissions": {
       "tools": true,
@@ -349,7 +349,7 @@ Host-side validation:
 
 `<spec>` may be `<pkg>[@version]`, `./path.tgz` (offline) or `--link ./dir` (dev mode only).
 
-1. **Resolve metadata without downloading code.** Fetch the npm packument (`GET https://registry.npmjs.org/<pkg>`). The `village` field is included in the version metadata. Check `villageApi` against the host.
+1. **Resolve metadata without downloading code.** Fetch the npm packument (`GET https://registry.npmjs.org/<pkg>`). The `village` field is included in the version metadata. Check `hostApi` against the host.
 2. **Integrity facts.**
    - `dist.integrity`;
    - presence of `dist.attestations` (npm provenance);
@@ -390,7 +390,7 @@ There are **no automatic updates**.
 #### 3.3.3 Approval screen (CLI TUI; dashboard read-only mirror in M12-T6)
 
 ```
-Install @village/plugin-weather 1.0.0 ("Weather")?
+Install @comvivo/plugin-weather 1.0.0 ("Weather")?
   Publisher   npm: village-bot · provenance ✔ (GitHub Actions, village/village) · curated ✔ verified 1.0.0
   It can      • add tools Village can use in groups where an admin enables it
               • read calendar events visible to the person asking            [read]
@@ -467,7 +467,7 @@ Who may create MCP tokens is decided only by the `mcp.connect` capability in rol
 - **Entry shape:**
 
 ```json
-{ "id": "weather", "kind": "plugin", "package": "@village/plugin-weather",
+{ "id": "weather", "kind": "plugin", "package": "@comvivo/plugin-weather",
   "summary": "Forecasts from Open-Meteo", "categories": ["home", "outdoors"],
   "verifiedVersions": [{ "version": "1.0.0", "integrity": "sha512-…", "reviewedBy": "maintainer-handle", "reviewedAt": "2026-10-20" }],
   "permissionsDigest": "sha256:…", "firstParty": true }
@@ -481,7 +481,7 @@ Who may create MCP tokens is decided only by the `mcp.connect` capability in rol
   - the review checklist in `CONTRIBUTING.md` is ticked.
 
   "Verified" means a maintainer reviewed **that exact version**. Updates require a new review.
-- **Host policy.** `plugins.allowSources: any | curated | none` (default `any`). With `curated`, `plugin add` refuses packages or versions that are not in `verifiedVersions`. The index URL is pinned in `village.yaml` and fetched only on demand.
+- **Host policy.** `plugins.allowSources: any | curated | none` (default `any`). With `curated`, `plugin add` refuses packages or versions that are not in `verifiedVersions`. The index URL is pinned in `comvivo.yaml` and fetched only on demand.
 
 ### 3.4 Isolation & execution model
 
@@ -513,13 +513,13 @@ Who may create MCP tokens is decided only by the `mcp.connect` capability in rol
   --disable-proto=throw                                     # 08 §3.14 requirement (stricter than delete)
   [--allow-net]                                             # only if permissions.network.raw && Node ≥ 25
   # no --allow-child-process / --allow-worker / --allow-addons / --allow-wasi: all denied by --permission
-  <prefix>/node_modules/@village/plugin-sdk/dist/runtime/child.js  --entry <abs entry> --plugin <id>
+  <prefix>/node_modules/@comvivo/plugin-sdk/dist/runtime/child.js  --entry <abs entry> --plugin <id>
 ```
 
 - **Execution.**
   - `spawn(..., { stdio: ['pipe','pipe','pipe'], env: minimalEnv, cwd: <prefix>, detached: false, windowsHide: true })`.
   - `os.setPriority(pid, 10)` where supported.
-  - `minimalEnv = { NODE_ENV: 'production', TZ: 'UTC', LANG: 'C.UTF-8', VILLAGE_PLUGIN_ID: id }`. **Never** `PATH`, tokens or `VILLAGE_*` secrets.
+  - `minimalEnv = { NODE_ENV: 'production', TZ: 'UTC', LANG: 'C.UTF-8', COMVIVO_PLUGIN_ID: id }`. **Never** `PATH`, tokens or `COMVIVO_*` secrets.
 - **Net-less mode.** On Node ≥ 25 without `network.raw`, the process has no network. On Node 24, `doctor` warns "plugin network isolation unavailable on Node 24; use the Docker image or Node 26".
 - **Optional wrapper** (`bwrap`):
 
@@ -559,7 +559,7 @@ Who may create MCP tokens is decided only by the `mcp.connect` capability in rol
 
 | Method | Params | Result | Timeout |
 |---|---|---|---|
-| `initialize` | `{protocol:'village-plugin-rpc/1', hostApi:'1.x', mode:'run'|'describe', pluginId, limits}` | `{sdkVersion, villageApi, definitions: {tools[], channels[], digestSections[], jobs[], skills[], settingsSchema}}` with JSON Schemas | 5 s |
+| `initialize` | `{protocol:'village-plugin-rpc/1', hostApi:'1.x', mode:'run'|'describe', pluginId, limits}` | `{sdkVersion, hostApi, definitions: {tools[], channels[], digestSections[], jobs[], skills[], settingsSchema}}` with JSON Schemas | 5 s |
 | `tool/describeAction` | `{invocation, tool, input}` | `ActionRequestDraft` | 1 s |
 | `tool/execute` | `{invocation, tool, input}` | `ToolOutcome` | tool `timeoutMs` |
 | `job/run` | `{invocation, job}` | `{status, note?}` | 120 s |
@@ -588,11 +588,11 @@ Who may create MCP tokens is decided only by the `mcp.connect` capability in rol
 
 #### 3.4.5 Built-in tools
 
-Built-ins in `@village/tools` use `defineTool` from `@village/plugin-sdk` with the **same `ToolContext` interface**, implemented in-process by the engine's tools-executor. There is no RPC, no process, and schemas are used as zod directly. They register as the `builtin` provider with explicit built-in capabilities. Test kits and conformance suites run against both implementations, so behavior is identical by construction.
+Built-ins in `@comvivo/tools` use `defineTool` from `@comvivo/plugin-sdk` with the **same `ToolContext` interface**, implemented in-process by the engine's tools-executor. There is no RPC, no process, and schemas are used as zod directly. They register as the `builtin` provider with explicit built-in capabilities. Test kits and conformance suites run against both implementations, so behavior is identical by construction.
 
 #### 3.4.6 SafeFetch (egress)
 
-SafeFetch lives in `@village/shared/net`. It is used by `ctx.http`, the MCP client HTTP transport (`fetch` option) and the ICS importer.
+SafeFetch lives in `@comvivo/shared/net`. It is used by `ctx.http`, the MCP client HTTP transport (`fetch` option) and the ICS importer.
 
 1. **URL.** `https:` only. `http:` only when the exact origin is approved (private-network grant, e.g. Home Assistant on the LAN). No credentials in the URL. Ports 80/443 unless approved.
 2. **Host allowlist.** Match against the manifest or server config **before** DNS.
@@ -613,7 +613,7 @@ SafeFetch lives in `@village/shared/net`. It is used by `ctx.http`, the MCP clie
 
 #### 3.5.1 Provider registry and catalog
 
-- `ToolProvider` implementations are `BuiltinToolProvider`, `PluginToolProvider` and `McpToolProvider` (interface in §4.2). The `ExtensionRegistry` (in `@village/plugin-host`) holds the providers and emits `generation` changes.
+- `ToolProvider` implementations are `BuiltinToolProvider`, `PluginToolProvider` and `McpToolProvider` (interface in §4.2). The `ExtensionRegistry` (in `@comvivo/plugin-host`) holds the providers and emits `generation` changes.
 - **`buildCatalog(groupId)`:**
   1. Built-in tools in the fixed order from `packages/tools/src/catalog.ts` (`05` §3.6.7 is the single authoritative ordered built-in catalog, including `use_skill`, `read_skill_file` and `extensions_enable` from this doc).
   2. Then, for each provider enabled in the group, sorted by `providerId` (bytewise; plugins and MCP servers interleave because they share one namespace): its non-overridden tools sorted by `localName`.
@@ -683,7 +683,7 @@ Repo writes are journaled by the facade. For **write tools with external effects
 
 This requires `TurnEffect.status` (`intent | committed | failed`), adopted by 01 §14 A23 and A7 (§12-6).
 
-### 3.7 MCP server (`@village/mcp`, server side)
+### 3.7 MCP server (`@comvivo/mcp`, server side)
 
 #### 3.7.1 Purpose and positioning
 
@@ -701,7 +701,7 @@ All of this happens with that member's authority and visibility only.
 | Transport | How | When |
 |---|---|---|
 | **Streamable HTTP** | The path **`/mcp` on the main HTTP listener** (the dashboard's `dashboard.bind:port`, mounted by `09`; never on the HA ingress listener), present only when `mcp.server.http.enabled: true` (set by the `village init` step or the host; otherwise `/mcp` is not mounted and returns 404). Handler: `createMcpHandler(factory, { legacy: 'stateless', responseMode: 'auto', maxRequestBodySize: 1_048_576, keepAliveMs: 15000 })`, mounted as `app.all('/mcp', c => gate(c.req.raw).then(a => a instanceof Response ? a : handler.fetch(c.req.raw, { authInfo: a })))`. GET/DELETE → 405, handled by the SDK. `subscriptions/listen` is not offered in 1.0 (tools only; static lists). | Remote and LAN clients (Claude Code, Cursor, anything with header support). A remote reach path is the host's job: a Tailscale/Cloudflare tunnel with `mcp.server.publicUrl`. |
-| **stdio** | **`@village/mcp-bridge`** (§3.8), launched by the client. It reads `VILLAGE_MCP_TOKEN` from env (spec: stdio takes credentials from the environment) and proxies to the HTTP endpoint. | Claude Desktop and any stdio-only client, on the same machine or anywhere that can reach the HTTP endpoint |
+| **stdio** | **`@comvivo/mcp-bridge`** (§3.8), launched by the client. It reads `COMVIVO_MCP_TOKEN` from env (spec: stdio takes credentials from the environment) and proxies to the HTTP endpoint. | Claude Desktop and any stdio-only client, on the same machine or anywhere that can reach the HTTP endpoint |
 
 **No separate port.** An earlier draft used a second listener (`7778`) so hosts could expose MCP without the dashboard. That need is met by a path-scoped proxy or tunnel rule that forwards only `/mcp` (the same pattern `08` §3.8.11 documents for ICS feeds), so there is no concrete reason for a second port, and one listener keeps TLS, `trustProxy`, exposure modes and health in one place (`08` §3.8.1, `09` §3.1). `/mcp` is a separate Hono sub-app: it skips the dashboard's session, CSRF and SPA middleware, rejects any request carrying a `Cookie` header (bearer only), and has its own middleware chain, in this order:
 1. Host header validation (`localhostHostValidation()` when the main listener is bound to loopback; otherwise an allowlist built from `publicUrl`, `mcp.server.publicUrl` and `mcp.server.http.allowedHosts`).
@@ -823,12 +823,12 @@ These MCP tools are an **external API surface** for members' agents. They are no
 - **Group:** per the constitution `extensions.mcpServer.disclosure: none | admins | group` (default `admins`). Admins see "*Sam has 1 connected assistant (Claude Desktop), last used today*", never contents or usage details. Rationale: group data flows to an external model provider, and the group deserves to know that.
 - **Constitution switch:** `extensions.mcpServer.allowed` lets a `parents-class` group forbid it entirely.
 
-### 3.8 MCP bridge (`@village/mcp-bridge`)
+### 3.8 MCP bridge (`@comvivo/mcp-bridge`)
 
 A tiny package (dependencies: `@modelcontextprotocol/server` and `@modelcontextprotocol/client` only) with bin `village-mcp`.
 
 - **Server side.** `serveStdio(factory, { legacy: 'serve' })` serves 2025-era and 2026-era clients over stdio. The factory returns a low-level `Server` whose handlers for `tools/list`, `tools/call`, `resources/list`, `resources/templates/list`, `resources/read`, `prompts/list` and `prompts/get` forward to a `Client` connected with `StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: 'Bearer ' + token } }, redirectPolicy: 'same-origin' })`.
-- **Arguments:** `--url` (or `VILLAGE_MCP_URL`); token only from env `VILLAGE_MCP_TOKEN` (never argv, which `ps` can see).
+- **Arguments:** `--url` (or `COMVIVO_MCP_URL`); token only from env `COMVIVO_MCP_TOKEN` (never argv, which `ps` can see).
 - **Logging and failure.** Logs go to stderr. The bridge holds no state and makes no other network calls. If the remote is unreachable, it returns tool errors with "Village at <url> is unreachable", and it never crashes the client.
 - **Claude Desktop example** (`docs/mcp/claude-desktop.md`):
 
@@ -837,15 +837,15 @@ A tiny package (dependencies: `@modelcontextprotocol/server` and `@modelcontextp
   "mcpServers": {
     "village-family": {
       "command": "npx",
-      "args": ["-y", "@village/mcp-bridge@1", "--url", "https://village.tail1234.ts.net/mcp"],
-      "env": { "VILLAGE_MCP_TOKEN": "vmcp_01jbx…_…" }
+      "args": ["-y", "@comvivo/mcp-bridge@1", "--url", "https://village.tail1234.ts.net/mcp"],
+      "env": { "COMVIVO_MCP_TOKEN": "vmcp_01jbx…_…" }
     }
   }
 }
 ```
 
   The file lives at `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS), `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/.config/Claude/claude_desktop_config.json` (Linux). When the Village server is on the same machine, the URL is `http://127.0.0.1:7777/mcp` (the main listener's port).
-- **Claude Code:** `claude mcp add --transport http village-family https://…/mcp --header "Authorization: Bearer $VILLAGE_MCP_TOKEN"`.
+- **Claude Code:** `claude mcp add --transport http village-family https://…/mcp --header "Authorization: Bearer $COMVIVO_MCP_TOKEN"`.
 - **Post-1.0:** an MCPB bundle (`.mcpb`) for one-click Claude Desktop install (§11 Q9).
 
 ### 3.9 MCP client (external MCP servers as tool providers)
@@ -857,7 +857,7 @@ A tiny package (dependencies: `@modelcontextprotocol/server` and `@modelcontextp
   - `village mcp client add <id> --url https://… [--header "Authorization=secret:<name>"] [--allow-private]`
   - Also available from the dashboard host view in M12-T14 (host session with step-up, 01 §14 A9). MCP client servers are host-only configuration (01 §14 A14; `08` SD-21): group admins can never register or edit them.
 - **Ids** follow §3.1 and share the namespace with plugins.
-- **Secrets** are encrypted vault entries `mcp/<id>/<name>` (`08` §3.10; set with `village mcp client secret set <id> <name>`) or `VILLAGE_MCP_CLIENT_<ID>_<NAME>` env, which takes precedence. They are bound to the server's origin.
+- **Secrets** are encrypted vault entries `mcp/<id>/<name>` (`08` §3.10; set with `village mcp client secret set <id> <name>`) or `COMVIVO_MCP_CLIENT_<ID>_<NAME>` env, which takes precedence. They are bound to the server's origin.
 - **Approval flow.**
   1. Connect, then call `discover` (or legacy `initialize`) and `listTools`. Paginate up to 200 tools.
   2. Show each tool: name, sanitized description, schema summary and annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`). Annotations are **untrusted hints** and only prefill defaults.
@@ -1012,7 +1012,7 @@ The disclosure guard and policy engine apply unchanged. The charter (`05`) carri
 
 ### 3.11 First-party example plugins
 
-All live in `packages/plugins/<id>/` and publish as `@village/plugin-<id>`. Each has a README, tests (the §3.12 kit), and a docs tutorial page. `weather` is **preinstalled** in Docker/npm distributions: host approval is implied by installing Village, it appears in `village plugin list` as `preinstalled`, it still runs isolated, and it is still enabled per group. `ics` is opt-in (not preinstalled), because ordinary ICS subscriptions are a built-in feature (`07` §3.1.6); see §3.11.2. `homeassistant` is opt-in, except in the HA add-on (`12`), which preinstalls it and auto-configures `baseUrl=http://supervisor/core` with `SUPERVISOR_TOKEN`.
+All live in `packages/plugins/<id>/` and publish as `@comvivo/plugin-<id>`. Each has a README, tests (the §3.12 kit), and a docs tutorial page. `weather` is **preinstalled** in Docker/npm distributions: host approval is implied by installing Village, it appears in `village plugin list` as `preinstalled`, it still runs isolated, and it is still enabled per group. `ics` is opt-in (not preinstalled), because ordinary ICS subscriptions are a built-in feature (`07` §3.1.6); see §3.11.2. `homeassistant` is opt-in, except in the HA add-on (`12`), which preinstalls it and auto-configures `baseUrl=http://supervisor/core` with `SUPERVISOR_TOKEN`.
 
 #### 3.11.1 `weather` (Open-Meteo, no key)
 
@@ -1096,7 +1096,7 @@ This is delivered as the bundled `meal-planner` skill (§3.10.5), not a plugin. 
 
 ### 3.12 Test kit and plugin author docs
 
-#### 3.12.1 `@village/plugin-sdk/testing` (unit level, no engine)
+#### 3.12.1 `@comvivo/plugin-sdk/testing` (unit level, no engine)
 
 ```ts
 const h = createPluginHarness(weatherPlugin, {
@@ -1115,14 +1115,14 @@ expect(h.labelsOf(r)).toSatisfyAll(l => l.untrusted);
 ```
 
 - **Features:**
-  - fake `ToolContext` with in-memory scoped repos that **apply real IFC** (`@village/core/ifc`) and **real or fake policy**;
+  - fake `ToolContext` with in-memory scoped repos that **apply real IFC** (`@comvivo/core/ifc`) and **real or fake policy**;
   - unmatched HTTP throws (no real network);
   - deterministic clock;
   - `h.runJob`, `h.renderDigest`, `h.enable` (runs `onInstall`), `h.store`, `h.effects()`, `h.policyDecisions()`.
 - **Matchers:** `toBeOk`, `toBeDenied`, `toNeedConfirmation`, `toSatisfyAll`, `toHaveEgressOnlyTo`.
 - **Conformance:** `runConformance(plugin)` checks manifest/definition consistency, schema strictness, description lengths, timeouts honored, cancellation honored (`ctx.signal`), no stdout noise, and outputs matching schemas. It runs in `village-plugin check`.
 
-#### 3.12.2 `@village/evals/plugin-kit` (simulator level)
+#### 3.12.2 `@comvivo/evals/plugin-kit` (simulator level)
 
 The simulator and scenario DSL from `11` gain a plugin entry point:
 
@@ -1136,9 +1136,9 @@ scenario('weather in the family group')
 
 - **Fake policy contexts:** `.policy(policies.fake(...))` and `.as(role)`.
 - **Red-team helpers:** `.injectToolOutput(text)` and `.maliciousPlugin(kind)`.
-- `@village/evals` is published (§12-9; adopted by 01 §14 A17) so authors can run this in their own CI. The CLI's `village eval` loads it as an optional dynamic import.
+- `@comvivo/evals` is published (§12-9; adopted by 01 §14 A17) so authors can run this in their own CI. The CLI's `village eval` loads it as an optional dynamic import.
 
-#### 3.12.3 Author CLI (`village-plugin`, bin of `@village/plugin-sdk`)
+#### 3.12.3 Author CLI (`village-plugin`, bin of `@comvivo/plugin-sdk`)
 
 | Command | What it does |
 |---|---|
@@ -1146,7 +1146,7 @@ scenario('weather in the family group')
 | `check` | Manifest schema, definitions extraction in sandbox, conformance |
 | `manifest` | Sync `village.permissions` from `definePlugin` (shows a diff) |
 | `pack` | `npm pack` plus a check |
-| `dev --village http://127.0.0.1:7777` | Prints the `village plugin add --link <dir>` instruction. Requires host dev mode (`VILLAGE_DEV=1`). Restarts the plugin process on rebuild. |
+| `dev --village http://127.0.0.1:7777` | Prints the `village plugin add --link <dir>` instruction. Requires host dev mode (`COMVIVO_DEV=1`). Restarts the plugin process on rebuild. |
 
 #### 3.12.4 Plugin author docs outline (`13` integrates into the Starlight site under `/extend/`)
 
@@ -1164,7 +1164,7 @@ scenario('weather in the family group')
 7. Jobs and delegation; digest sections; channel plugins.
 8. Skills authoring (Agent Skills format; Village metadata; evals.yaml).
 9. Testing: harness, conformance, simulator scenarios, red-team helpers.
-10. Publishing: naming, provenance, versioning against `villageApi`, curated-index submission.
+10. Publishing: naming, provenance, versioning against `hostApi`, curated-index submission.
 11. Security guide: threat model summary, do/don't list, data minimization, secret refs.
 12. Stability and deprecation policy (§3.2.7).
 13. For members: "Connect your AI" (Claude Desktop, Claude Code, Cursor, generic); privacy explained.
@@ -1178,11 +1178,11 @@ scenario('weather in the family group')
 ### 4.1 Package and dependency map (additions in §12-1)
 
 ```
-@village/plugin-sdk   → core (types), shared, channel-sdk (types)        [public, semver]
-@village/plugin-host  → core, shared, plugin-sdk, engine (public ports)   [registry, supervisor, RPC host, installer lib, skills loader]
-@village/mcp          → core, shared, engine (public service interfaces), @modelcontextprotocol/{server,client,hono}
-@village/mcp-bridge   → @modelcontextprotocol/{server,client} only       [public, tiny]
-@village/plugin-*     → plugin-sdk only                                    [first-party plugins]
+@comvivo/plugin-sdk   → core (types), shared, channel-sdk (types)        [public, semver]
+@comvivo/plugin-host  → core, shared, plugin-sdk, engine (public ports)   [registry, supervisor, RPC host, installer lib, skills loader]
+@comvivo/mcp          → core, shared, engine (public service interfaces), @modelcontextprotocol/{server,client,hono}
+@comvivo/mcp-bridge   → @modelcontextprotocol/{server,client} only       [public, tiny]
+@comvivo/plugin-*     → plugin-sdk only                                    [first-party plugins]
 apps/server           → wires BuiltinToolProvider, PluginToolProvider, McpToolProvider, the /mcp sub-app on the main listener
 apps/cli              → plugin-host (installer), mcp (token admin)
 ```
@@ -1267,7 +1267,7 @@ These commands must appear in `05`'s commands catalog (§3.2.4) and `06`'s platf
 
 ## 5. Configuration
 
-`village.yaml` additions (validated by zod; precedence per ADR-014, except host-only keys). **Host-only keys** (01 §14 A14; `08` SD-21) come from env or YAML only and ignore DB settings: the whole `plugins` section, `mcp.server.http` (exposure), `mcp.client` (external servers) and every egress allowlist. `extensions`, `mcp.server.tokens`/`rateLimits` and `skills` follow ADR-014. Rows written by the host CLI (`PluginInstallation`, `McpClientServer`, snapshots) are host-only state: the dashboard can change them only in a host session with step-up (A9), never through group-admin settings.
+`comvivo.yaml` additions (validated by zod; precedence per ADR-014, except host-only keys). **Host-only keys** (01 §14 A14; `08` SD-21) come from env or YAML only and ignore DB settings: the whole `plugins` section, `mcp.server.http` (exposure), `mcp.client` (external servers) and every egress allowlist. `extensions`, `mcp.server.tokens`/`rateLimits` and `skills` follow ADR-014. Rows written by the host CLI (`PluginInstallation`, `McpClientServer`, snapshots) are host-only state: the dashboard can change them only in a host session with step-up (A9), never through group-admin settings.
 
 ```yaml
 plugins:
@@ -1309,11 +1309,11 @@ skills:
 ```
 
 - **Secrets** (env/`_FILE`, or the `08` vault; never the DB or YAML):
-  - `VILLAGE_PLUGIN_<ID>_<KEY>`, else vault entry `plugin/<id>/[<groupId>/]<key>`. Group-scoped values override instance values.
-  - `VILLAGE_MCP_CLIENT_<ID>_<NAME>`, else vault entry `mcp/<id>/<name>`.
+  - `COMVIVO_PLUGIN_<ID>_<KEY>`, else vault entry `plugin/<id>/[<groupId>/]<key>`. Group-scoped values override instance values.
+  - `COMVIVO_MCP_CLIENT_<ID>_<NAME>`, else vault entry `mcp/<id>/<name>`.
   - IDs are upper-cased with `-` → `_`.
 - **Per-group configuration** lives in the constitution (`extensions:` block, §3.3.5, owned by `03`) and in `GroupExtension` rows (settings).
-- **Bridge env:** `VILLAGE_MCP_TOKEN` (required) and `VILLAGE_MCP_URL`.
+- **Bridge env:** `COMVIVO_MCP_TOKEN` (required) and `COMVIVO_MCP_URL`.
 
 ---
 
@@ -1456,7 +1456,7 @@ skills:
 
 | ID | Task | Files | Acceptance criteria | Deps |
 |---|---|---|---|---|
-| **M2-T90** | Scaffold `@village/plugin-sdk` tool types (with `05`) | `packages/plugin-sdk/{package.json,src/index.ts,src/tool.ts,src/outcome.ts,src/context.ts,src/schema/to-json-schema.ts,src/schema/strict.ts}`, `etc/plugin-sdk.api.md` | `defineTool`, `ToolDefinition` (incl. §3.2.3 additive fields), `ToolOutcome` and the `ToolContext` interface (typed, unimplemented) are exported. zod→JSON Schema plus the strict linter pass 30 fixture schemas. The API Extractor report is checked in CI. The dependency-cruiser rule passes. | M0 |
+| **M2-T90** | Scaffold `@comvivo/plugin-sdk` tool types (with `05`) | `packages/plugin-sdk/{package.json,src/index.ts,src/tool.ts,src/outcome.ts,src/context.ts,src/schema/to-json-schema.ts,src/schema/strict.ts}`, `etc/plugin-sdk.api.md` | `defineTool`, `ToolDefinition` (incl. §3.2.3 additive fields), `ToolOutcome` and the `ToolContext` interface (typed, unimplemented) are exported. zod→JSON Schema plus the strict linter pass 30 fixture schemas. The API Extractor report is checked in CI. The dependency-cruiser rule passes. | M0 |
 | **M2-T91** | Catalog canonicalization and `catalogHash` | `packages/engine/src/tools-executor/{catalog.ts,jcs.ts}` + tests | The builder consumes the built-in order from `packages/tools/src/catalog.ts` (`05` §3.6.7) and emits built-ins in that order, then sorted extension partitions. Model-name normalization (`-` → `_`, `__` separator, ≤ 64 chars). JCS hash. P5 green. Fake-model cache accounting shows identical prefixes for identical hashes. | M2-T90, `05` catalog |
 | **M4-T90** | Policy support for extensions (with `03`) | `packages/core/src/policy/extensions.ts` + tests | `plugin:<provider>:<tool>` capabilities with `*` wildcards. `extensions.manage` and `mcp.connect`. `confirm:'always'` floor. `SystemAuthority{onBehalfOf, delegationId}` evaluated as constitution-permitted AND grantor-holds-capability. Property tests for grants. | M4 policy core |
 | **M5-T90** | `ScopedRepositories` facade | `packages/engine/src/tools-executor/scoped-repos/*.ts` | Reads IFC-filtered by the invocation audience plus a sensitivity ceiling. Writes go authorize → commit with `AuditEvent` + `TurnEffect` in one transaction. `WriteResult` union. `confirmedActions` honored. P1–P3 green with a fake provider. Used by at least one built-in tool. | M5 IFC, M1 repos |
@@ -1481,7 +1481,7 @@ skills:
 | **M12-T10** | Bundled skills content | `templates/skills/<10>/{SKILL.md,references/*,evals.yaml}` | All validate. Selection eval ≥ 0.9 precision/recall. A simulator scenario per skill. Copy reviewed (spine §11.12). | M12-T9 |
 | **M12-T11** | MCP server core | `packages/mcp/src/server/{route,auth,factory,resources,prompts,ratelimit,audit}.ts`, `…/tools/*.ts`, `…/copy/*` | `/mcp` sub-app on the main listener (mounted by `09`; absent unless `mcp.server.http.enabled`) with Host/Origin checks and cookie rejection. PAT verifier → `AuthInfo`. All 23 tools with input/output schemas. Resources and prompts. Writes via `executeDirect` with untrusted provenance. DM confirmation via `ConfirmationRequest` (delivery `dm`); `get_pending_action` returns its status. Every `builtinTool` binding resolves to an exact `05` §3.6.7 catalog name (CI test). Idempotency keys. Rate limits and 429. Audit and access log. P4 green. MCP conformance suite green in both eras. | M12-T0, M7-T90, M5 |
 | **M12-T12** | MCP tokens UX | `packages/mcp/src/tokens/*.ts`, `engine/src/commands/mcp.ts`, `apps/dashboard/src/routes/me/connect-ai/*` | Create/list/revoke via DM, dashboard and CLI (`list`/`revoke --person|--all` per §3.7.3). Dashboard-link-first DM flow (sign-in per A9: pairing default, magic link only where allowed) with auto-delete fallback. Snippets for Claude Desktop (bridge), Claude Code, Cursor and generic clients. Admin disclosure per constitution. Immediate revocation. | M12-T11, M9 auth |
-| **M12-T13** | `@village/mcp-bridge` | `packages/mcp-bridge/{package.json,src/bridge.ts,src/cli.ts,README.md}` | stdio↔HTTP passthrough for tools, resources and prompts in both eras. Token from env only. Graceful unreachable errors. E2E test: SDK client → bridge → server. < 200 KB unpacked excluding the SDK. | M12-T11 |
+| **M12-T13** | `@comvivo/mcp-bridge` | `packages/mcp-bridge/{package.json,src/bridge.ts,src/cli.ts,README.md}` | stdio↔HTTP passthrough for tools, resources and prompts in both eras. Token from env only. Graceful unreachable errors. E2E test: SDK client → bridge → server. < 200 KB unpacked excluding the SDK. | M12-T11 |
 | **M12-T14** | MCP client | `packages/mcp/src/client/{registry,transports,supervisor,import,sanitize,snapshot,provider,refresh}.ts`, `apps/cli/src/commands/mcp/client/*.ts`, dashboard host view | stdio and HTTP (SafeFetch, private opt-in). Approval and snapshots. §3.9.3 normalization. Output mapping and labels. Intent journaling. Rug-pull diffing (§3.9.5). Per-group enablement via M12-T6. Poisoning red-team cases green. Recipes-server worked example. | M12-T4, M12-T6, M5-T92 |
 | **M12-T15** | Plugin `weather` | `packages/plugins/weather/**` | §3.11.1 tools, digest section and privacy rules (address refusal, rounding). Cache. Attribution. Harness tests on recorded fixtures. Simulator scenario. The docs tutorial uses this code verbatim. | M12-T4, M12-T7, M12-T18 |
 | **M12-T16** | Plugin `ics` | `packages/plugins/ics/**` | Opt-in reference plugin (not preinstalled). §3.11.2 preview, delegation, sync job and mapping (RRULE/EXDATE/all-day/cancelled/TZID). 2-sync removal and the 50% drop guard. Conditional GET. 12 real-world fixtures (district, Google and Outlook exports) round-trip. Proactivity candidates on changes. | M12-T7, M7 calendar |
@@ -1499,7 +1499,7 @@ skills:
 - an external MCP server is approved and used in a group;
 - the bundled skills meet the eval bar;
 - red-team results are at target;
-- the API Extractor baseline is frozen as `villageApi 1.0`.
+- the API Extractor baseline is frozen as `hostApi 1.0`.
 
 ---
 
@@ -1527,7 +1527,7 @@ skills:
 ## 12. Proposed spine changes
 
 1. **New packages and folders (§3, §4 of the spine).**
-   - Add `packages/plugin-host` (`@village/plugin-host`: registry, supervisor, RPC host, installer library, skills loader), `packages/mcp-bridge` (`@village/mcp-bridge`), `packages/plugins/*` (first-party plugins) and `templates/skills/` (bundled skills).
+   - Add `packages/plugin-host` (`@comvivo/plugin-host`: registry, supervisor, RPC host, installer library, skills loader), `packages/mcp-bridge` (`@comvivo/mcp-bridge`), `packages/plugins/*` (first-party plugins) and `templates/skills/` (bundled skills).
    - Dependency rules:
      - `plugin-host → core, shared, plugin-sdk, engine (public ports)`;
      - `mcp-bridge → (external MCP SDK only)`;
@@ -1551,7 +1551,7 @@ skills:
 6. **§5 `TurnEffect.status`** (`intent | committed | failed`) for external side effects, journaled before dispatch. Recovery renders `intent` as an uncertain-completion message. *Rationale:* I7 cannot otherwise cover effects outside the DB (Home Assistant, external MCP writes). **Status:** → Resolved: 01 §14 A23 and A7.
 7. **ADR-001 runtime note.** Node 24 (≥ 24.11) stays supported for native installs, but **Docker, HA and Umbrel images ship Node 26 LTS** ("Lithium", LTS since Oct 2026). Node 26's permission model includes `--allow-net`, which lets the host deny raw network to plugins. *Rationale:* turns egress control from advisory into enforced in the default distribution. **Status:** → Resolved: 01 §14 A1 (Node 26 primary; Node 24 ≥ 24.11 supported).
 8. **§5 domain entities:** add `PluginInstallation`, `PluginVersion`, `GroupExtension`, `PluginDelegation`, `PluginStoreEntry`, `PluginEgressLog`, `McpToken`, `McpAccessLog`, `McpIdempotency`, `McpClientServer`, `McpToolSnapshot` and `SkillRecord`. Add the `'mcp'` pseudo-channel for `Conversation` (member DM-equivalent used by `ask_village`). For `mcp` conversations, I7 recovery summaries are delivered to the member's regular DM. **Status:** → Resolved: 01 §14 A7 (plugin installs/approvals, MCP tokens, pinned MCP tool definitions). The other entities and the `'mcp'` pseudo-channel → Accepted, owned here; `02` must add them.
-9. **Publish `@village/evals`** (currently "test-only") with a `plugin-kit` entry point, so third-party authors can run simulator scenarios. *Rationale:* G5. It remains a dev dependency for authors. **Status:** → Resolved: 01 §14 A17.
+9. **Publish `@comvivo/evals`** (currently "test-only") with a `plugin-kit` entry point, so third-party authors can run simulator scenarios. *Rationale:* G5. It remains a dev dependency for authors. **Status:** → Resolved: 01 §14 A17.
 10. **§10 configuration:** add the `plugins`, `extensions`, `mcp` and `skills` sections (§5). Add `mcp.server.http` (disabled by default; serves `/mcp` on the main listener, no separate port, R4 alignment). **Status:** → Accepted, owned here (01 §10 is abridged; the full reference is generated from zod in M9). Host-only marking follows 01 §14 A14.
 11. **§9 security wording.**
     - Replace "MCP servers run as separate processes with a minimal environment" with: "stdio MCP servers and plugins run as separate supervised processes with a minimal environment; HTTP MCP servers are reached only via SafeFetch."

@@ -60,7 +60,7 @@ C1 is checked in CI by canary property tests that inspect the exact requests cap
 | D15 | Claims of permission ("Mom said…") | Never evidence. They *upgrade* the decision to a confirmation from the named principal. They never downgrade one | Ignore claims | Social engineering is the dominant member-vs-member attack in families. |
 | D16 | Unknown participants | Anyone who speaks becomes a `Member` (spine). Silent lurkers and foreign bots are modeled as the conversation's **outsider seat**. The constitution chooses `treat_as_group` or `treat_as_outsiders`. Known non-members and bots always count as outsiders | Ignore lurkers; block until roster is complete | Sound without being unusable in big Discord servers. |
 | D17 | Labels over time | Fixed at creation. **Narrowing** is always allowed. **Widening** requires a recorded `Declassification`. "Since join" vs "all" is encoded in the label at receipt | Recompute labels on policy change | Prevents retroactive exposure, makes I2 auditable, and makes amendments prospective by construction. |
-| D18 | Host honesty | No software path for the host to read content. The physical capability is disclosed in-product. A **debug-content banner** is posted to every group while `VILLAGE_DEBUG_CONTENT=1` | Hide the issue; build a host console | Trust is the product (ADR-017). Honesty beats pretending. |
+| D18 | Host honesty | No software path for the host to read content. The physical capability is disclosed in-product. A **debug-content banner** is posted to every group while `COMVIVO_DEBUG_CONTENT=1` | Hide the issue; build a host console | Trust is the product (ADR-017). Honesty beats pretending. |
 
 ---
 
@@ -95,7 +95,7 @@ All `core` modules are pure: no I/O, no `Date`, no `Math.random`. Clock, ID gene
 | `packages/core/src/fairness/{effort,ledger,assign,rotation,swap,explain,coordination}.ts` | Fairness math |
 | `packages/core/src/injection/{taint,fence,claims,probes}.ts` | Allowlist, fencing/escaping, claim patterns, probe heuristics and limiter math |
 | `packages/core/src/consent/consent.ts` | Consent state machine |
-| `packages/core/src/testing/arbitraries/*.ts` | fast-check generators, exported as `@village/core/testing` (dev only) |
+| `packages/core/src/testing/arbitraries/*.ts` | fast-check generators, exported as `@comvivo/core/testing` (dev only) |
 | `packages/engine/src/governance/*` | `ConstitutionService`, `ProposalService`, `AmendmentService`, `BallotPresenter` port |
 | `packages/engine/src/policy/*` | `ConfirmationService`, `GuardianService`, `ClaimVerifier`, deferred-intent re-authorization |
 | `packages/engine/src/ifc/*` | `AudienceResolver`, `RosterTracker`, `MembershipHandlers`, `IfcGate`, `TurnLabelTracker` |
@@ -570,7 +570,7 @@ The compiler rejects any YAML that would conflict with the Floor (`CONST_E011`, 
 // packages/core/src/constitution/compiled.ts
 export interface CompiledPolicy {
   readonly schemaVersion: 1;
-  readonly compilerVersion: string;                 // semver of @village/core compiler
+  readonly compilerVersion: string;                 // semver of @comvivo/core compiler
   readonly groupId: GroupId;
   readonly constitutionVersionId: ConstitutionVersionId;
   readonly hash: string;                            // sha256(canonical JSON of the parsed YAML)
@@ -1069,7 +1069,7 @@ These are the exact names `09`'s editor, init wizard and API use. All are pure.
 ```ts
 /** Parse + compile without adopting. Returns every issue (errors and warnings) with paths and spans. */
 export function validate(yamlText: string, ctx: Omit<CompileInput, 'yamlText'>): readonly ConstitutionIssue[];
-/** Deterministic charter as the core rich-text AST (`@village/core/domain/rich-text`, 02 §12 P1).
+/** Deterministic charter as the core rich-text AST (`@comvivo/core/domain/rich-text`, 02 §12 P1).
  *  `renderCharter` (§3.2.7) produces the canonical Markdown stored in `constitution_versions.charter_text`;
  *  `charter` is that Markdown parsed into RichText for rendering. */
 export function charter(policy: CompiledPolicy, roster: RosterSummary, locale: string): RichText;
@@ -2271,7 +2271,7 @@ interface GuardRecord {
 
 - No text, no sealed item IDs and no member IDs are logged in plain form.
 - Ops logs emit only the counter metrics.
-- The `sealed` part is visible to nobody in the product UI except through `VILLAGE_DEBUG_CONTENT` host debugging, which triggers the in-group banner (§3.11).
+- The `sealed` part is visible to nobody in the product UI except through `COMVIVO_DEBUG_CONTENT` host debugging, which triggers the in-group banner (§3.11).
 
 ### 3.7 DMs and private channel semantics (G)
 
@@ -2615,7 +2615,7 @@ Everything else, including any message to another conversation, assignment to ot
 | Asset | Host access | Mitigation / disclosure |
 |---|---|---|
 | SQLite database, blobs, backups | Full, with the master key (01 §9). This includes DMs and private memories | Stated plainly in the intro's "How privacy works" and in `/privacy` |
-| Logs | No content at ≥ info (01 §11.7) | With `VILLAGE_DEBUG_CONTENT=1`, Village posts this in **every bound group** at startup and every 24 h while it stays on: "🔧 Debug logging is on: {hostName} may see message text in logs until it's turned off." |
+| Logs | No content at ≥ info (01 §11.7) | With `COMVIVO_DEBUG_CONTENT=1`, Village posts this in **every bound group** at startup and every 24 h while it stays on: "🔧 Debug logging is on: {hostName} may see message text in logs until it's turned off." |
 | Model provider | Requests contain context for replies. Retention follows the provider's API terms (link; not asserted here, see `08`) | `/privacy` names the provider per route. Changing provider (e.g. local→cloud) posts a notice to each group |
 | Code | The host could run modified software | Stated: "Village's protections assume {hostName} runs unmodified Village." |
 | Software paths | **None.** No break-glass, no host content view, no admin DM view | Floor F1. Reviewed in `08` |
@@ -2793,7 +2793,7 @@ Each category has ≥ 10 parametrized scenarios × 4 locales × the CI model mat
 
 **Per group.** The constitution (§3.2.2) holds all group-level settings. It changes only by amendment, or by admins during settling-in.
 
-**Per instance** (`village.yaml`, ADR-014 precedence: env > DB > yaml > defaults). The host sets *floors and caps*. A constitution can only be stricter.
+**Per instance** (`comvivo.yaml`, ADR-014 precedence: env > DB > yaml > defaults). The host sets *floors and caps*. A constitution can only be stricter.
 
 ```yaml
 governance:
@@ -2995,7 +2995,7 @@ Format: **ID** — description. *Files.* *Acceptance.* *Deps.*
 - **M5-T14 Consent lifecycle.** State machine, notices (intro, per-member, minors), grace job, `ConsentPolicy.mayExtract`, router skip for unknown/informed/memory_off, quoted-span stripping before extraction, `/forget` levels 1–3 (with `04` reconcile). *Files:* `core/src/consent/consent.ts`, `engine/src/consent/*`, `copy/en/consent.yaml`. *Acceptance:* `consent.prop.*`; scenarios `consent.*`; RT-42 and RT-43 pass. *Deps:* T2, M3; M6 for level-2 completeness (until then, a stub plus a TODO test marked `todo`, not skipped).
 - **M5-T15 Injection policy.** Fencing helpers, the taint allowlist wired into authorize, untrusted window minimization rules for `05`, plugin/MCP outputs forced untrusted. *Acceptance:* `policy.authorize.taint`; RT-25–RT-29 pass with the fake model and recorded live fixtures. *Deps:* M4-T7, T5.
 - **M5-T16 Cross-group isolation and portable profile.** `portable.ts`, materialization with a declassification record, revocation. *Acceptance:* `ifc.prop.i4_group_isolation`; RT-12 and RT-54 pass. *Deps:* T1, T2.
-- **M5-T17 Host honesty surfaces.** `/privacy` copy, the debug-content banner job, provider-change notice, docs page stub `docs/privacy/host.md`. *Acceptance:* with `VILLAGE_DEBUG_CONTENT=1`, the banner is posted to each bound group at boot (simulator test); the provider-change notice fires once. *Deps:* M3.
+- **M5-T17 Host honesty surfaces.** `/privacy` copy, the debug-content banner job, provider-change notice, docs page stub `docs/privacy/host.md`. *Acceptance:* with `COMVIVO_DEBUG_CONTENT=1`, the banner is posted to each bound group at boot (simulator test); the provider-change notice fires once. *Deps:* M3.
 - **M5-T18 Invariant suite I1–I5 and canary harness.** `FakeModelGateway` request capture, canary generators, the `ifc.prop.*` suite in CI (1k runs) and nightly (50k). *Acceptance:* `ifc.prop.canary_never_in_writer_request` green; a deliberately mislabeled fixture makes it fail (mutation test). *Deps:* T1–T10.
 - **M5-T19 Discretion scenario pack v0.** WE1–WE4 plus 30 more across RT-01…RT-21 and RT-47–54. *Acceptance:* green on the deterministic fake model; nightly live runs report 0 leaks. *Deps:* T9–T13.
 

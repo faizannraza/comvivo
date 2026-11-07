@@ -6,6 +6,24 @@
     "lib": ["ES2024"],
     "module": "nodenext",
     "moduleResolution": "nodenext",
+    // `better-sqlite3-multiple-ciphers@13.0.3` ships declarations and then hides them: it has
+    // `"types": "index.d.ts"` **and** an `exports` map whose `"."` entry is a bare string with no
+    // `types` condition. Under `nodenext` TypeScript honours `exports` and refuses to fall back to
+    // the top-level `types` field, so every import of it is `TS7016` — "there are types at
+    // …/index.d.ts, but this result could not be resolved when respecting package.json exports".
+    //
+    // Measured on 2026-11-03 as part of SP-1. esbuild does not consult `exports` for types, so
+    // this only ever appears in `tsc`, which means it would have surfaced first in CI.
+    //
+    // Pointing at the shipped declarations keeps the **real** types. The alternative — restating
+    // the API in a local `.d.ts` — is a hand-maintained copy of somebody else's 700-line surface
+    // that goes stale in silence, which is the kind of stand-in `CLAUDE.md` §8 rules out. Delete
+    // this entry the moment upstream adds a `types` condition; the spike suite proves nothing moved.
+    "paths": {
+      "better-sqlite3-multiple-ciphers": [
+        "./packages/storage/node_modules/better-sqlite3-multiple-ciphers/index.d.ts"
+      ]
+    },
     "moduleDetection": "force",
     "verbatimModuleSyntax": true,
     "isolatedModules": true,

@@ -34,9 +34,34 @@ const PLUGIN_SDK = '^packages/plugin-sdk/';
 const TOOLS = '^packages/tools/';
 const ANY_PACKAGE = '^packages/';
 
-/** Everything test-shaped. Used wherever a rule must not apply to tests. */
+/**
+ * Everything test-shaped. Used wherever a rule must not apply to tests.
+ *
+ * `/spike/` is in here for the same reason `/testing/` is: it is test apparatus, not product code.
+ * `02` M1-T2 defines `packages/storage/spike/` as the encryption spike's permanent regression
+ * suite, and its helper (`spike/open.ts`) transcribes `02` §3.6.2's pragma sequence and generates
+ * throwaway keys with `node:crypto` — which `crypto-only-in-shared-crypto-and-storage-crypto`
+ * correctly refused until this directory was classified.
+ *
+ * Classifying the directory rather than adding a third entry to `CRYPTO_ALLOWED` is deliberate:
+ * "cryptography lives in two reviewed modules" is a claim worth keeping exactly true, and
+ * threading a key through a helper's signature to satisfy a path regex is the kind of workaround
+ * that makes a guard look arbitrary. Nothing under `spike/` ships — `packages/storage`'s `files`
+ * list is `["dist"]`, and `tsconfig.json` includes only `src/`.
+ */
 const TEST_SHAPED =
-  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/__fixtures__/|^test/)';
+  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/spike/|/__fixtures__/|^test/)';
+
+/**
+ * Build tooling that sits at a package root rather than under `src/`.
+ *
+ * Only `drizzle.config.ts` so far: drizzle-kit is a devDependency, the config imports it, and the
+ * file is outside every package's `files` list so it cannot ship. Named by exact filename rather
+ * than by a `*.config.ts` wildcard, because the point of `no-dev-dep-in-src` is that an exemption
+ * is a decision somebody made once and wrote down — a glob invites the next config file to inherit
+ * it silently, which is how the `apps/docs` exclusion disabled a working rule during M0.
+ */
+const PACKAGE_BUILD_TOOLING = '^packages/[^/]+/drizzle\\.config\\.ts$';
 
 /**
  * Packages that must stay runnable in a browser and free of platform APIs (`01` §4, A11). Their
@@ -68,6 +93,29 @@ const CHILD_PROCESS_ALLOWED =
 const MEMORY_SEARCH_CALLERS = '^packages/engine/src/(context|readmodels)/';
 const MEMORY_SEARCH_PORT = '^packages/core/src/ports/memory-search';
 
+/**
+ * The unfiltered reads (`02` §3.7.1, §3.14 "IFC enforcement in storage").
+ *
+ * Every labeled read takes a branded `EligibleLabelSet`, computed by core `canRead`, **except** a
+ * handful named `…Unfiltered` that deliberately bypass it: the tool executor needs them because it
+ * has already applied the requester's authority itself, and retention needs them because a sweep
+ * that could only see what somebody is allowed to read would leave the rest behind forever.
+ *
+ * `02` §3.7.1 asks for this as "a dependency-cruiser rule", and dependency-cruiser cannot see a
+ * **method name** — so the unfiltered reads get their own module instead, and the restriction is
+ * on the import edge, which is the thing a module graph can actually enforce. An ESLint rule bans
+ * the `…Unfiltered` call *shape* outside the same paths, so a method added to an ordinary
+ * interface by mistake is still caught. Two layers, because they fail differently: the import rule
+ * cannot be dodged by renaming a method, and the call rule cannot be dodged by re-exporting a
+ * module. See STATUS → Plan changes (2026-11-03).
+ *
+ * Widening either list widens who can read a family's data without a policy check, which is why
+ * both are named here rather than inline.
+ */
+const UNFILTERED_READS =
+  '^packages/(core/src/ports/storage/unfiltered|storage/src/repos/unfiltered/)';
+const UNFILTERED_CALLERS = '(^packages/engine/src/tools-executor/|^packages/storage/src/)';
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -96,7 +144,7 @@ module.exports = {
         'Production code may import only runtime dependencies. A devDependency that ships is a ' +
         'broken install for every user.',
       severity: 'error',
-      from: { path: '^(packages|apps)/', pathNot: TEST_SHAPED },
+      from: { path: '^(packages|apps)/', pathNot: `(${TEST_SHAPED}|${PACKAGE_BUILD_TOOLING})` },
       to: { dependencyTypes: ['npm-dev'] },
     },
 
@@ -313,6 +361,18 @@ module.exports = {
       severity: 'error',
       from: { path: '^(packages|apps)/', pathNot: `(${MEMORY_SEARCH_CALLERS}|${TEST_SHAPED})` },
       to: { path: MEMORY_SEARCH_PORT },
+    },
+
+    {
+      name: 'unfiltered-reads-restricted-callers',
+      comment:
+        'Reads named `…Unfiltered` skip the eligible-label filter by design (`02` §3.7.1). Only ' +
+        "the tool executor — which has already applied the requester's authority — and storage " +
+        'internals, including the retention sweep, may reach them. Any other caller is a labeled ' +
+        'read with the label check removed, which is invariant I1 deleted in one import.',
+      severity: 'error',
+      from: { path: '^(packages|apps)/', pathNot: `(${UNFILTERED_CALLERS}|${TEST_SHAPED})` },
+      to: { path: UNFILTERED_READS },
     },
 
     // --- Purity (01 §4, A11) -------------------------------------------------------------------

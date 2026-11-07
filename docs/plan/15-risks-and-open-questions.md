@@ -66,7 +66,7 @@ Likelihood (L) and impact (I) are rated High, Medium or Low.
 | R-10 | **Weak plugin isolation** (Node permission model is a seat belt, not a sandbox) | M | M | Process per plugin, brokered capabilities, Node 26 for network flags, host approval, clear documentation, a container runner after 1.0 | 08, 10 |
 | R-11 | **Supply-chain compromise** of a dependency or CI action | M | H | pnpm `minimumReleaseAge` (3 days), `trustPolicy`, SHA-pinned actions, an `allowBuilds` list, OSV/CodeQL/zizmor/Scorecard, signed releases, SBOMs | 08, 12 |
 | R-12 | **Raspberry Pi performance** misses its budgets (embeddings, search, whisper) | M | M | Worker threads, lazy/unloaded embedder, brute-force vectors sized for groups, a Pi release protocol, a cloud transcription option | 04, 11, 12 |
-| R-13 | **MCP spec churn** (2026-07-28 removed sessions; SDK v2) | M | L | An isolated `@village/mcp` package, conformance tests, bearer tokens in 1.0 | 10 |
+| R-13 | **MCP spec churn** (2026-07-28 removed sessions; SDK v2) | M | L | An isolated `@comvivo/mcp` package, conformance tests, bearer tokens in 1.0 | 10 |
 | R-14 | **Live-eval budget** unaffordable | M | M | D-4; reduced profile; deterministic adversarial fakes carry the per-PR guarantee | 11 |
 | R-15 | **Launch underperforms** (HN flop, install failures at scale) | M | M | Launch gates (≥ 95% quickstart success over ≥ 40 attempts, 0 leaks, signed images), a multi-channel launch, a staffed 72-hour rota, and a demo that costs nothing to run | 13 |
 | R-16 | **Host-trust misunderstanding.** Members assume the host can't read anything | M | M | Honest in-product disclosure, a debug-content banner, the Privacy & Trust page, intro copy | 03, 08 |

@@ -60,11 +60,11 @@
 |---|---|---|---|---|
 | D-01 | API style | REST, resource-oriented JSON under `/api/v1`. Group data lives under `/api/v1/groups/{groupId}/…`. camelCase fields. TypeID ids. | GraphQL, tRPC | Simple, cacheable, and maps cleanly to OpenAPI. Group-scoped paths make the authorization scope explicit. |
 | D-02 | Spec | `@hono/zod-openapi` 1.6 with zod v4. `app.doc31` produces **OpenAPI 3.1**. The spec is emitted at build time to `apps/server/openapi.json` and committed. CI fails on drift. | Hand-written spec | One schema language end to end (ADR-010). The spec cannot drift from the handlers. |
-| D-03 | Dashboard client | **openapi-typescript 7 + openapi-fetch 0.17 + openapi-react-query 0.5**, generated into a new package `@village/api-client`. | `hono/client` RPC | Hono's RPC needs the server's `AppType` imported into the dashboard. That violates "dashboard → generated client only". Its type-checking also slows down with many routes (Hono docs). The OpenAPI client also serves community tools. |
+| D-03 | Dashboard client | **openapi-typescript 7 + openapi-fetch 0.17 + openapi-react-query 0.5**, generated into a new package `@comvivo/api-client`. | `hono/client` RPC | Hono's RPC needs the server's `AppType` imported into the dashboard. That violates "dashboard → generated client only". Its type-checking also slows down with many routes (Hono docs). The OpenAPI client also serves community tools. |
 | D-04 | CLI ↔ server | The **Control API** `/control/v1/*` on the same listener uses a bearer token from `dataDir/keys/control.token` (0600, 256-bit). It has its own types via `hono/client`, which is allowed because CLI → apps/server. | Unix socket | A Unix socket doesn't cross Docker Desktop's VM boundary. A token file works everywhere, and having the file proves filesystem access, which equals host trust. |
 | D-05 | Errors | **RFC 9457** `application/problem+json` with `type: "urn:village:problem:<slug>"`, a stable `code`, `requestId` and an optional `errors[]` (JSON pointers). | Ad-hoc JSON | Standard and machine-readable. A URN type doesn't depend on the final product name or domain. |
 | D-06 | Pagination | Opaque cursor (`limit` default 50, max 200). The response is `{ items, nextCursor }`. **No total counts** on IFC-filtered collections. | Offset/limit | Stable under inserts. A total count would leak hidden rows. |
-| D-07 | IFC on reads | Every handler reads through `@village/engine/readmodels`. It works with a `GroupViewer` whose audience is `{kind:'members', memberIds:{viewer}}`. Rows pass `InformationFlow.canRead` and are branded `Readable<T>`. Response mappers accept only `Readable<T>`. **HTTP code cannot import `@village/storage`** (dependency-cruiser rule). | Filtering in the UI or in handlers | It is the same gate as the model context (I1). The type system and the import rules make a bypass a compile or CI error. |
+| D-07 | IFC on reads | Every handler reads through `@comvivo/engine/readmodels`. It works with a `GroupViewer` whose audience is `{kind:'members', memberIds:{viewer}}`. Rows pass `InformationFlow.canRead` and are branded `Readable<T>`. Response mappers accept only `Readable<T>`. **HTTP code cannot import `@comvivo/storage`** (dependency-cruiser rule). | Filtering in the UI or in handlers | It is the same gate as the model context (I1). The type system and the import rules make a bypass a compile or CI error. |
 | D-08 | Unreadable ⇒ 404 | An unreadable entity returns the same 404 as a nonexistent one. | 403 | A 403 would confirm that the item exists. |
 | D-09 | Writes | Every mutation becomes a **Command** dispatched into the group actor. It runs through the PolicyEngine with the viewer as `ActingAuthority`, writes an `AuditEvent` with `via:'dashboard'`, and returns an `Outcome` union: `done`, `needs_confirmation`, `contested`, or a deny mapped to 403. | Direct repository writes | It keeps per-group serialization (§1 of the spine) and I3. The dashboard and chat behave identically. |
 | D-10 | Live updates | One multiplexed **SSE** stream per tab at `/api/v1/stream`. Events are IFC-filtered per subscriber and carry invalidation hints, plus chat messages for readers. Resume uses `Last-Event-ID` from an in-memory ring buffer. If events were missed, the server sends `resync`. | WebSockets | One direction is enough. Native `EventSource` reconnects and resumes on its own, and SSE passes through the HA ingress and proxies. |
@@ -74,7 +74,7 @@
 | D-14 | Cookie | Name `__Host-village_session` on HTTPS with base path `/`, `__Secure-village_session` on HTTPS with a sub-path, and `village_session` on plain HTTP (the pending-login cookie follows the same rule: `…village_pending`). Always `HttpOnly; SameSite=Strict; Path=<basePath>`. | One fixed name | `__Host-` requires `Path=/` and `Secure` (verified in Hono's cookie helper). The cookie must also work on `http://localhost` and on LAN. |
 | D-15 | CSRF | Custom middleware on **all** unsafe methods: `Sec-Fetch-Site: same-origin`, else an allowed `Origin`, else reject. Bodies must be JSON. The per-session header `X-Village-CSRF` must match. | `hono/csrf` | Hono's built-in middleware checks only form content types. JSON requests would pass unchecked. |
 | D-16 | Recent auth | Sensitive actions require `authTime` within 10 minutes. Step-up is an **Approve** button in the member's DM, with a 6-digit code as fallback. | Re-entering a password | There are no passwords. The chat identity is the authenticator. |
-| D-17 | Host bootstrap | A **host claim code** (typed `VLG-7K2M-9QXA`, 40 bits, plus a 128-bit link token `c_<22 chars>` for deep links; 30-minute TTL; burned after 10 failed attempts; formats per 08 §3.7.12 and 06 §3.20.1) is printed by the server and shown by `village init`. It is redeemed with a Telegram deep link (`?start=c_…` or `?startgroup=c_…`), with the claim command in other chat apps (06 §3.20), or on the web at `/setup`. App-store installs may supply `VILLAGE_SETUP_TOKEN` instead (§3.9.4). | First visitor becomes admin | A first-visitor model is unsafe when the dashboard is reachable on a LAN. |
+| D-17 | Host bootstrap | A **host claim code** (typed `VLG-7K2M-9QXA`, 40 bits, plus a 128-bit link token `c_<22 chars>` for deep links; 30-minute TTL; burned after 10 failed attempts; formats per 08 §3.7.12 and 06 §3.20.1) is printed by the server and shown by `village init`. It is redeemed with a Telegram deep link (`?start=c_…` or `?startgroup=c_…`), with the claim command in other chat apps (06 §3.20), or on the web at `/setup`. App-store installs may supply `COMVIVO_SETUP_TOKEN` instead (§3.9.4). | First visitor becomes admin | A first-visitor model is unsafe when the dashboard is reachable on a LAN. |
 | D-18 | Base path | Runtime base path. Vite `base: './'`. The server injects `<base href>` and boot JSON into `index.html` per request, using `dashboard.basePath` or a trusted `X-Ingress-Path`. Router `basepath` and the API `baseUrl` come from boot. | Build-time base | The HA ingress path is only known at request time. |
 | D-19 | HA ingress | A dedicated ingress listener on port 8099. Only `172.30.32.2` may connect. HA users are identified by `X-Remote-User-Id`, with no cookie, but **a header never authenticates on its own**: an HA user is linked to a Village person once via a bot code (a pairing code approved in the member's DM; or, only while the instance is unclaimed, the console host claim code). Unlinked HA users get the linking screen (01 §14 A9). | Magic links in an iframe | HA docs say not to ask for a second login, and to trust those headers only from the Supervisor. |
 | D-20 | Dashboard stack | React 19.3, Vite 8 (Rolldown), TanStack Router 1.170 (file routes, `autoCodeSplitting`), TanStack Query 5.105, Tailwind 4.3 (`@tailwindcss/vite`), shadcn CLI 4 with `--base radix`, lucide-react. | — | Spine ADR-009. Versions verified. |
@@ -83,10 +83,10 @@
 | D-23 | YAML editor | **CodeMirror 6**: `@codemirror/lang-yaml` and `@codemirror/lint`. Syntax errors are linted on the client with `yaml`. Schema errors come from the server (`/constitution/validate`) and map to line/column. `@codemirror/merge` renders diffs. The `cspNonce` facet is set. | Monaco, codemirror-json-schema | Monaco is heavy. codemirror-json-schema documents no YAML setup. Server validation is authoritative and runs the real compiler. |
 | D-24 | i18n | i18next 26 + react-i18next 17. Namespaces are loaded per route via `i18next-resources-to-backend` and `import.meta.glob`. Keys are type-checked. `Intl` and Temporal format dates and numbers in the member's locale and timezone. | FormatJS | Spine ADR-018. |
 | D-25 | CLI framework | **commander 15 + @commander-js/extra-typings**; **@clack/prompts 1.8** for interactive flows; picocolors. | citty 0.2, clipanion 4.0-rc | commander is the most widely used, has typed options and is ESM-only on Node ≥ 22.12, which fits. clipanion's last release was an rc in Sep 2024. citty is still 0.x. clack 1.8 has async validators, Standard-Schema (zod) validation, `path`, `progress`, `taskLog` and `box`. |
-| D-26 | CLI packaging | The CLI is a **thin** pure-JS package (placeholder name `<cli>`, 01 §14 A2): CLI, wizard and probes. It installs the public server-runtime package (`@village/server`, names per 12 §3.1) **on demand** in native mode, or pulls the Docker image. Both downloads start in the background while the wizard asks questions. | One fat package | It makes the 5-minute target realistic. The native modules (better-sqlite3-multiple-ciphers, onnxruntime) are large. |
+| D-26 | CLI packaging | The CLI is a **thin** pure-JS package (placeholder name `<cli>`, 01 §14 A2): CLI, wizard and probes. It installs the public server-runtime package (`@comvivo/server`, names per 12 §3.1) **on demand** in native mode, or pulls the Docker image. Both downloads start in the background while the wizard asks questions. | One fat package | It makes the 5-minute target realistic. The native modules (better-sqlite3-multiple-ciphers, onnxruntime) are large. |
 | D-27 | Health | `GET /healthz` is liveness. `GET /readyz` is readiness. Channels are **not** part of readiness (01 §14 A15). `GET /api/v1/instance/health` gives the host details. The Docker HEALTHCHECK (`/app/healthcheck.mjs`, 12 §3.2.5) and the HA `watchdog` use `/healthz`; the contract is §3.8. | One endpoint | A Telegram outage must not restart-loop the container. |
 | D-28 | Rate limiting | An in-house token-bucket middleware (~100 LOC). It is keyed by session, person or IP and emits `RateLimit-Policy`, `RateLimit` and `Retry-After` headers. | hono-rate-limiter | The rate-limiter README says it is "still in development". This is a single-process server, and the behavior must be exact. |
-| D-29 | Secrets in UI | **Read-only**: shown masked (last 4 characters), with a "Test" button. They are changed with `village secrets set` or by editing `.env`. **Sole exception (01 §14 A29):** on appliance installs (`VILLAGE_PLATFORM` = `home-assistant`, `umbrel` or `casaos`) the token-gated `/setup` flow, and afterwards Instance → Secrets in a host session with step-up (A9), may **write** host-only secrets once into `keys/secrets.enc` (format and key per 08 §3.10). Inputs are write-only (never echoed back), env and `*_FILE` still take precedence, and nothing is stored in the DB. | Editing in the dashboard everywhere | ADR-014: secrets live only in env, a keyfile or (appliances, A29) `secrets.enc`. Keeping writes to appliance setup and host step-up limits the impact of a stolen session. |
+| D-29 | Secrets in UI | **Read-only**: shown masked (last 4 characters), with a "Test" button. They are changed with `village secrets set` or by editing `.env`. **Sole exception (01 §14 A29):** on appliance installs (`COMVIVO_PLATFORM` = `home-assistant`, `umbrel` or `casaos`) the token-gated `/setup` flow, and afterwards Instance → Secrets in a host session with step-up (A9), may **write** host-only secrets once into `keys/secrets.enc` (format and key per 08 §3.10). Inputs are write-only (never echoed back), env and `*_FILE` still take precedence, and nothing is stored in the DB. | Editing in the dashboard everywhere | ADR-014: secrets live only in env, a keyfile or (appliances, A29) `secrets.enc`. Keeping writes to appliance setup and host step-up limits the impact of a stolen session. |
 | D-30 | No token streaming in chat | Web chat shows "Village is thinking…" and then the full message. | Streaming tokens | I5: the disclosure guard must see the whole draft before egress. |
 
 ### 2.1 Verified third-party facts (2026-11-01)
@@ -247,7 +247,7 @@ The metadata is kept in a typed side-table and also emitted as the `x-village` s
    - loads the `Member` for `(groupId, personId)` with `status:'active'`,
    - otherwise returns **404** (a host who isn't a member also gets 404),
    - builds a `GroupViewer` (§4.1): `audience = {kind:'members', groupId, memberIds: new Set([memberId])}`, `capabilities` from `capabilitiesFor(policy, member)` (03 §3.2.10), and `snapshot = GroupSnapshot` pinned to request start.
-3. The handler calls `deps.read.<resource>(viewer, query)` from `@village/engine/readmodels`, or `deps.commands.dispatch(...)` (§3.4). **HTTP code never touches repositories.** A dependency-cruiser rule forbids `apps/server/src/http/** → @village/storage` and `→ @village/engine/**/internal`.
+3. The handler calls `deps.read.<resource>(viewer, query)` from `@comvivo/engine/readmodels`, or `deps.commands.dispatch(...)` (§3.4). **HTTP code never touches repositories.** A dependency-cruiser rule forbids `apps/server/src/http/** → @comvivo/storage` and `→ @comvivo/engine/**/internal`.
 4. **Read models** (owned here and implemented in `packages/engine/src/readmodels/`):
    - **Prefilter in SQL** with the viewer's **eligible-label-id set** (01 §14 A8; 02 §3.2 `EligibleLabelSet`): core `canRead` computes, once per request, the interned `label_id`s the viewer may read (cached per snapshot), and repositories filter with `label_id IN (:eligible)`. SQL never re-implements IFC and there are no per-row reader columns. It is only an optimization.
    - **Authoritative check:** every row passes `InformationFlow.canRead(row.label, viewer.audience, viewer.snapshot)` inside `ifc-gate.ts`. Only that module can construct the brand `Readable<T>`, a unique-symbol-branded type.
@@ -293,7 +293,7 @@ HTTP handler ─▶ CommandBus.dispatch(groupId, Command, principal, origin:'das
                                 | 202 {outcome:'contested', proposal} | 403 policy_denied
 ```
 
-- **Same semantics as chat.** Where a built-in tool exists (calendar, tasks, lists, polls, plans, decisions, memory controls), the command handler **reuses the tool's `action()` and `execute()`** (`@village/tools`) through the tools-executor entry point. It passes `origin:'dashboard'`, and there is no model involvement. This keeps invariants I2 and I3 and avoids duplicate business logic. Commands without a tool, such as constitution proposals, member role changes, consent, and settings, are engine application services. They call the same PolicyEngine.
+- **Same semantics as chat.** Where a built-in tool exists (calendar, tasks, lists, polls, plans, decisions, memory controls), the command handler **reuses the tool's `action()` and `execute()`** (`@comvivo/tools`) through the tools-executor entry point. It passes `origin:'dashboard'`, and there is no model involvement. This keeps invariants I2 and I3 and avoids duplicate business logic. Commands without a tool, such as constitution proposals, member role changes, consent, and settings, are engine application services. They call the same PolicyEngine.
 - **Notifications.** If the policy decision includes `notify`, or the constitution asks for change notices, the engine posts the notice to chat. That is the same behavior as a chat-initiated change, and it goes through the outbox and the guard.
 - **Latency.** The handler waits up to **8 s** for the outcome. If the actor is mid-turn and hasn't yet run the command, the API returns `202 {outcome:'queued', commandId}`. The client then waits for the SSE event `command.completed` or polls `GET /api/v1/commands/{commandId}`. If the actor mailbox is full, the API returns 503 `actor_busy`.
 - **Interleaving requirement on 05.** Commands carry `priority:'interactive'`. The actor must be able to run them between a turn's model calls, because model calls happen outside the serialized section. See open question Q-12.
@@ -573,7 +573,7 @@ Token buckets in memory, with idle buckets swept every 60 s. The key depends on 
 
 | Endpoint | Semantics | Used by |
 |---|---|---|
-| `GET /healthz` | Liveness (01 §14 A15; the same contract as 12 §4.3). **200** with `{status:'ok'\|'starting'\|'degraded'}` when the process is alive, isn't draining or failed, and the event-loop delay p99 is under 5 s over the last 30 s (`perf_hooks.monitorEventLoopDelay`). `starting` (+ `phase: migrating\|backing-up\|recovering`) covers boot steps 6–9 (12 §3.8.1) so watchdogs don't kill long migrations; `degraded` covers channel auth failures, stale backups (> 36 h) and recovery mode (`phase:'recovery'`; restarting would not help, so liveness stays 200 while `/readyz` is 503). **503** `{status:'draining'}` during shutdown, or `{status:'fail'}` after an unrecoverable DB error or an event-loop stall. No DB access per request (cached state), no auth, and served before migrations finish. Loopback, the trusted ingress source and `VILLAGE_METRICS_TOKEN` holders also get the details in 12 §4.3. | Docker `HEALTHCHECK` (`/app/healthcheck.mjs` in the image; `village healthcheck` runs the same check for other runners), HA `watchdog: "http://[HOST]:[PORT:8099]/healthz"`, Umbrel/CasaOS, systemd `ExecStartPost` probes |
+| `GET /healthz` | Liveness (01 §14 A15; the same contract as 12 §4.3). **200** with `{status:'ok'\|'starting'\|'degraded'}` when the process is alive, isn't draining or failed, and the event-loop delay p99 is under 5 s over the last 30 s (`perf_hooks.monitorEventLoopDelay`). `starting` (+ `phase: migrating\|backing-up\|recovering`) covers boot steps 6–9 (12 §3.8.1) so watchdogs don't kill long migrations; `degraded` covers channel auth failures, stale backups (> 36 h) and recovery mode (`phase:'recovery'`; restarting would not help, so liveness stays 200 while `/readyz` is 503). **503** `{status:'draining'}` during shutdown, or `{status:'fail'}` after an unrecoverable DB error or an event-loop stall. No DB access per request (cached state), no auth, and served before migrations finish. Loopback, the trusted ingress source and `COMVIVO_METRICS_TOKEN` holders also get the details in 12 §4.3. | Docker `HEALTHCHECK` (`/app/healthcheck.mjs` in the image; `village healthcheck` runs the same check for other runners), HA `watchdog: "http://[HOST]:[PORT:8099]/healthz"`, Umbrel/CasaOS, systemd `ExecStartPost` probes |
 | `GET /readyz` | **200** when all of these hold:<br>• the DB is open and `SELECT 1` succeeds<br>• migrations are at head<br>• the scheduler heartbeat is under 30 s old<br>• the actor system has started<br>• dashboard assets are present (warning only).<br>Channels are listed in `degraded[]` but never fail readiness. **503** returns a problem with failing check IDs only. | `village init` / `village start` wait loop, reverse-proxy health checks, compose `depends_on: service_healthy` for sidecars |
 | `GET /api/v1/instance/health` | Detailed online checks, the same registry as `doctor` | Dashboard Settings → Health |
 
@@ -691,7 +691,7 @@ sequenceDiagram
    └─────────────────────────────────────────────────────────────────┘
    ```
 
-   `village init` fetches the code from `POST /control/v1/claim-codes {kind:'host'}`. That call rotates the code, so only the latest one works. **App-store installs without a terminal** (Umbrel, CasaOS; 12 §3.6) may set `VILLAGE_SETUP_TOKEN` (e.g. Umbrel's `APP_PASSWORD`): while `setupState='needs_host_claim'`, `/setup` also accepts that token in place of the claim code (stored hashed in `run/setup-token`, single use, same attempt limit).
+   `village init` fetches the code from `POST /control/v1/claim-codes {kind:'host'}`. That call rotates the code, so only the latest one works. **App-store installs without a terminal** (Umbrel, CasaOS; 12 §3.6) may set `COMVIVO_SETUP_TOKEN` (e.g. Umbrel's `APP_PASSWORD`): while `setupState='needs_host_claim'`, `/setup` also accepts that token in place of the claim code (stored hashed in `run/setup-token`, single use, same attempt limit).
 2. **Redemption paths.** Each one consumes the code and runs in one transaction with an `AuditEvent setup.host_claimed`:
    - **DM deep link** `?start=c_<code>`. The sender's identity becomes the host Person. The bot replies: "You're the host of this Village. Next, add me to your group: {startgroup link}". The bot also issues a fresh **group claim code**.
    - **Group deep link** `?startgroup=c_<code>`. Telegram adds the bot to a chosen group and sends `/start@bot c_<code>` from the person who added it. That person becomes the host **and** the group is bound. 06's in-chat setup flow then runs (template choice, consent announcement), and the person becomes the group's first admin under the template.
@@ -896,7 +896,7 @@ apps/dashboard/
 
 #### 3.10.2 Data layer
 
-- **Client** (`@village/api-client`):
+- **Client** (`@comvivo/api-client`):
 
   ```ts
   createClient<paths>({ baseUrl: boot.apiBase, credentials: 'same-origin' })
@@ -1039,7 +1039,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - The heading is "Set up your Village".
   - Fields: claim code (an 8-character code input that auto-formats and accepts an optional `VLG-` prefix; or the app-store setup token), "Your name" and timezone (prefilled).
   - Help text: "The claim code is shown when Village starts and by `village init`. Lost it? Run `village init` on the server, or restart Village to get a new one."
-  - **Appliance step (A29; only when `VILLAGE_PLATFORM` is `home-assistant`, `umbrel` or `casaos` and the request carries the setup token):** "Connect your AI provider and chat app" with write-only password fields for the provider key and bot token(s) that the chosen preset and channels need (names from 08 §3.10). Each value is tested (provider probe, channel probe) before it is saved to `keys/secrets.enc`; a value already set in env is shown as "set by the platform" and cannot be overridden here.
+  - **Appliance step (A29; only when `COMVIVO_PLATFORM` is `home-assistant`, `umbrel` or `casaos` and the request carries the setup token):** "Connect your AI provider and chat app" with write-only password fields for the provider key and bot token(s) that the chosen preset and channels need (names from 08 §3.10). Each value is tested (provider probe, channel probe) before it is saved to `keys/secrets.enc`; a value already set in env is shown as "set by the platform" and cannot be overridden here.
   - On success it goes to `/instance` with the onboarding checklist.
 - **`/join`:** "You're invited to {group}". Fields: name and timezone. Shows a consent explainer from 03's template. On submit, the member lands in group Home.
 - **`/link-ha`:** "Link your Home Assistant account to Village" with the two options of §3.9.10 (pairing code approved in a DM; the host claim code only while unclaimed).
@@ -1350,7 +1350,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 
 ##### 3.10.6.16 Settings (`/g/$groupId/settings/*`, `/me/*`, `/instance/*`)
 
-Common rule: every field shows its **source**. Values set by an environment variable are locked: "Set by `VILLAGE_…` on the server". Values governed by the constitution link to it: "Set in your constitution → Edit". A "Restart needed" chip appears when `restartRequired`.
+Common rule: every field shows its **source**. Values set by an environment variable are locked: "Set by `COMVIVO_…` on the server". Values governed by the constitution link to it: "Set in your constitution → Edit". A "Restart needed" chip appears when `restartRequired`.
 
 | Screen | Contents | Permission |
 |---|---|---|
@@ -1475,7 +1475,7 @@ apps/cli/src/
 ├─ copy/                   # ALL user-facing CLI strings (versioned templates; snapshot-tested)
 ├─ commands/<name>.ts      # one file per command
 ├─ wizard/                 # init steps: mode, folder, models, channels, keys, budgets, access, write, start, claim
-├─ probes/                 # adapters over @village/models + channel probe subpath exports (§4.8)
+├─ probes/                 # adapters over @comvivo/models + channel probe subpath exports (§4.8)
 └─ modes/                  # docker.ts (compose CLI), native.ts (runtime install, spawn, pidfile), ha.ts, umbrel.ts
 ```
 
@@ -1483,8 +1483,8 @@ apps/cli/src/
 
 | Topic | Rule |
 |---|---|
-| Install folder | `-C, --dir <path>` or `VILLAGE_DIR`. If neither is given, the CLI searches upward from cwd for `village.yaml`, then tries `./village/village.yaml`. The data dir comes from `instance.dataDir` (relative to the folder) or from `--data-dir` / `VILLAGE_DATA_DIR`. |
-| Mode | Read from `deployment.mode` in `village.yaml` (`docker`, `native`, `ha` or `umbrel`). Commands adapt: for example, `logs` uses `docker compose logs` in Docker mode. |
+| Install folder | `-C, --dir <path>` or `COMVIVO_DIR`. If neither is given, the CLI searches upward from cwd for `comvivo.yaml`, then tries `./village/comvivo.yaml`. The data dir comes from `instance.dataDir` (relative to the folder) or from `--data-dir` / `COMVIVO_DATA_DIR`. |
+| Mode | Read from `deployment.mode` in `comvivo.yaml` (`docker`, `native`, `ha` or `umbrel`). Commands adapt: for example, `logs` uses `docker compose logs` in Docker mode. |
 | Output | Human output goes to **stdout**. Progress, warnings and prompts go to **stderr**. `--json` prints exactly one JSON document to stdout (`{ok, data?, error?:{code,message,hint}}`) and disables prompts and spinners. |
 | Interactivity | Prompts run only when `stdin.isTTY` and the run is not `--non-interactive`, `CI=true` or `--json`. Otherwise a missing required input fails with exit 3 and names the flag to pass. `--yes` accepts the default confirmations; destructive operations still require their explicit flag. |
 | Secrets | Never accepted as flag *values* (shell history). They come from the environment (`ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, …), a hidden `password()` prompt, `--*-file <path>`, or stdin (`village secrets set NAME -`). |
@@ -1513,7 +1513,7 @@ apps/cli/src/
 
 | Command | Purpose | Key flags | Output (human) | Exit | Milestone |
 |---|---|---|---|---|---|
-| `village init [dir]` | Setup wizard (§3.11.5). On an existing install it offers reconfigure options. | `--mode docker\|native`, `--data-dir`, `--preset best\|balanced\|economy\|local\|custom`, `--provider anthropic\|openai\|google\|local`, `--channels telegram,discord,…`, `--budget-monthly <usd>`, `--budget-daily <usd>`, `--access local\|lan\|url:<https://…>`, `--key-store keyfile\|keychain\|file\|env\|passphrase` (08 §3.7.3; default `keyfile`), `--recovery-key-out <file>`, `--from-env` (take secrets from the environment), `--restore <file.vbak>` (skip the wizard and restore; 12 R5), `--no-start`, `--no-wait`, `--skip-validation`, `--force`, `--timing`. Test mode only (`VILLAGE_TEST_MODE=1`, docs-as-tests and the quickstart matrix, 13 §4.4): `--channels simulator`, `--preset fake` | Steps, then summary and claim links | 0, 3, 6, 8, 130 | M3 (min), M9 (full), M14 (modes) |
+| `village init [dir]` | Setup wizard (§3.11.5). On an existing install it offers reconfigure options. | `--mode docker\|native`, `--data-dir`, `--preset best\|balanced\|economy\|local\|custom`, `--provider anthropic\|openai\|google\|local`, `--channels telegram,discord,…`, `--budget-monthly <usd>`, `--budget-daily <usd>`, `--access local\|lan\|url:<https://…>`, `--key-store keyfile\|keychain\|file\|env\|passphrase` (08 §3.7.3; default `keyfile`), `--recovery-key-out <file>`, `--from-env` (take secrets from the environment), `--restore <file.vbak>` (skip the wizard and restore; 12 R5), `--no-start`, `--no-wait`, `--skip-validation`, `--force`, `--timing`. Test mode only (`COMVIVO_TEST_MODE=1`, docs-as-tests and the quickstart matrix, 13 §4.4): `--channels simulator`, `--preset fake` | Steps, then summary and claim links | 0, 3, 6, 8, 130 | M3 (min), M9 (full), M14 (modes) |
 | `village start` | Start the server. In the foreground it exits with the server codes of 12 §4.2 | `--role web\|worker\|all\|drill`, `--detach` (native), `--port`, `--bind`, `--wait <s>`, `--recovery` (12 §3.8.5), `--allow-downgrade --restore <file\|pre-migrate:latest> [--exit-after-restore]` (12 §3.8.3), `--insecure-permissions` (08 §3.7.3) | "Village is running at {url}" | `--detach`: 0, 6, 8, 10; foreground: 12 §4.2 | M3 |
 | `village stop` | Graceful stop (drains ≤ 30 s) | `--timeout <s>` | "Stopped." | 0, 5 | M9 |
 | `village restart` | stop + start | same as start | | | M9 |
@@ -1532,12 +1532,12 @@ apps/cli/src/
 | `village keys verify-recovery` | Type the recovery key to check it against its slot (changes nothing) | `--recovery-key-file` | ✓ / ✖ | 0, 9 | M1 |
 | `village keys rotate-master \| rotate-data [--reencrypt-blobs] \| rotate-recovery \| rotate-sessions \| recover \| add-passphrase \| remove-slot <id> \| purge-retired` | Key operations; mechanics, online/offline behavior and ceremony are normative in 08 §3.7.6–3.7.7. `rotate-recovery` prints a **new** recovery key once; the old one is never shown again (there is no "show recovery key" command, 08 SD-04) | `--yes`, `--recovery-key-out <file>` (rotate-recovery), `--recovery-key-file` (recover) | progress; new recovery key for rotate-recovery | 0, 6, 9, 10 | M1 (08 M1-T83), M9 |
 | `village secrets set <NAME> [-]` / `unset` / `list` | Edit `.env` (0600) safely; offers `reload` | `--file <path>` | "Saved. Run village restart to apply." (or reload) | 0, 3, 7 | M9 |
-| `village config get\|set\|unset\|validate\|print` | Non-secret config in `village.yaml`. `print --sources` shows the effective value and its source. | `--sources`, `--json` | | 0, 3 | M9 |
+| `village config get\|set\|unset\|validate\|print` | Non-secret config in `comvivo.yaml`. `print --sources` shows the effective value and its source. | `--sources`, `--json` | | 0, 3 | M9 |
 | `village sessions list\|revoke` | Dashboard sessions | `--all`, `--person <id>` | table | 0, 5 | M9 |
 | `village channels test [name]` | Re-run channel probes | `--json` | probe report with fixes | 0, 8 | M9 |
 | `village plugin add <spec>` / `remove <id>` / `list` / `info` / `update` / `outdated` / `restart` / `logs` / `secret set\|unset\|list` / `search` | Plugin management; semantics and the approval screen are owned by 10 §3.3. `add` and `update` show the manifest's permissions and ask for approval. | `--approve <perm,…>` (required with `--non-interactive`), `--version`, `--to <v>`, `--purge` | | 0, 3, 8 | M12 (10 owns) |
 | `village skill …` / `village mcp client …` (incl. `secret set`) / `village mcp token create\|list\|revoke` | Skills, MCP client servers and member MCP tokens; semantics owned by 10 (§3.7.3 for tokens: `create --member <id>` only for the host's own membership; `list [--person \| --group]` metadata only; `revoke <mtk_…> \| --person <prs_…> \| --all`) | per 10 | | 0, 3, 5 | M12 (10 owns) |
-| `village eval run\|replay\|lint\|generate\|calibrate\|label\|triage\|report\|inspect\|challenge` | Evals. Semantics in 11 §4.7; `challenge` per 13 §3.D.6. `@village/evals` is a **published** package that `village eval` imports **dynamically as an optional dependency** and prints an install hint when absent; `eval replay` lives in engine/server code and works without it (01 §14 A17). `eval run --suite smoke` (≤ 10 scenarios, < $0.01) validates the configured models | `--suite`, `--preset`, `--live` (costs money; asks first), `--report <file>`, others per 11 §4.7 | score table | 0, 1 | M9 (smoke, replay), M13 |
+| `village eval run\|replay\|lint\|generate\|calibrate\|label\|triage\|report\|inspect\|challenge` | Evals. Semantics in 11 §4.7; `challenge` per 13 §3.D.6. `@comvivo/evals` is a **published** package that `village eval` imports **dynamically as an optional dependency** and prints an install hint when absent; `eval replay` lives in engine/server code and works without it (01 §14 A17). `eval run --suite smoke` (≤ 10 scenarios, < $0.01) validates the configured models | `--suite`, `--preset`, `--live` (costs money; asks first), `--report <file>`, others per 11 §4.7 | score table | 0, 1 | M9 (smoke, replay), M13 |
 | `village bench` / `village feedback report\|export` | Macro benchmarks (11 §3.9) / local human-feedback reports (11 §3.13) | per 11 §4.7 | | 0, 1 | M8 (feedback), M13 (bench) |
 | `village version` | Version info | `--check` (one opt-in fetch of the release manifest; no identifiers) | `village 1.0.0 · server 1.0.0 · node 26.x · linux-arm64 · docker` | 0 | M3 |
 | `village update` | Update to the latest release (backup first) | `--to <version>`, `--channel stable\|beta`, `--yes`, `--check` (canary: run the target version's migrations on a restored copy with `--role=drill`; 12 §3.8.4) | | 0, 8, 10 | M14 |
@@ -1555,8 +1555,8 @@ apps/cli/src/
 
 | Mode | `start` / `stop` / `logs` | Server runtime | Data and permissions |
 |---|---|---|---|
-| `docker` (recommended) | `docker compose up -d` / `stop` / `logs`. The CLI waits for `/readyz` via the published port. | The image from 12. Init pulls it in the background immediately after step 1. | The compose file sets `user: "${VILLAGE_UID}:${VILLAGE_GID}"` from `.env`, which the wizard writes from `process.getuid()`. The host CLI can then read `data/keys/control.token`. The dashboard is mapped to `127.0.0.1:7777` unless the access choice is LAN. |
-| `native` | Foreground by default. `--detach` spawns a detached child with a pidfile at `data/run/village.pid` and logs at `data/logs/`. `stop` sends SIGTERM and waits. | The server-runtime package (`@village/server@<cliVersion>`, names per 12 §3.1) is installed by `village runtime install` into the managed runtime directory (12 §3.4.3) in the background during the wizard. The CLI imports it dynamically. | Node ≥ 24.11 is required (checked); Node 26 recommended (01 §14 A1). |
+| `docker` (recommended) | `docker compose up -d` / `stop` / `logs`. The CLI waits for `/readyz` via the published port. | The image from 12. Init pulls it in the background immediately after step 1. | The compose file sets `user: "${COMVIVO_UID}:${COMVIVO_GID}"` from `.env`, which the wizard writes from `process.getuid()`. The host CLI can then read `data/keys/control.token`. The dashboard is mapped to `127.0.0.1:7777` unless the access choice is LAN. |
+| `native` | Foreground by default. `--detach` spawns a detached child with a pidfile at `data/run/village.pid` and logs at `data/logs/`. `stop` sends SIGTERM and waits. | The server-runtime package (`@comvivo/server@<cliVersion>`, names per 12 §3.1) is installed by `village runtime install` into the managed runtime directory (12 §3.4.3) in the background during the wizard. The CLI imports it dynamically. | Node ≥ 24.11 is required (checked); Node 26 recommended (01 §14 A1). |
 | `ha` | Managed by the Supervisor. The CLI is used only inside the container (`docker exec`), for `doctor`, `backup` and `keys`. | HA app image (`village-ha`, 12 §3.5) | Ingress (§3.9.10) |
 | `umbrel` / `casaos` | Managed by the app store. Same CLI usage as `ha`. | image | `trustProxy` per 12 |
 
@@ -1575,7 +1575,7 @@ apps/cli/src/
 │    • a Telegram account (or admin access to a Discord server or Slack workspace)
 │  Nothing is saved until step 7. Press Ctrl+C to quit at any time.
 ```
-If `village.yaml` already exists in the target folder:
+If `comvivo.yaml` already exists in the target folder:
 ```
 ◆  Village is already set up in ./village. What would you like to do?
 │  ● Add or fix a chat app
@@ -1628,7 +1628,7 @@ Validation is an async validator that returns one message:
 │  ○ Another provider — OpenAI, Google, or a custom mix
 │  You can change this any time in the dashboard.
 ```
-- Estimates come from `@village/models` preset metadata, which starts from 05 §8's estimates (about $67/month on Best, $36 on Balanced, $3 on Economy for a family of 5) and is replaced by M13's measured numbers. The estimate is **always shown before the host chooses** (01 §14 A3).
+- Estimates come from `@comvivo/models` preset metadata, which starts from 05 §8's estimates (about $67/month on Best, $36 on Balanced, $3 on Economy for a family of 5) and is replaced by M13's measured numbers. The estimate is **always shown before the host chooses** (01 §14 A3).
 - Default: **Best is pre-selected**, with its estimate shown; any other preset is one key away (01 §14 A3). Whether to pre-select Best or Balanced is **owner decision D-1** (15 §1); until the owner decides, Best stays pre-selected.
 - The selected preset sets the default budget in step 6 (A3).
 
@@ -1670,7 +1670,7 @@ OpenAI and Google follow the same pattern through their probes.
 ◆  Village recommends {model} ({size} GB) for this computer ({ram} GB memory). Download it now?
 │  ● Yes, download ({size} GB)   ○ Use a model I already have   ○ Skip for now
 ```
-- The recommendation comes from `@village/models` `LOCAL_PRESETS`, chosen by total RAM (M2 decides the models).
+- The recommendation comes from `@comvivo/models` `LOCAL_PRESETS`, chosen by total RAM (M2 decides the models).
 - Download uses `POST /api/pull`, rendered with clack `progress`: "Downloading {model} — {completed}/{total} GB".
 - **Ollama not found:** "Ollama isn't running. Install it from https://ollama.com/download, start it, then press Enter to check again — or choose a cloud preset." The options are Retry, Back and Skip.
 - **Docker mode:** the URL written is `http://host.docker.internal:11434/v1`. The compose file gets `extra_hosts: host-gateway` (12).
@@ -1747,7 +1747,7 @@ The checks are run by 06's `TelegramProbe`:
 ◆  Type groups 3 and 11 of the key to confirm you saved it
 │  ____ ____
 ```
-- The master key is generated through `@village/storage` crypto (08 / 02) into `data/keys/master.key` (0600; `keys/` is 0700) unless `--key-store` selects another mode (08 §3.7.3). The keyring with the recovery slot and the control token are generated at the same time. The recovery-key format and ceremony are normative in 08 §3.7.6.
+- The master key is generated through `@comvivo/storage` crypto (08 / 02) into `data/keys/master.key` (0600; `keys/` is 0700) unless `--key-store` selects another mode (08 §3.7.3). The keyring with the recovery slot and the control token are generated at the same time. The recovery-key format and ceremony are normative in 08 §3.7.6.
 - Typing the wrong characters gives: "That doesn't match. Look at the key above and try again."
 - `--recovery-key-out <file>` writes the key with mode 0600 and prints: "Saved to {file}. Move it somewhere safe, off this computer."
 
@@ -1779,7 +1779,7 @@ The checks are run by 06's `TelegramProbe`:
 Then:
 ```
 ◇  Writing your setup
-│  ✓ village.yaml      settings (safe to keep in git)
+│  ✓ comvivo.yaml      settings (safe to keep in git)
 │  ✓ .env              secrets — private to you (mode 600); never commit it
 │  ✓ compose.yaml      Docker setup
 │  ✓ data/keys/        encryption keys (mode 600)
@@ -1849,7 +1849,7 @@ ANTHROPIC_API_KEY=… TELEGRAM_BOT_TOKEN=… npx village@latest init ./village \
 | ID | Checks | Warn / fail when | Remediation copy (`fix.text`) |
 |---|---|---|---|
 | `runtime.node` | Node version (native mode); permission-model network flag (08 D-08) | < 24.11 → fail; 24.x → warn (plugin network not enforced) | "Village needs Node.js 24.11 or newer (26 recommended). Install it from https://nodejs.org or switch to Docker." |
-| `config.valid` | `village.yaml` parses and validates (zod) | invalid → fail | "village.yaml line {n}: {message}. Fix it, or run `village config validate` for details." |
+| `config.valid` | `comvivo.yaml` parses and validates (zod) | invalid → fail | "comvivo.yaml line {n}: {message}. Fix it, or run `village config validate` for details." |
 | `config.secrets` | Required env vars for enabled providers and channels | missing → fail | "{NAME} isn't set. Run: village secrets set {NAME}" |
 | `fs.folder` | Install and data dirs exist, are writable and owned by the running user | fail | "Village can't write to {path}. Run: sudo chown -R {user} {path}" |
 | `fs.modes` | `keys/` is 0700; `master.key`, `control.token` and `.env` are 0600 | looser → fail (`--fix` applies chmod) | "{file} can be read by other users. Run: chmod 600 {file} (or village doctor --fix)" |
@@ -2072,12 +2072,12 @@ export interface ProbeCheck { id: string; status: 'pass' | 'warn' | 'fail'; titl
   fix?: { text: string; command?: string; docs?: string; action?: 'recheck' | 'delete_webhook' | 'open_url'; url?: string } }
 export interface ProbeReport { ok: boolean; identity?: { id: string; handle: string; displayName?: string }; checks: ProbeCheck[] }
 
-export interface ProviderProbe {       // @village/models/probe (subpath export, no heavy deps)
+export interface ProviderProbe {       // @comvivo/models/probe (subpath export, no heavy deps)
   probe(provider: 'anthropic' | 'openai' | 'google' | 'local', creds: ProviderCreds, models: string[], opts: { live: boolean }): Promise<ProbeReport>;
   ollama?: { version(baseUrl: string): Promise<string | null>; tags(baseUrl: string): Promise<string[]>;
              pull(baseUrl: string, model: string, onProgress: (p: { completed?: number; total?: number; status: string }) => void, signal: AbortSignal): Promise<void> };
 }
-export interface ChannelProbe {        // @village/channel-<id>/probe (subpath export; uses fetch only)
+export interface ChannelProbe {        // @comvivo/channel-<id>/probe (subpath export; uses fetch only)
   readonly channel: ChannelId;
   probe(creds: Record<string, string>): Promise<ProbeReport>;
   installLinks?(identity: ProbeReport['identity'], claimCode: string): { group?: string; dm?: string; instructions?: string };
@@ -2103,7 +2103,7 @@ export interface ChannelProbe {        // @village/channel-<id>/probe (subpath e
 
 ## 5. Configuration
 
-### 5.1 `village.yaml` additions (extends spine §10; zod schemas in `@village/shared/config`)
+### 5.1 `comvivo.yaml` additions (extends spine §10; zod schemas in `@comvivo/shared/config`)
 
 ```yaml
 instance:
@@ -2112,7 +2112,7 @@ deployment:
   mode: docker                      # docker | native | ha | umbrel | casaos — written by init; informational for server
 dashboard:
   enabled: true
-  bind: 127.0.0.1                   # Docker image sets VILLAGE_DASHBOARD_BIND=0.0.0.0 inside the container
+  bind: 127.0.0.1                   # Docker image sets COMVIVO_DASHBOARD_BIND=0.0.0.0 inside the container
   port: 7777
   basePath: /                       # external path prefix behind a reverse proxy
   trustProxy: false                 # false | true | ["10.0.0.0/8", "172.16.0.0/12"]
@@ -2143,15 +2143,15 @@ Constraints enforced by zod:
 
 | Variable | Overrides | Notes |
 |---|---|---|
-| `VILLAGE_DIR`, `VILLAGE_CONFIG`, `VILLAGE_DATA_DIR` | install folder, config file, `instance.dataDir` | CLI and server |
-| `VILLAGE_PUBLIC_URL`, `VILLAGE_BASE_PATH` | `instance.publicUrl`, `dashboard.basePath` | |
-| `VILLAGE_DASHBOARD_BIND`, `VILLAGE_DASHBOARD_PORT` | `dashboard.bind`, `dashboard.port` | |
-| `VILLAGE_TRUST_PROXY` | `dashboard.trustProxy` | `true`, `false` or a CSV of CIDRs |
-| `VILLAGE_INGRESS` | `dashboard.ingress.enabled` | set by the HA app |
-| `VILLAGE_UID`, `VILLAGE_GID` | compose `user:` | written by init (Docker) |
-| `VILLAGE_SETUP_TOKEN` | web-setup token for app-store installs (§3.9.4) | Umbrel/CasaOS (12 §3.6) |
-| Image and ops variables of 12 §4.4 (`VILLAGE_CONFIG`, `VILLAGE_LOG_LEVEL`, `VILLAGE_LOG_FORMAT`, `VILLAGE_MODELS_PRESET`, `VILLAGE_LOCAL_BASE_URL`, `VILLAGE_LOCAL_MODEL`, `VILLAGE_SIGNAL_CLI_URL`, `VILLAGE_PROFILE`, `VILLAGE_HEAP_MB`, `VILLAGE_SHUTDOWN_GRACE_MS`, `VILLAGE_UPDATE_CHECK`, `VILLAGE_MODELS_PATH`, `VILLAGE_MODEL_MIRROR`, `VILLAGE_WHISPER_BIN`, `VILLAGE_FFMPEG_BIN`, `VILLAGE_SCRATCH_DIR`, `VILLAGE_PLATFORM`, `VILLAGE_METRICS_TOKEN`) | as listed there | implemented by the shared config loader; every variable also accepts `*_FILE` |
-| `VILLAGE_NONINTERACTIVE`, `CI`, `NO_COLOR`, `FORCE_COLOR` | CLI behavior | |
+| `COMVIVO_DIR`, `COMVIVO_CONFIG`, `COMVIVO_DATA_DIR` | install folder, config file, `instance.dataDir` | CLI and server |
+| `COMVIVO_PUBLIC_URL`, `COMVIVO_BASE_PATH` | `instance.publicUrl`, `dashboard.basePath` | |
+| `COMVIVO_DASHBOARD_BIND`, `COMVIVO_DASHBOARD_PORT` | `dashboard.bind`, `dashboard.port` | |
+| `COMVIVO_TRUST_PROXY` | `dashboard.trustProxy` | `true`, `false` or a CSV of CIDRs |
+| `COMVIVO_INGRESS` | `dashboard.ingress.enabled` | set by the HA app |
+| `COMVIVO_UID`, `COMVIVO_GID` | compose `user:` | written by init (Docker) |
+| `COMVIVO_SETUP_TOKEN` | web-setup token for app-store installs (§3.9.4) | Umbrel/CasaOS (12 §3.6) |
+| Image and ops variables of 12 §4.4 (`COMVIVO_CONFIG`, `COMVIVO_LOG_LEVEL`, `COMVIVO_LOG_FORMAT`, `COMVIVO_MODELS_PRESET`, `COMVIVO_LOCAL_BASE_URL`, `COMVIVO_LOCAL_MODEL`, `COMVIVO_SIGNAL_CLI_URL`, `COMVIVO_PROFILE`, `COMVIVO_HEAP_MB`, `COMVIVO_SHUTDOWN_GRACE_MS`, `COMVIVO_UPDATE_CHECK`, `COMVIVO_MODELS_PATH`, `COMVIVO_MODEL_MIRROR`, `COMVIVO_WHISPER_BIN`, `COMVIVO_FFMPEG_BIN`, `COMVIVO_SCRATCH_DIR`, `COMVIVO_PLATFORM`, `COMVIVO_METRICS_TOKEN`) | as listed there | implemented by the shared config loader; every variable also accepts `*_FILE` |
+| `COMVIVO_NONINTERACTIVE`, `CI`, `NO_COLOR`, `FORCE_COLOR` | CLI behavior | |
 | Provider and channel secrets | — | names per 05 and 06 (`ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, …) |
 
 ### 5.3 Editing from the dashboard and hot reload
@@ -2260,7 +2260,7 @@ Constraints enforced by zod:
 | M3-T902 | HTTP foundation + health | `apps/server/src/http/{app.ts,listeners.ts,middleware/{request-id,security-headers,no-store,problem,body-limit}.ts}`, `routes/health.ts` | `/healthz` and `/readyz` follow §3.8 semantics (tests for draining, migrations pending and scheduler stale). problem+json `onError`. Binds `dashboard.bind:port`. | M1 |
 | M3-T903 | Control API (min) + token | `http/control/{app.ts,auth.ts}`, `routes: status, claim-codes, login-links(print only), events(SSE: group.bound)`; `storage` keygen of `control.token` | The CLI reaches the server with the bearer. Cookies are rejected. A wrong token gets 401. | M3-T902 |
 | M3-T904 | Host claim code (min) | `engine/auth/claim.ts`, boot banner | A code (typed `VLG-…` + 128-bit link token, 30-minute TTL) is generated at boot when unclaimed. It is redeemed through 06's Telegram `/start c_…` and `?startgroup=c_…`, and the group gets bound (placeholder constitution in M3, 01 §14 A27). Burned after 10 failures. Audit event. | M3-T903, 06 M3 Telegram + setup flow |
-| M3-T905 | `village init` (min, native, Telegram, Anthropic) | `apps/cli/src/wizard/{welcome,folder,models,telegram,keys,write,start,claim}.ts`, `probes/` | The wizard copy from §3.11.5, steps 0–3, 4 (Telegram only), 5, 7 (local access only), 8–10. It validates the key and token (getMe, privacy, webhook). Writes `village.yaml`, `.env` (0600) and keys. Starts native `--detach`. Prints the startgroup link and waits for `group.bound`. Has a non-interactive mode. | M3-T903, M3-T904, M2 ProviderProbe, 06 TelegramProbe |
+| M3-T905 | `village init` (min, native, Telegram, Anthropic) | `apps/cli/src/wizard/{welcome,folder,models,telegram,keys,write,start,claim}.ts`, `probes/` | The wizard copy from §3.11.5, steps 0–3, 4 (Telegram only), 5, 7 (local access only), 8–10. It validates the key and token (getMe, privacy, webhook). Writes `comvivo.yaml`, `.env` (0600) and keys. Starts native `--detach`. Prints the startgroup link and waits for `group.bound`. Has a non-interactive mode. | M3-T903, M3-T904, M2 ProviderProbe, 06 TelegramProbe |
 | M3-T906 | `village start`/`status`/`doctor` (min) | `commands/{start,status,doctor}.ts`, `apps/server/src/diagnostics/checks/{config,fs,keys,db,server,telegram,models}.ts` | `start` runs in the foreground, plus `--detach` with a pidfile. `status` summary. `doctor` with 8 core checks and their remediation copy. Exit 4 on fail. | M3-T902 |
 
 ### M9 — full API, auth, dashboard and CLI
@@ -2347,7 +2347,7 @@ Constraints enforced by zod:
 | Q-13 | Should `/openapi.json` be public? | **Session-only** on instances. The public docs site renders the committed spec. |
 | Q-14 | Should members (not admins) have dashboard access by default? | **Yes** for adult roles and teens (memory controls, traces, privacy). **No** for `child`. Configured by the `dashboard.access` capability per template (03). |
 | Q-15 | Who may create new groups? | **Host only** in 1.0. Group admins can add further chats to their own group with `/village addchat` (01 §14 A27, 06 §3.20.1). A `groups.create` instance setting comes later. |
-| Q-16 | Should `village eval run --suite smoke` ship to end users? | **Yes**, with ≤ 10 scenarios and a cost under $0.01, via the published `@village/evals` loaded as an optional dependency (01 §14 A17). It validates Local models before people rely on them. |
+| Q-16 | Should `village eval run --suite smoke` ship to end users? | **Yes**, with ≤ 10 scenarios and a cost under $0.01, via the published `@comvivo/evals` loaded as an optional dependency (01 §14 A17). It validates Local models before people rely on them. |
 
 ---
 
@@ -2355,13 +2355,13 @@ Constraints enforced by zod:
 
 | # | Change | Rationale | Status |
 |---|---|---|---|
-| P-1 | Add `packages/api-client` (`@village/api-client`, generated from OpenAPI). Dependency rule: `apps/dashboard → api-client` (only). `api-client → (nothing internal)`. | The spine says "dashboard → generated API client only" but gives it no home. A package lets community tools reuse it. | → Resolved: 01 §14 A11 |
+| P-1 | Add `packages/api-client` (`@comvivo/api-client`, generated from OpenAPI). Dependency rule: `apps/dashboard → api-client` (only). `api-client → (nothing internal)`. | The spine says "dashboard → generated API client only" but gives it no home. A package lets community tools reuse it. | → Resolved: 01 §14 A11 |
 | P-2 | Amend §4: "Only `engine/context` **and `engine/readmodels`** may call `MemoryRepository.search*`, both via `MemoryQueryService` (04), which applies `canRead` inside retrieval." | The memory explorer needs search. Routing it through one IFC-applying service keeps the rule's intent. | → Resolved: 01 §14 A11 |
-| P-3 | Add the dependency-cruiser rule `apps/server/src/http/** ↛ @village/storage` (HTTP reads and writes only through `engine/readmodels` and `engine/commands`). Add modules `engine/readmodels`, `engine/commands`, `engine/auth`, `engine/events`. | Structural enforcement of IFC and authority on the API, mirroring "policy before power". | → Accepted, owned here (rule enforced in M9-T906; dependency-cruiser enforcement per 01 §14 A11) |
+| P-3 | Add the dependency-cruiser rule `apps/server/src/http/** ↛ @comvivo/storage` (HTTP reads and writes only through `engine/readmodels` and `engine/commands`). Add modules `engine/readmodels`, `engine/commands`, `engine/auth`, `engine/events`. | Structural enforcement of IFC and authority on the API, mirroring "policy before power". | → Accepted, owned here (rule enforced in M9-T906; dependency-cruiser enforcement per 01 §14 A11) |
 | P-4 | Add capabilities `audit.read`, `usage.read` and `dashboard.access` to §7.3. | Audit and cost visibility are distinct governance decisions. Dashboard access must be configurable (children). | → Resolved: 01 §14 A6 (catalog lives in 03 §3.1.2; `usage.read` and `dashboard.access` still missing there, see the R3 review log) |
 | P-5 | §5 domain model: add infrastructure entities `Session`, `LoginToken`, `Pairing`, `ClaimCode`, `InviteCode`/`LinkCode`, `StepUpChallenge`, `IdempotencyKey`, `IcsFeedToken`, `HaLink`, `DomainEvent` (02 owns the schema). | They are persisted state with retention and security properties. | → Resolved: 01 §14 A7 (lists Session, LoginToken, PairingCode, ClaimCode, ControlToken; the remaining tables are specified in §4.6 for 02) |
 | P-6 | §9: "magic link … bound to the member" → "bound to the **person** and instance, delivered in a DM, token in the URL fragment, exchanged by POST". Add "pairing-code login" and "HA ingress header auth (Supervisor-only)". Clarify "CSRF tokens on mutations" as Sec-Fetch-Site/Origin checks plus a session-bound header token. | A dashboard session spans the person's groups. These refinements close link-preview consumption and proxy gaps. | → Resolved: 01 §14 A9 (pairing default; magic links on loopback or HTTPS opt-in; HA users linked via a bot code, never headers alone) |
 | P-7 | §10 config: add `deployment.mode`, `dashboard.{enabled,basePath,trustProxy,ingress,sessions,auth,rateLimits}`, `api.*`, `control.enabled`, `updates.check`. | Needed for reverse proxies, HA, the CLI control channel and the opt-in update check (ADR-017). | → Accepted, owned here (§5.1; host-only keys per 01 §14 A14) |
-| P-8 | §4 / ADR-015: `apps/cli` is a **thin** npm package. It loads `@village/server` dynamically (installed on demand in native mode; unused in Docker mode). Allow `apps/cli → models` and `channels/*` **probe subpath exports only**. | Makes `npx <cli>@latest init` fast enough for the 5-minute target. The probes are light. | → Resolved: 01 §14 A2 (thin CLI + public server runtime) and A11 (probe entry points) |
+| P-8 | §4 / ADR-015: `apps/cli` is a **thin** npm package. It loads `@comvivo/server` dynamically (installed on demand in native mode; unused in Docker mode). Allow `apps/cli → models` and `channels/*` **probe subpath exports only**. | Makes `npx <cli>@latest init` fast enough for the 5-minute target. The probes are light. | → Resolved: 01 §14 A2 (thin CLI + public server runtime) and A11 (probe entry points) |
 | P-9 | §6: add a `DomainEventBus` port (post-commit events; in-process by default, SQLite-tailed when roles are split). | Required for SSE and correct under `--role=web\|worker`. | → Resolved: 01 §14 A15 |
 | P-10 | Name the health contract: `GET /healthz` (liveness) and `GET /readyz` (readiness, channels excluded). | 12 (Docker, HA watchdog, Umbrel) depends on fixed paths and semantics. | → Resolved: 01 §14 A15 (contract in §3.8 = 12 §4.3) |

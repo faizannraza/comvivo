@@ -1,5 +1,6 @@
 /**
- * `tsconfig.depcruise.json` must map **every** workspace subpath export.
+ * `tsconfig.paths.json` must map **every** workspace subpath export, and the three things that
+ * read it must stay in step.
  *
  * This is the one assertion that keeps the M0 `/dist/` bug from recurring in a new form.
  *
@@ -21,15 +22,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parseJsonc } from '../support/jsonc.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
-
-/** Strip `//` and `/* *\/` comments so a jsonc tsconfig can be parsed as JSON. */
-function parseJsonc(source: string): unknown {
-  const withoutBlocks = source.replaceAll(/\/\*[\s\S]*?\*\//g, '');
-  const withoutLines = withoutBlocks.replaceAll(/(^|[^:"])\/\/.*$/gm, '$1');
-  return JSON.parse(withoutLines.replaceAll(/,(\s*[}\]])/g, '$1'));
-}
 
 function workspaceManifests(): { path: string; name: string; exports: string[] }[] {
   const files = execFileSync(
@@ -60,12 +55,21 @@ function specifierFor(name: string, exportKey: string): string {
   return `${name}/${exportKey.replace(/^\.\//, '')}`;
 }
 
-const mappings = (() => {
-  const tsconfig = parseJsonc(readFileSync(`${ROOT}/tsconfig.depcruise.json`, 'utf8')) as {
+function pathsOf(file: string): Record<string, string[]> {
+  const tsconfig = parseJsonc(readFileSync(`${ROOT}/${file}`, 'utf8')) as {
     compilerOptions?: { paths?: Record<string, string[]> };
   };
   return tsconfig.compilerOptions?.paths ?? {};
-})();
+}
+
+const allPaths = pathsOf('tsconfig.paths.json');
+
+/** Only the workspace entries; the driver mapping is a third-party shim, checked separately. */
+const mappings = Object.fromEntries(
+  Object.entries(allPaths).filter(
+    ([specifier]) => specifier.startsWith('@comvivo/') || specifier === 'comvivo',
+  ),
+);
 
 const manifests = workspaceManifests();
 
@@ -98,7 +102,7 @@ describe('tsconfig.depcruise.json', () => {
     const wrong: string[] = [];
     for (const [specifier, targets] of Object.entries(mappings)) {
       for (const target of targets) {
-        if (!/^packages\/|^apps\//.test(target) || !target.includes('/src/')) {
+        if (!/^\.\/(packages|apps)\//.test(target) || !target.includes('/src/')) {
           wrong.push(`${specifier} -> ${target}`);
         }
       }
@@ -163,5 +167,142 @@ describe('tsconfig.depcruise.json', () => {
     // A stale mapping is harmless but misleading, and it is how somebody concludes a package is
     // covered when it has been renamed.
     expect(orphans).toEqual([]);
+  });
+});
+
+describe('the one mapping, read by four things', () => {
+  /**
+   * `tsconfig.paths.json` exists because the same map is needed by dependency-cruiser (so it sees
+   * `src/` rather than `dist/`), by `tsc -p tsconfig.test.json` (so a test that imports a sibling
+   * package types without a build having run), and by Vitest's `resolve.alias` (so a test *runs*
+   * without one).
+   *
+   * Three copies would be three chances to disagree, and the failure is silent in all three
+   * directions: dependency-cruiser reports success over an unresolved edge, `tsc` reports `any`,
+   * and Vitest fails only on a machine with no `dist/` — which is a fresh checkout and CI, never
+   * the machine you are working on. Measured in `M1-T2`: the first three cross-package imports in
+   * this repository's history were mine, and all three went green locally and red in CI with
+   * "Failed to resolve entry for package".
+   *
+   * **The fourth reader is a worker thread**, added in `M1-T8`. A `Worker` gets a fresh module
+   * graph with none of Vitest's `resolve.alias`, so a worker that imports TypeScript resolves
+   * `@comvivo/*` by node resolution and lands in `dist/` — present on a machine that has built,
+   * absent in CI. Same symptom, same silence, in the one place the alias cannot reach;
+   * `storage/src/db/worker-connection.int.test.ts` derives a filtered tsconfig for it.
+   *
+   * There is deliberately **no test here** asserting that workers do that. One was written and
+   * deleted: it grepped the test sources for `TSX_TSCONFIG_PATH`, and it passed with the value
+   * replaced by `'nope'` — because the string was still in the file. A guard that survives the bug
+   * it exists to catch is worse than none. The protection that actually works is already in place:
+   * CI's `unit`, `integration` and `node24` jobs run the suite **without a prior build**, and they
+   * are what caught this. Note that `pnpm verify` structurally cannot — `typecheck` runs `tsc -b`
+   * and creates every `dist/` before `test` runs, so local verify is weaker than CI in exactly this
+   * dimension. To reproduce a fresh checkout: remove every `dist/` and run `vitest` on its own.
+   */
+  it('is extended by both the depcruise and the test tsconfig', () => {
+    for (const file of ['tsconfig.depcruise.json', 'tsconfig.test.json']) {
+      const tsconfig = parseJsonc(readFileSync(`${ROOT}/${file}`, 'utf8')) as {
+        extends?: unknown;
+      };
+      const extendsList = Array.isArray(tsconfig.extends) ? tsconfig.extends : [tsconfig.extends];
+      expect(extendsList, `${file} must extend tsconfig.paths.json`).toContain(
+        './tsconfig.paths.json',
+      );
+      // And must not carry its own copy, which would replace the shared one wholesale.
+      expect(
+        Object.keys(pathsOf(file)),
+        `${file} declares its own paths, which replaces the shared map rather than adding to it`,
+      ).toEqual([]);
+    }
+  });
+
+  it("covers every mapping in Vitest's resolve.alias", async () => {
+    const { WORKSPACE_ALIASES } = (await import('../../vitest.shared.js')) as {
+      WORKSPACE_ALIASES: Record<string, string>;
+    };
+    // The runtime alias covers the **source** mappings and deliberately not the type-only ones:
+    // aliasing a `.d.ts` makes Vitest try to execute a declaration file.
+    const runtimeMappings = Object.entries(allPaths)
+      .filter(([, targets]) => targets[0]?.endsWith('.d.ts') !== true)
+      .map(([specifier]) => specifier);
+    expect(Object.keys(WORKSPACE_ALIASES).sort()).toEqual(runtimeMappings.sort());
+    expect(Object.keys(WORKSPACE_ALIASES)).not.toContain('better-sqlite3-multiple-ciphers');
+    for (const [specifier, target] of Object.entries(WORKSPACE_ALIASES)) {
+      expect(target.startsWith(ROOT), `${specifier} -> ${target}`).toBe(true);
+    }
+  });
+
+  it('is wired into the real vitest.config.ts, not just exported from the shared module', async () => {
+    // The first version of the test above imported `WORKSPACE_ALIASES` from `vitest.shared.ts` and
+    // passed with `vitest.config.ts`'s alias emptied — a guard that checked the ingredient and not
+    // the dish. Proven by doing exactly that and watching it stay green.
+    const [{ default: config }, { WORKSPACE_ALIASES }] = await Promise.all([
+      import('../../vitest.config.js') as Promise<{
+        default: { resolve?: { alias?: Record<string, string> } };
+      }>,
+      import('../../vitest.shared.js') as Promise<{ WORKSPACE_ALIASES: Record<string, string> }>,
+    ]);
+    expect(config.resolve?.alias).toEqual(WORKSPACE_ALIASES);
+    expect(Object.keys(config.resolve?.alias ?? {}).length).toBeGreaterThan(20);
+  });
+
+  it('orders the aliases longest-specifier-first, or a subpath resolves to nothing', async () => {
+    /**
+     * Vite's string aliases match by **prefix**, not exactly, and the first match wins.
+     *
+     * So with `@comvivo/shared` ahead of `@comvivo/shared/crypto`, the subpath import was
+     * rewritten to `…/shared/src/index.ts/crypto` and died with "Cannot find package". Found the
+     * moment `packages/storage` first imported `@comvivo/shared/crypto` — the first subpath import
+     * between workspace packages here, so nothing had exercised alias precedence before.
+     *
+     * Asserted on the **order** rather than on one pair, because the hazard is structural: any
+     * future `@comvivo/x` plus `@comvivo/x/y` has it.
+     */
+    const { WORKSPACE_ALIASES } = (await import('../../vitest.shared.js')) as {
+      WORKSPACE_ALIASES: Record<string, string>;
+    };
+    const keys = Object.keys(WORKSPACE_ALIASES);
+    for (const [index, key] of keys.entries()) {
+      for (const later of keys.slice(index + 1)) {
+        expect(
+          later.startsWith(`${key}/`),
+          `"${key}" is ordered before "${later}", which it shadows by prefix`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it('resolves every subpath alias to its own module, not under its parent', async () => {
+    const { WORKSPACE_ALIASES } = (await import('../../vitest.shared.js')) as {
+      WORKSPACE_ALIASES: Record<string, string>;
+    };
+    // Non-vacuous: there has to be at least one parent/subpath pair for this to mean anything.
+    const subpaths = Object.keys(WORKSPACE_ALIASES).filter((key) =>
+      Object.keys(WORKSPACE_ALIASES).some((other) => other !== key && key.startsWith(`${other}/`)),
+    );
+    expect(subpaths.length).toBeGreaterThan(0);
+    for (const subpath of subpaths) {
+      const parent = Object.keys(WORKSPACE_ALIASES).find(
+        (other) => other !== subpath && subpath.startsWith(`${other}/`),
+      );
+      expect(parent).toBeDefined();
+      if (parent === undefined) continue;
+      const parentTarget = WORKSPACE_ALIASES[parent] ?? '';
+      expect(
+        WORKSPACE_ALIASES[subpath]?.startsWith(parentTarget),
+        `${subpath} resolves under ${parent}'s target, which is the prefix-shadowing bug`,
+      ).toBe(false);
+    }
+  });
+
+  it('repeats the third-party driver mapping that `tsconfig.base.json` also needs', () => {
+    // An `extends` array merges `compilerOptions` key by key, so the `paths` in
+    // `tsconfig.paths.json` **replaces** the base's rather than adding to it. Leaving the driver
+    // mapping out silently dropped its type declarations and every import became `TS7016`.
+    // Duplication is the lesser evil here; a duplicate that drifts is not, hence this test.
+    const base = pathsOf('tsconfig.base.json');
+    const key = 'better-sqlite3-multiple-ciphers';
+    expect(Object.keys(base)).toContain(key);
+    expect(allPaths[key]).toEqual(base[key]);
   });
 });

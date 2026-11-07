@@ -15,6 +15,10 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "default": "./dist/crypto/index.js"
+    },
     "./observability": {
       "types": "./dist/observability/index.d.ts",
       "default": "./dist/observability/index.js"
@@ -30,13 +34,15 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
-    "test": "vitest run"
+    "test": "pnpm -w exec vitest run packages/shared"
   },
   "devDependencies": {
     "fast-check": "catalog:",
+    "sodium-native": "catalog:",
     "vitest": "catalog:"
   },
   "dependencies": {
+    "libsodium-wrappers": "catalog:",
     "pino": "catalog:",
     "pure-rand": "catalog:",
     "temporal-polyfill": "catalog:",

@@ -1403,7 +1403,7 @@ export interface CoordinationLookup { resolve(hint: string, groupId: GroupId, au
 
 ## 5. Configuration
 
-`village.yaml` (non-secret; env > DB settings > YAML > defaults per ADR-014). This doc owns the `memory:` block and extends the spine's `embeddings:` block.
+`comvivo.yaml` (non-secret; env > DB settings > YAML > defaults per ADR-014). This doc owns the `memory:` block and extends the spine's `embeddings:` block.
 
 ```yaml
 memory:
@@ -1651,7 +1651,7 @@ ID convention: `M6-T1…T26` are this doc's M6 tasks. Tasks this doc requests in
 
 ### M5 — IFC prerequisites (03)
 
-- **M5-T60 `LabelingRules.forExtracted`, `ConsentPolicy.mayExtract`, `DeclassificationPolicy.mayConsider`** exported from `@village/core/ifc`. Acceptance: property tests show derived readers ⊆ the intersection of sources.
+- **M5-T60 `LabelingRules.forExtracted`, `ConsentPolicy.mayExtract`, `DeclassificationPolicy.mayConsider`** exported from `@comvivo/core/ifc`. Acceptance: property tests show derived readers ⊆ the intersection of sources.
 - **M5-T61 Sealed type + import rule** for `SealedMemory` (dependency-cruiser). Acceptance: a build fails if non-declassifier code imports the accessor.
 
 ### M6 — Memory v1

@@ -21,6 +21,7 @@
  * The remaining core purity bans (`Date`, `Math.random`, `process`) and the planted-violation
  * fixtures that prove every rule bites land in **M0-T4**.
  */
+import type { Linter } from 'eslint';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -28,8 +29,103 @@ import {
   CORE_PURITY_RULES,
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
+  RAW_TRANSACTION_ALLOWED_GLOBS,
+  RAW_TRANSACTION_BAN,
+  RAW_TX_AND_UNFILTERED_EXEMPT_GLOBS,
   SECURITY_RULES,
+  SYNC_TX_BAN,
+  UNFILTERED_ALLOWED_GLOBS,
+  UNFILTERED_READ_BAN,
 } from './scripts/lint/rules.js';
+
+/**
+ * The selectors from one `no-restricted-syntax` rules record, without the severity.
+ *
+ * ESLint flat config **replaces** a rule's options rather than merging them — the defect that left
+ * core's `Date` ban inert for most of M0 — so every block that sets `no-restricted-syntax` has to
+ * restate every selector that should apply to its paths. This makes that composition readable
+ * instead of a line of `.slice(1)` casts, and `test/boundaries/lint-bans.int.test.ts` asserts the
+ * **effective options** per path, which is the assertion that would have caught the original.
+ */
+const selectors = (rules: typeof SECURITY_RULES): unknown[] =>
+  (rules['no-restricted-syntax'] as unknown[]).slice(1);
+
+/** One `no-restricted-syntax` rules record from a selector list. */
+const restrict = (list: readonly unknown[]): Linter.RulesRecord => ({
+  'no-restricted-syntax': ['error', ...list] as unknown as Linter.RuleEntry,
+});
+
+/**
+ * Every `no-restricted-syntax` block, one per exemption class.
+ *
+ * Four bans share this one rule, and two of them have allowlists:
+ *
+ * | ban | applies to |
+ * |---|---|
+ * | `08` §3.20 security selectors | all of `packages/**`, `apps/**` |
+ * | `01` §1 synchronous transactions | all of `packages/**`, `apps/**` — tests included |
+ * | `02` §3.7.2 single transaction entry | except `tx.ts` and the spike |
+ * | `02` §3.7.1 `…Unfiltered` reads | except the allowlisted callers, tests and doubles |
+ *
+ * ESLint flat config **replaces** a rule's options rather than merging them, and the **last
+ * matching block wins**. So a block cannot "add" a ban: whichever block matches last decides the
+ * whole list for that path, and every other block's selectors vanish from it. Two independent
+ * allowlists therefore produce **four** path classes, each of which has to restate its own union.
+ *
+ * Both halves of that have already bitten this repository. `comvivo/guarded-egress` silently took
+ * core's `Date` and `process` bans away for most of M0 — found at the exit gate by planting
+ * `new Date()` in `core` and finding `pnpm lint` green. And the first version of *this* function
+ * put the raw-transaction ban on one block with `ignores` for the spike, which a later block
+ * overrode: the spike's three legitimate `db.transaction()` calls were flagged, and `tx.ts` — the
+ * transaction implementation itself — was handed back the `…Unfiltered` ban it is allowlisted
+ * against.
+ *
+ * Hence the enumerated intersection in `scripts/lint/rules.ts`: flat config's `files`/`ignores`
+ * pair can only subtract, so the overlap of two allowlists cannot be expressed and has to be
+ * named. `test/boundaries/lint-bans.int.test.ts` asserts the **effective options** for a
+ * representative path in each of the four classes, which is the only assertion that catches this.
+ */
+function restrictedSyntaxBlocks(): ReturnType<typeof defineConfig> {
+  const files = ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'];
+  const base = [...selectors(SECURITY_RULES), ...selectors(SYNC_TX_BAN)];
+  const rawTx = selectors(RAW_TRANSACTION_BAN);
+  const unfiltered = selectors(UNFILTERED_READ_BAN);
+  const unfilteredExempt = [...UNFILTERED_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'];
+
+  return defineConfig(
+    {
+      // 1. Neither exemption: the full set.
+      name: 'comvivo/restricted-syntax',
+      files,
+      rules: restrict([...base, ...rawTx, ...unfiltered]),
+    },
+    {
+      // 2. Tests, doubles and the allowlisted `…Unfiltered` callers.
+      name: 'comvivo/restricted-syntax-unfiltered-exempt',
+      files: unfilteredExempt,
+      rules: restrict([...base, ...rawTx]),
+    },
+    {
+      // 3. The transaction implementation and the spike, which measures the driver itself.
+      //
+      //    No `ignores` for the overlap: block 4 comes **after** this one and last-wins, which is
+      //    what actually hands it the both-exempt paths. An `ignores` here looked like the
+      //    mechanism and was removed once it was shown to be inert — removing it changes nothing,
+      //    while removing block 4 fails two cases in `lint-bans.int.test.ts`. **The ordering is
+      //    the mechanism**, so do not reorder these.
+      name: 'comvivo/restricted-syntax-raw-tx-exempt',
+      files: [...RAW_TRANSACTION_ALLOWED_GLOBS],
+      rules: restrict([...base, ...unfiltered]),
+    },
+    {
+      // 4. Both, because the allowlists overlap: `tx.ts` is under `packages/storage/src/**`, and a
+      //    spike test is a test.
+      name: 'comvivo/restricted-syntax-both-exempt',
+      files: [...RAW_TX_AND_UNFILTERED_EXEMPT_GLOBS],
+      rules: restrict(base),
+    },
+  );
+}
 
 export default defineConfig(
   globalIgnores([
@@ -73,7 +169,16 @@ export default defineConfig(
     // Test files, benches and scenarios are excluded from the emitting TS projects so they never
     // reach `dist`, which means the project service cannot type them. They are still fully
     // typechecked, by `tsc -p tsconfig.test.json` in `pnpm typecheck`.
-    ignores: ['**/*.test.{ts,tsx}', '**/*.bench.ts', '**/*.scenario.ts'],
+    ignores: [
+      '**/*.test.{ts,tsx}',
+      '**/*.bench.ts',
+      '**/*.scenario.ts',
+      // Build tooling at a package root: see `comvivo/scripts-type-aware` below.
+      'packages/*/*.config.ts',
+      // Spike helpers live outside `src/`, so the project service cannot type them either. See
+      // `comvivo/spike-helpers` below, which names `tsconfig.test.json` explicitly.
+      'packages/*/spike/**/*.ts',
+    ],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
       parserOptions: { projectService: true },
@@ -130,7 +235,12 @@ export default defineConfig(
     // `08` §3.20: code-execution and injection paths with no legitimate use here.
     name: 'comvivo/security-bans',
     files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
-    rules: SECURITY_RULES,
+    // `no-restricted-syntax` is deliberately **not** set here — `restrictedSyntaxBlocks()` below
+    // owns every path's selector list, because flat config replaces options rather than merging
+    // them and two blocks setting the same rule on overlapping paths is how one silently wins.
+    rules: Object.fromEntries(
+      Object.entries(SECURITY_RULES).filter(([rule]) => rule !== 'no-restricted-syntax'),
+    ),
   },
   {
     // `08` PSC-8: everything must reach the network through `safeFetch`, which applies the egress
@@ -146,6 +256,7 @@ export default defineConfig(
     ignores: ['packages/core/**', ...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
     rules: FETCH_BAN,
   },
+  ...restrictedSyntaxBlocks(),
   {
     // Doubles and fixtures legitimately need looser typing than production code.
     name: 'comvivo/testing-helpers',
@@ -163,7 +274,11 @@ export default defineConfig(
     // the one place it is most expensive, because the guard then exits 0 having checked nothing —
     // was not reported. Found by the M0 independent review.
     name: 'comvivo/scripts-type-aware',
-    files: ['scripts/**/*.ts', 'tools/**/*.ts'],
+    // `packages/*/drizzle.config.ts` belongs here, not in `comvivo/type-aware`: it sits at a
+    // package root, outside that package's `include`, so the project service cannot type it —
+    // which is how `scripts/**` ended up with 24 files of configured-but-inert rules during M0.
+    // `tsconfig.scripts.json` covers it instead.
+    files: ['scripts/**/*.ts', 'tools/**/*.ts', 'packages/*/*.config.ts'],
     ignores: ['**/*.test.ts'],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
@@ -190,6 +305,40 @@ export default defineConfig(
       'no-console': 'off',
       // The same three rules, with the same options, as `comvivo/type-aware`. Set explicitly
       // because `switch-exhaustiveness-check` is not part of `strictTypeChecked`.
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        {
+          allowDefaultCaseForExhaustiveSwitch: false,
+          considerDefaultExhaustiveForUnions: false,
+          requireDefaultForNonUnion: true,
+        },
+      ],
+    },
+  },
+  {
+    // The storage spike's helpers (`02` M1-T2 keeps the suite permanently). They sit in
+    // `packages/*/spike/`, outside the package's `include`, so `projectService` reports them as
+    // "not found by the project service" and every type-aware rule goes inert — the M0 defect, in
+    // a new directory. `tsconfig.test.json` covers them; naming it is what makes the rules run.
+    name: 'comvivo/spike-helpers',
+    files: ['packages/*/spike/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // A spike talks to an untyped native module by nature.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-unsafe-argument': 'off',
+      '@typescript-eslint/no-unsafe-call': 'off',
+      '@typescript-eslint/no-unsafe-return': 'off',
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': [
