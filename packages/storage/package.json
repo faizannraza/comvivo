@@ -46,7 +46,7 @@
     "bench:storage": "tsx spike/bench.ts",
     "db:generate": "pnpm -w exec tsc -b packages/core && drizzle-kit generate",
     "db:guards": "pnpm -w exec tsx ../../scripts/gen-guard-triggers.ts",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "tsx --tsconfig ../../tsconfig.runtime.json src/migrate/cli.mjs"
   },
   "dependencies": {
     "@comvivo/core": "workspace:*",

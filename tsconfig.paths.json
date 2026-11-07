@@ -12,10 +12,12 @@
   //     build having run first.
   //   - `vitest.shared.ts`, which builds its `resolve.alias` from this file, so a test runs
   //     against source and never against a stale or missing `dist/`.
-  //   - `test/support/paths-tsconfig.ts`, which writes a derived tsconfig for the **child
+  //   - `scripts/support/paths-tsconfig.ts`, which writes a derived tsconfig for the **child
   //     contexts** Vitest's alias cannot reach: a `node:worker_threads` worker running under `tsx`
-  //     (`M1-T8`) and the `drizzle-kit` CLI (`M1-T11`). Both resolve workspace imports through the
-  //     package `exports` map, so both land in `dist/` without it.
+  //     (`M1-T8`), the `drizzle-kit` CLI (`M1-T11`), and the migration crash runner and snapshot
+  //     script (`M1-T14`). Each resolves workspace imports through the package `exports` map, so
+  //     each lands in `dist/` — or, for the one `.d.ts` entry below, *executes a declaration
+  //     file* — without the filter.
   //
   // Them drifting apart is exactly the kind of silent gap this repository keeps finding, so
   // `test/boundaries/depcruise-paths.test.ts` asserts that every declared package export has an

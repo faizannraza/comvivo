@@ -31,7 +31,7 @@ import Database from 'better-sqlite3-multiple-ciphers';
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { writeSourcePathsTsconfig } from '../../../../test/support/paths-tsconfig.js';
+import { writeSourcePathsTsconfig } from '../../../../scripts/support/paths-tsconfig.js';
 import * as schema from './index.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));

@@ -186,9 +186,18 @@ export const SYNC_TX_BAN: Linter.RulesRecord = {
  * point, so it is the one place that may open a transaction. The spike is measuring the driver
  * itself (`02` §3.6.3), so going through `SqliteStore` there would mean measuring our wrapper
  * instead of the thing under test.
+ *
+ * `migrate/runner.ts` is the third, added at `M1-T14`, and it is the layer **below** the one the
+ * ban protects. A migration installs the tables `SqliteStore`'s repositories read, so routing it
+ * through `store.write()` would mean using the domain transaction to create the domain's own
+ * schema. Of the four things the wrapper adds, the runner provides two itself and does not want
+ * the others: it calls `.immediate()` and its callback is synchronous, it has no `afterCommit`
+ * subscribers during an upgrade, and a migration is *expected* to be slow — logging every one as
+ * an anomaly would train a host to ignore `storage.slow_tx`.
  */
 export const RAW_TRANSACTION_ALLOWED_GLOBS = [
   'packages/storage/src/db/tx.ts',
+  'packages/storage/src/migrate/runner.ts',
   'packages/storage/spike/**',
 ];
 

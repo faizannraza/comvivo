@@ -15,7 +15,14 @@
  *  - `db/worker-connection.int.test.ts` (`M1-T8`), which hands this to `tsx` through
  *    `TSX_TSCONFIG_PATH`;
  *  - `schema/ddl.int.test.ts` (`M1-T11`), which writes it as a plain `tsconfig.json` beside the
- *    generated drizzle-kit config, because drizzle-kit's own `resolveTsPaths` looks for one there.
+ *    generated drizzle-kit config, because drizzle-kit's own `resolveTsPaths` looks for one there;
+ *  - `migrations.int.test.ts`'s crash runner and `scripts/make-db-snapshot.ts` (`M1-T14`).
+ *
+ * It moved from `test/support/` to `scripts/support/` at `M1-T14`, when the fourth consumer turned
+ * out to be a release script: a test may depend on a build helper, but a release script depending
+ * on `test/` is backwards. The map itself cannot be split into runtime-safe and type-only halves,
+ * because TypeScript's `paths` **replaces** rather than merges across `extends` — so one source of
+ * truth plus this filter is the available design.
  *
  * ## Why `.d.ts` targets are filtered out
  *
@@ -33,6 +40,26 @@ import { parseJsonc } from './jsonc.js';
 
 interface PathsFile {
   readonly compilerOptions: { readonly paths: Record<string, readonly string[]> };
+}
+
+/**
+ * The workspace paths map with type-only entries dropped, targets left **relative**.
+ *
+ * This is what `tsconfig.runtime.json` holds: relative targets, so the committed file is not tied
+ * to one checkout location. {@link sourcePaths} is the absolute form, for a tsconfig written into
+ * a temporary directory where relative targets would resolve against the wrong root.
+ */
+export function runtimePathsEntries(repoRoot: string): Record<string, string[]> {
+  const source = parseJsonc(
+    readFileSync(join(repoRoot, 'tsconfig.paths.json'), 'utf8'),
+  ) as PathsFile;
+  const paths: Record<string, string[]> = {};
+  for (const [specifier, targets] of Object.entries(source.compilerOptions.paths)) {
+    const target = targets[0];
+    if (target === undefined || target.endsWith('.d.ts')) continue;
+    paths[specifier] = [target];
+  }
+  return paths;
 }
 
 /**

@@ -8,9 +8,10 @@
  * reordered migration fails loudly, toggle `foreign_keys` outside the transaction, and take a
  * pre-migration backup.
  *
- * `drizzle-kit migrate` is wired as a package script for one purpose: generating the SQL for a
- * *development* database by hand while iterating on the schema. A host's database is never touched
- * by it.
+ * `drizzle-kit migrate` is **not** wired as a package script at all. It was until `M1-T14`, as a
+ * development convenience, and that was a mistake: a convenience command that behaves differently
+ * from the production path is how a developer learns the wrong thing. `pnpm db:migrate` now runs
+ * our own runner (`src/migrate/cli.mjs`), which is the same code `apps/server` calls at boot.
  *
  * `02` D16 pins `drizzle-orm@0.45.4` / `drizzle-kit@0.31.11` for 1.0 and re-evaluates v1 — whose
  * folder-per-migration layout has no journal — at M14. Our runner already reads both layouts

@@ -2457,7 +2457,7 @@ Progress is shown by `village doctor` and in the dashboard. Rough Pi 5 throughpu
 #### 3.12.6 Migration tests
 - `migrations.fresh-equals-migrated`:
   - Apply all migrations to an empty DB. Separately, build the DB that drizzle-kit `push` would generate from the schema plus the custom SQL.
-  - Normalize `sqlite_schema` (sorted, whitespace-collapsed, excluding `vec_memory_%` and `trg_memory_items_vec_%`, which are runtime-managed) and assert equality.
+  - Normalize `sqlite_schema` (sorted, whitespace-collapsed, excluding `vec_memory_%` and `trg_memory_items_vec_%`, which are runtime-managed, **and `sqlite_%`**, because the runner's closing `PRAGMA optimize` runs `ANALYZE` and creates `sqlite_stat1`/`sqlite_stat4` — planner statistics are not schema; measured at M1-T14) and assert equality.
 - `migrations.upgrade-from-<version>`:
   - For every released version *v*, `fixtures/db/v<v>.db.gz` holds a DB created by that release's `pnpm fixtures:release-db` (seed profile `release-small`, unencrypted, deterministic).
   - The test migrates it to HEAD and asserts: `integrity_check='ok'`, empty `foreign_key_check`, schema equal to fresh, row counts preserved per table (except tables a data migration documents), and every data migration's own assertions.

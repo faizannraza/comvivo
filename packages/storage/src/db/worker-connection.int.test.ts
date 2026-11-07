@@ -16,7 +16,7 @@ import { dirname, join } from 'node:path';
 import { MessageChannel, type MessagePort, Worker } from 'node:worker_threads';
 import { StorageError } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
-import { writeSourcePathsTsconfig } from '../../../../test/support/paths-tsconfig.js';
+import { writeSourcePathsTsconfig } from '../../../../scripts/support/paths-tsconfig.js';
 import { withDataDir } from '../datadir/testing/data-dir.js';
 import { initDatabase } from './init.js';
 import {

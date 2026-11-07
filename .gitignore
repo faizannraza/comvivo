@@ -20,6 +20,10 @@ __pycache__/
 # the real migrations live in `packages/storage/migrations/`.
 packages/*/spike/.generated/
 
+# `pnpm db:migrate`'s development database. A host's data lives in the data directory (12 §3.7);
+# this is a scratch file for iterating on migrations.
+packages/storage/.dev/
+
 # Build and tool caches
 .turbo/
 .vitest/

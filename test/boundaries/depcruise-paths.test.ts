@@ -22,7 +22,8 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { parseJsonc } from '../support/jsonc.js';
+import { parseJsonc } from '../../scripts/support/jsonc.js';
+import { runtimePathsEntries } from '../../scripts/support/paths-tsconfig.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 
@@ -304,5 +305,41 @@ describe('the one mapping, read by four things', () => {
     const key = 'better-sqlite3-multiple-ciphers';
     expect(Object.keys(base)).toContain(key);
     expect(allPaths[key]).toEqual(base[key]);
+  });
+});
+
+describe('tsconfig.runtime.json', () => {
+  it('is the paths map with type-only targets removed, and is not stale', () => {
+    // The guard that makes one committed derived file safe. `tsconfig.paths.json` must point the
+    // SQLite driver at the `index.d.ts` it hides behind its `exports`, or `tsc` cannot find its
+    // types — and a *runtime* loader reading the same map executes that declaration file
+    // (`ReferenceError: Database is not defined`). That bit five separate consumers before the
+    // derived file existed, the last of them `pnpm db:migrate`, which is a documented command.
+    //
+    // Regenerate with `pnpm tsx scripts/support/write-runtime-tsconfig.ts`.
+    const committed = parseJsonc(readFileSync(`${ROOT}/tsconfig.runtime.json`, 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+    expect(committed.compilerOptions.paths).toEqual(runtimePathsEntries(ROOT));
+  });
+
+  it('contains no .d.ts target, which is the whole point', () => {
+    const committed = parseJsonc(readFileSync(`${ROOT}/tsconfig.runtime.json`, 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+    const offenders = Object.entries(committed.compilerOptions.paths).filter(([, targets]) =>
+      targets.some((target) => target.endsWith('.d.ts')),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('still drops exactly one entry, so the filter is doing something', () => {
+    // Non-vacuity: if `tsconfig.paths.json` ever stops needing a `.d.ts` entry, this fails and the
+    // derived file plus its script can be deleted rather than kept out of habit.
+    const full = parseJsonc(readFileSync(`${ROOT}/tsconfig.paths.json`, 'utf8')) as {
+      compilerOptions: { paths: Record<string, string[]> };
+    };
+    const filtered = runtimePathsEntries(ROOT);
+    expect(Object.keys(full.compilerOptions.paths).length - Object.keys(filtered).length).toBe(1);
   });
 });

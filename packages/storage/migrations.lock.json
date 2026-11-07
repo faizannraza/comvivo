@@ -1,0 +1,4 @@
+{
+  "$comment": "sha256 of every RELEASED migration (02 §3.12.1). Generated SQL is committed and never edited after release; `migrations.checksums-locked` fails on drift. Entries are added by the release workflow (M14-T4), not by hand. Empty until the first release: before one, a migration may still be regenerated, and locking it now would only make M1-T15 and later schema work fight a guard that is protecting nobody.",
+  "released": {}
+}
