@@ -27,6 +27,10 @@
       "types": "./dist/db/index.d.ts",
       "default": "./dist/db/index.js"
     },
+    "./schema": {
+      "types": "./dist/schema/index.d.ts",
+      "default": "./dist/schema/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"

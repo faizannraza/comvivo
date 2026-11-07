@@ -324,3 +324,53 @@ export function unwrapId<P extends IdPrefix>(result: Result<Id<P>, IdError>, cod
   if (result.ok) return result.value;
   throw new Error(`${code}: ${result.error.message}`);
 }
+
+/* ─────────────────────── Interned integer ids (`02` §3.2) ─────────────────────── */
+
+declare const internedBrand: unique symbol;
+
+/**
+ * An interned row id: a branded `AUTOINCREMENT` integer, not a TypeID.
+ *
+ * `02` §3.2's `labels` and `reader_sets` are **interned** — one row per distinct value per group,
+ * found by `canonical_key` and created on first use. Three reasons they are integers where every
+ * aggregate above is a TypeID, and the first is the one that decides it:
+ *
+ *  - **Every labeled row carries one.** A `label_id` is a foreign key on messages, memories,
+ *    events, tasks, lists, polls and more, so it is one of the most repeated values in the
+ *    database. A 30-character TypeID per row against a 4-byte integer is a real difference in
+ *    file size, in index size, and therefore in how much of the index fits in the page cache —
+ *    which `02` §3.6.2 measured as a 100× difference on vector search.
+ *  - **They are never exposed.** A TypeID's value is that it is safe to put in a URL or a log and
+ *    says what it refers to. A label id appears in neither: `01` §7.2's `Label` is what crosses a
+ *    boundary, and the id is an implementation detail of one instance's database.
+ *  - **Interning needs a cheap identity.** `LabelStore.intern` is a get-or-create on every write,
+ *    and comparing integers is what makes the in-memory `Map<LabelId, Label>` cache worth having.
+ *
+ * Branded so a `LabelId` cannot be passed where a `ReaderSetId` belongs. They are both integers
+ * from the same generator-shaped source, which is exactly when a brand earns its place: the
+ * mistake typechecks otherwise and the symptom is a row labeled with somebody else's audience.
+ */
+export type InternedId<Table extends string> = number & {
+  readonly [internedBrand]: Table;
+};
+
+/** `02` §3.2: an interned `Label`, including its reader set, owner, sensitivity and influence. */
+export type LabelId = InternedId<'labels'>;
+
+/** `02` §3.2: an interned `Audience` — a group, or a member set, plus any outsider seats. */
+export type ReaderSetId = InternedId<'reader_sets'>;
+
+/**
+ * Narrow a database integer to an interned id.
+ *
+ * Checked rather than cast, because the value comes from a column and a non-integer or negative
+ * one means the row is corrupt — the same reasoning as `unwrapId`. `AUTOINCREMENT` starts at 1, so
+ * zero is as wrong as a negative.
+ */
+export function internedId<Table extends string>(value: number, table: Table): InternedId<Table> {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`STORAGE_ID_INVALID: ${table}.id is ${String(value)}, not a positive integer`);
+  }
+  return value as InternedId<Table>;
+}

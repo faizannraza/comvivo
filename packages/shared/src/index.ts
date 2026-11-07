@@ -109,13 +109,16 @@ export {
   type IdPrefix,
   type InstanceId,
   type InteractionTokenId,
+  type InternedId,
   type InviteCodeId,
   idSchema,
+  internedId,
   isId,
   isValidPrefix,
   type JobId,
   type JobScheduleId,
   KNOWN_PREFIXES,
+  type LabelId,
   type LedgerEntryId,
   type LinkCodeId,
   type ListId,
@@ -138,6 +141,7 @@ export {
   type ProposalId,
   parseId,
   prefixOf,
+  type ReaderSetId,
   type ReminderFiringId,
   type ReminderId,
   type RotationId,
@@ -207,6 +211,14 @@ export {
 // --- Secrets (M0-T8) ---------------------------------------------------------------------------
 export { isSecretString, REDACTED, SecretString, secret } from './secrets/index.js';
 export { SystemClock, SystemTimers, systemClock } from './time/clock.js';
+export {
+  isCanonicalTimeZoneId,
+  isTimeZoneId,
+  parseTimeZoneId,
+  type TimeZoneId,
+  timeZoneIdSchema,
+  UTC,
+} from './time/timezone.js';
 export {
   COUNTER_BITS,
   COUNTER_MAX,
