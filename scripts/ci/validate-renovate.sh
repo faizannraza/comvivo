@@ -32,14 +32,30 @@ if [ ! -f "$CONFIG" ]; then
   exit 1
 fi
 
-if ! command -v docker > /dev/null 2>&1; then
-  echo "renovate: docker not available; the config is validated in the \`supply-policy\` CI job."
+# Skipping is a local convenience, never a CI outcome.
+#
+# Both branches below used to `exit 0` unconditionally, with a comment pointing at the
+# `supply-policy` CI job — and that job runs *this same script*, so the redirect was circular. The
+# effect was that `pnpm verify` reported green having validated nothing on any machine without
+# Docker, and would have done the same on a runner image that stopped shipping it. `CI` is set by
+# every GitHub Actions runner, so there the absence of Docker is a failure to fix rather than a
+# condition to report. Found by the M0 independent review.
+missing_docker() {
+  if [ -n "${CI:-}" ]; then
+    echo "renovate: $1 — and CI is set, so this check cannot be skipped." >&2
+    echo "renovate: the runner image must provide a working Docker daemon." >&2
+    exit 1
+  fi
+  echo "renovate: $1; skipped locally. CI validates it for real."
   exit 0
+}
+
+if ! command -v docker > /dev/null 2>&1; then
+  missing_docker "docker is not installed"
 fi
 
 if ! docker info > /dev/null 2>&1; then
-  echo "renovate: docker is installed but not running; the config is validated in CI."
-  exit 0
+  missing_docker "docker is installed but not running"
 fi
 
 # No args: with the file mounted as the working directory's `renovate.json5`, the validator treats
@@ -54,4 +70,33 @@ docker run --rm --network none \
   "$IMAGE" \
   renovate-config-validator --strict
 
-echo "renovate: config valid (renovate ${VERSION}, --strict, as repository config)."
+# The validator is proven to reject before its verdict on the real file is believed.
+#
+# `STATUS.md` recorded that it had been shown to exit 1 on a planted config "with an invalid cron
+# and a wrong-typed minimumReleaseAge" — but that was a one-off manual run with nothing committed,
+# so an edit that neutered the invocation (passing the path explicitly, which validates as a
+# *global* config and accepts a different key set — the exact mistake this script's comment above
+# documents) would be caught by nothing. Found by the M0 independent review.
+BAD="$(mktemp -d)/renovate.json5"
+trap 'rm -rf "$(dirname "$BAD")"' EXIT
+cat > "$BAD" <<'BADCONFIG'
+{
+  schedule: ['not a real schedule'],
+  minimumReleaseAge: 3,
+  thisKeyDoesNotExist: true,
+}
+BADCONFIG
+
+if docker run --rm --network none \
+  -v "${BAD}:/work/renovate.json5:ro" \
+  -w /work \
+  "$IMAGE" \
+  renovate-config-validator --strict > /dev/null 2>&1; then
+  echo "renovate: the validator accepted a config with an invalid schedule, a wrong-typed" >&2
+  echo "renovate: minimumReleaseAge and an unknown key. It is not validating anything, so its" >&2
+  echo "renovate: verdict on renovate.json5 means nothing. Check the invocation above." >&2
+  exit 1
+fi
+
+echo "renovate: config valid (renovate ${VERSION}, --strict, as repository config;"
+echo "renovate: validator confirmed to reject a planted bad config)."

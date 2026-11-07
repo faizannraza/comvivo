@@ -30,6 +30,14 @@ export interface PlantedFile {
   readonly path: string;
   /** Module specifiers this file imports. Each becomes a side-effect import. */
   readonly imports: readonly string[];
+  /**
+   * Specifiers imported as **types only**, which dependency-cruiser classifies as `type-only`.
+   *
+   * Needed to prove the two A11 edges the other way round: `engine` → `plugin-sdk` and
+   * `plugin-sdk` → `channels/sdk` are allowed as types and forbidden as values, so a rule that
+   * fired on both would be indistinguishable from one that fired on neither.
+   */
+  readonly typeImports?: readonly string[];
 }
 
 export interface CruiseResult {
@@ -149,7 +157,15 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
         write(
           root,
           file.path,
-          `${file.imports.map((spec) => `import '${spec}';`).join('\n')}\nexport const planted = true;\n`,
+          `${[
+            ...file.imports.map((spec) => `import '${spec}';`),
+            ...(file.typeImports ?? []).map(
+              (spec, index) => `import type { Thing as T${String(index)} } from '${spec}';`,
+            ),
+            ...(file.typeImports ?? []).map(
+              (_spec, index) => `export type Alias${String(index)} = T${String(index)};`,
+            ),
+          ].join('\n')}\nexport const planted = true;\n`,
         ),
       ),
     );

@@ -253,6 +253,27 @@ module.exports = {
       to: { path: ANY_PACKAGE, pathNot: `(${PLUGIN_SDK}|${CORE}|${SHARED}|${CHANNEL_SDK})` },
     },
     {
+      name: 'engine-plugin-sdk-types-only',
+      comment:
+        'A11 says `engine` may import `plugin-sdk` **types**. A runtime value import pulls the ' +
+        'third-party SDK into the turn loop, which is the opposite of what the SDK is for: it is a ' +
+        "compatibility surface for other people's code, not a library the engine depends on. " +
+        'The allow-list rule above permitted any import, so the "types" half of A11 was a comment.',
+      severity: 'error',
+      from: { path: '^packages/engine/', pathNot: TEST_SHAPED },
+      to: { path: PLUGIN_SDK, dependencyTypesNot: ['type-only'] },
+    },
+    {
+      name: 'plugin-sdk-channel-sdk-types-only',
+      comment:
+        'A11 says `plugin-sdk` may import `channels/sdk` **types**. A value import would make the ' +
+        "channel SDK part of the plugin SDK's runtime surface, and therefore part of a semver " +
+        'promise to plugin authors that nobody decided to make.',
+      severity: 'error',
+      from: { path: PLUGIN_SDK, pathNot: TEST_SHAPED },
+      to: { path: CHANNEL_SDK, dependencyTypesNot: ['type-only'] },
+    },
+    {
       name: 'plugin-host-allowed-imports',
       comment:
         '`plugin-host` supervises plugin processes and brokers their capabilities. It may import ' +
