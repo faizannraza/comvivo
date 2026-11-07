@@ -44,7 +44,8 @@
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
     "test": "pnpm -w exec vitest run packages/storage",
     "bench:storage": "tsx spike/bench.ts",
-    "db:generate": "drizzle-kit generate",
+    "db:generate": "pnpm -w exec tsc -b packages/core && drizzle-kit generate",
+    "db:guards": "pnpm -w exec tsx ../../scripts/gen-guard-triggers.ts",
     "db:migrate": "drizzle-kit migrate"
   },
   "dependencies": {

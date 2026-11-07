@@ -62,6 +62,12 @@ const RAISED_CODES: readonly StorageErrorCode[] = [
   'I4_LABEL_GROUP_MISMATCH',
   'MEMORY_CONTENT_IMMUTABLE',
   'AUDIT_APPEND_ONLY',
+  // Added with the guard triggers in `M1-T13`. Without an entry here the abort still fails the
+  // write, but it surfaces as `STORAGE_CONSTRAINT` — "the database failed" — which tells a host
+  // nothing and tells a developer less.
+  'CONSTITUTION_VERSION_IMMUTABLE',
+  'LABEL_IMMUTABLE',
+  'READER_SET_IMMUTABLE',
 ];
 
 /**
@@ -124,6 +130,26 @@ const DESCRIPTIONS: Partial<
   AUDIT_APPEND_ONLY: {
     message: 'the audit log is append-only',
     hint: 'This is a bug: the audit log is append-only.',
+  },
+  CONSTITUTION_VERSION_IMMUTABLE: {
+    message: 'a constitution version cannot be edited after it is adopted',
+    hint:
+      'This is a bug: every audit entry and turn trace records the constitution version it acted ' +
+      'under, so editing one would rewrite the rules past decisions were made by. Adopt a new ' +
+      'version instead.',
+  },
+  LABEL_IMMUTABLE: {
+    message: 'a label cannot be edited once interned',
+    hint:
+      'This is a bug: a label is interned and shared by every row carrying it, so editing one ' +
+      'would change the audience of all of them at once (I1). To relabel a record, point it at a ' +
+      'different label.',
+  },
+  READER_SET_IMMUTABLE: {
+    message: 'a reader set cannot be edited once interned',
+    hint:
+      'This is a bug: a reader set is interned and shared by every label built on it, so editing ' +
+      'one would change what those labels mean. Intern a different set instead.',
   },
 };
 

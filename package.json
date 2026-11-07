@@ -45,7 +45,7 @@
     "test:contract": "vitest run --project contract",
     "test:scenario": "vitest run --project scenario",
     "test:guards": "vitest run --project unit --project integration test scripts packages/shared/src/logger/scrub.test.ts",
-    "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run --project unit prop.test",
+    "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run .prop.",
     "bench": "node scripts/pending.mjs \"pnpm bench\" M1-T32 \"run the B-suite micro and macro benchmarks and compare against the 01 \u00a711.10 budgets\" \"nothing yet: vitest 5.0.5 does not expose a usable bench API, so M1-T32 chooses the harness (see STATUS Plan changes)\"",
     "coverage": "vitest run --coverage",
     "evals:smoke": "turbo run evals:smoke",

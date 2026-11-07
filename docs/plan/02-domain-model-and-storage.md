@@ -1802,9 +1802,12 @@ schema:**
    `Only a single 'ORDER BY distance' clause is allowed on vec0 KNN queries, not on other
    columns`. So a caller that wants results in another order sorts them after the fact, and
    `M1-T18` never builds a query that orders by `rowid` or by recency.
-2. **A rowid must bind as a SQLite integer.** better-sqlite3 binds a plain JavaScript `number` as
-   a float, so `.run(1, embedding)` fails with `Only integers are allows for primary key values`.
-   Every vec0 write binds a `BigInt` (or the statement opts into safe integers).
+2. **Every integer must bind as a SQLite integer, not just the rowid.** better-sqlite3 binds a
+   plain JavaScript `number` as a float, so `.run(1, embedding)` fails with `Only integers are
+   allows for primary key values`. Measured again at `M1-T13`: the same applies to every `INTEGER`
+   **metadata** column, with a different message — `Expected integer for INTEGER metadata column
+   label_id, received FLOAT` — so `label_id`, `state` and `valid_to_ms` need it too. Every vec0
+   write binds a `BigInt` (or the statement opts into safe integers).
 3. **`trusted_schema` must stay ON.** With `OFF`, vec0 DML inside a trigger is refused at **run**
    time (`unsafe use of virtual table`) while the DDL is accepted — so the memory-delete trigger
    would look installed and throw on the first retraction. FTS5 is unaffected, which is why this
@@ -2758,6 +2761,9 @@ export type StorageErrorCode =
   | 'STORAGE_LOCKED' | 'STORAGE_BUSY' | 'STORAGE_CORRUPT' | 'STORAGE_DISK_SPACE_LOW' | 'STORAGE_IO'
   | 'STORAGE_TX_ASYNC_CALLBACK' | 'STORAGE_WRITE_IN_READ' | 'STORAGE_JSON_INVALID' | 'STORAGE_ID_INVALID'
   | 'STORAGE_CONSTRAINT' | 'I4_LABEL_GROUP_MISMATCH' | 'MEMORY_CONTENT_IMMUTABLE' | 'AUDIT_APPEND_ONLY'
+  // Added at M1-T13: §3.3.6 and §204 state these immutabilities in prose, and a `RAISE(ABORT, …)`
+  // code has to exist for `src/db/errors.ts` to map the abort to anything but `STORAGE_CONSTRAINT`.
+  | 'CONSTITUTION_VERSION_IMMUTABLE' | 'LABEL_IMMUTABLE' | 'READER_SET_IMMUTABLE'
   | 'SCHEMA_TOO_NEW' | 'MIGRATION_FAILED' | 'MIGRATION_CHECKSUM_MISMATCH' | 'MIGRATION_FK_VIOLATION'
   | 'JOB_PAYLOAD_INVALID' | 'JOB_LEASE_LOST' | 'SCHEDULE_NO_NEXT'
   | 'BLOB_TOO_LARGE' | 'BLOB_QUOTA_EXCEEDED' | 'BLOB_DISK_LOW' | 'BLOB_INTEGRITY' | 'BLOB_MISSING_FILE'
