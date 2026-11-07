@@ -117,8 +117,8 @@ describe('tsconfig.depcruise.json', () => {
 
   it('has no mapping into a directory that exists but lacks the file', () => {
     // Deliberately narrower than "the target must exist". Several mappings are ahead of the code
-    // on purpose: `@comvivo/storage/testing` is declared in that package's `exports` and arrives
-    // with `M1`, and nothing can import it before then, so a missing file is pending rather than
+    // on purpose: `@comvivo/core/testing` is declared in that package's `exports` and arrives with
+    // `M5`, and nothing can import it before then, so a missing file is pending rather than
     // wrong.
     //
     // What is wrong is a mapping whose **directory** exists and whose file does not — that is a
@@ -152,7 +152,6 @@ describe('tsconfig.depcruise.json', () => {
       '@comvivo/engine/testing',
       '@comvivo/evals/arbitraries',
       '@comvivo/models/testing',
-      '@comvivo/storage/testing',
     ]);
   });
 
