@@ -25,6 +25,7 @@ import {
   sendDatabaseKey,
   sendNoDatabaseKey,
   type WorkerHandshake,
+  type WorkerKeyMessage,
 } from './worker-connection.js';
 
 const WORKER = new URL('./testing/read-worker.mjs', import.meta.url);
@@ -109,12 +110,43 @@ describe('the key transfer (02 §3.6.2)', () => {
     // The property that makes this safe: after the transfer there is **one** copy of the key in the
     // process, not two. A `postMessage` without a transfer list would clone silently, and the clone
     // would be unreachable and unzeroable.
+    //
+    // Asserting `key` is zeroed does **not** show that. `sendDatabaseKey` calls `zeroize(key)`
+    // unconditionally, so the old version of this test passed with the transfer list removed —
+    // precisely the failure its own comment describes. Found by the M1 independent review.
+    //
+    // The observable property is detachment: a transferred `ArrayBuffer` has `byteLength === 0` in
+    // the sender afterwards, and a cloned one still has 32 bytes.
     const { port1, port2 } = new MessageChannel();
     try {
       const key = Buffer.from(randomBytes(32));
+      const expected = Buffer.from(key);
+      const sent: {
+        message: WorkerKeyMessage | undefined;
+        transfer: readonly unknown[] | undefined;
+      } = { message: undefined, transfer: undefined };
+      const realPostMessage = port1.postMessage.bind(port1);
+      port1.postMessage = (message: unknown, transfer?: readonly unknown[]): void => {
+        sent.message = message as WorkerKeyMessage;
+        sent.transfer = transfer;
+        realPostMessage(message as never, transfer as never);
+      };
+
       sendDatabaseKey(port1, key);
-      // Zeroed by `sendDatabaseKey`, because the worker now holds the only live copy.
+
+      // The transfer list names the very buffer the message carries, so the key is moved rather
+      // than copied. Identity, not shape: a list holding some other buffer would detach the wrong
+      // thing and clone the key anyway.
+      expect(sent.transfer, 'postMessage was called with no transfer list').toBeDefined();
+      expect(sent.transfer).toHaveLength(1);
+      expect(sent.transfer?.[0]).toBe(sent.message?.key);
+      // And the move really happened.
+      expect(sent.message?.key.byteLength, 'the sender still holds the key bytes').toBe(0);
+      // The caller's own copy is cleared too, which is the second half of "one copy".
       expect(key.every((byte) => byte === 0)).toBe(true);
+      // Non-vacuity: the bytes that went across were the key, so this is not a test of an
+      // already-empty buffer.
+      expect(expected.every((byte) => byte === 0)).toBe(false);
     } finally {
       port1.close();
       port2.close();

@@ -15,7 +15,7 @@
  * Specified by `M0-T4`: "Each rule has a planted-violation fixture that makes `pnpm verify` fail."
  */
 import { execFile } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -127,6 +127,19 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
         // An empty, legitimate index so the clean tree really is clean.
         await write(root, `${dir}/src/index.ts`, 'export const ok = true;\n');
         await write(root, `${dir}/src/testing/index.ts`, 'export const double = true;\n');
+
+        // The package's **own** `node_modules`, symlinked like the root one.
+        //
+        // pnpm puts a package's dependencies under that package, not at the root, so without this
+        // a fixture importing a real runtime dependency — `libsodium-wrappers`, which belongs to
+        // `@comvivo/storage` — did not resolve, and the rule under test never saw the edge. The
+        // root symlink alone made the tree faithful only for dependencies hoisted to the root,
+        // which is why the `no-dev-dep-in-src` fixture worked (`vitest` is a root devDependency)
+        // and a package-level one did not.
+        if (existsSync(join(REPO, dir, 'node_modules'))) {
+          mkdirSync(join(root, dir), { recursive: true });
+          await symlink(join(REPO, dir, 'node_modules'), join(root, dir, 'node_modules'), 'dir');
+        }
       }),
     );
 

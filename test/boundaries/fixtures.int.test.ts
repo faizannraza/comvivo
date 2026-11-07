@@ -170,6 +170,12 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/engine/src/rolls-its-own-crypto.ts',
     imports: ['node:crypto'],
   },
+  'libsodium-only-in-shared-crypto-and-storage-crypto': {
+    // `libsodium-wrappers` is a runtime dependency of `@comvivo/storage`, so this is reachable
+    // today: a module outside `storage/src/crypto/` importing it resolves and type-checks.
+    path: 'packages/storage/src/db/reaches-libsodium.ts',
+    imports: ['libsodium-wrappers'],
+  },
   'child-process-only-in-sandbox-and-transcription': {
     path: 'packages/engine/src/spawns-a-process.ts',
     imports: ['node:child_process'],

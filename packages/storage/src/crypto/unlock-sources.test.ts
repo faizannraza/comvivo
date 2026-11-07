@@ -9,6 +9,7 @@
 import { BRAND } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import { isZeroed } from './key-service.js';
+import { type Keychain, storeMasterKey } from './keychain.js';
 import {
   decodeMasterKey,
   disposeUnlock,
@@ -63,6 +64,88 @@ function fakeIo(world: FakeWorld): UnlockIo & { readonly deleted: string[] } {
     },
   };
 }
+
+describe('the keychain round trip (08 §3.7.5 step 3)', () => {
+  // The bug this exists to prevent: `storeMasterKey` wrote to the keychain and
+  // `nodeUnlockIo.keychainGet` returned a hardcoded `undefined`, so a key could be stored and
+  // never read back — step 3 of the unlock order was unreachable with the shipped default, and
+  // every test of it injected its own `keychainGet`. Found by the M1 independent review.
+  //
+  // This test is the one that could not have been written before: it runs the **write** path and
+  // the **read** path against the same store, so the two encodings have to agree. A write that
+  // stored hex and a read that expected base64url would both pass their own tests and fail here.
+  function fakeKeychain(): Keychain & { readonly stored: Map<string, string> } {
+    const stored = new Map<string, string>();
+    return {
+      stored,
+      get: () => Promise.resolve(stored.get('master-key')),
+      set: (value) => {
+        stored.set('master-key', value);
+        return Promise.resolve();
+      },
+      delete: () => Promise.resolve(stored.delete('master-key')),
+    };
+  }
+
+  it('reads back exactly the key that was stored', async () => {
+    const keychain = fakeKeychain();
+    const written = Buffer.from(KEY);
+    await storeMasterKey(written, keychain);
+
+    // `storeMasterKey` zeroes the caller's buffer, which is the other half of its contract.
+    expect(written.every((byte) => byte === 0)).toBe(true);
+    expect(keychain.stored.size).toBe(1);
+
+    const io = fakeIo({});
+    const outcome = await resolveUnlock({
+      configured: 'keychain',
+      keyfilePath: KEYFILE,
+      io: { ...io, keychainGet: () => keychain.get() },
+    });
+    expect(outcome.kind).toBe('keychain');
+    expect(outcome.kind === 'keychain' ? outcome.key : undefined).toEqual(KEY);
+  });
+
+  it('refuses when the keychain is empty, rather than falling through to the keyfile', async () => {
+    // Keychain mode is an explicit choice, so silently reading the keyfile instead would hide a
+    // misconfigured keyring behind a working boot — and the host would never learn that the key
+    // they thought was in the keychain is sitting in a file.
+    const keychain = fakeKeychain();
+    const io = fakeIo({ files: { [KEYFILE]: KEY_B64URL } });
+    await expect(
+      resolveUnlock({
+        configured: 'keychain',
+        keyfilePath: KEYFILE,
+        io: { ...io, keychainGet: () => keychain.get() },
+      }),
+    ).rejects.toThrow(UnlockError);
+  });
+
+  // Derived from `BRAND`, not written out: `brand:check` forbids a brand literal under
+  // `packages/**` so a rename stays one command.
+  const SECOND_SERVICE = `${BRAND.slug}-second`;
+
+  it('passes the configured service name through', async () => {
+    // `08` §3.7.3's `keychainService` is what lets two instances share a login keyring. It reached
+    // nothing before, because `keychainGet` took no argument.
+    const seen: (string | undefined)[] = [];
+    await expect(
+      resolveUnlock({
+        configured: 'keychain',
+        keychainService: SECOND_SERVICE,
+        keyfilePath: KEYFILE,
+        io: {
+          ...fakeIo({}),
+          keychainGet: (service) => {
+            seen.push(service);
+            return Promise.resolve(undefined);
+          },
+        },
+      }),
+    ).rejects.toThrow(UnlockError);
+    expect(seen).toEqual([SECOND_SERVICE]);
+  });
+});
 
 describe('decodeMasterKey', () => {
   it.each([

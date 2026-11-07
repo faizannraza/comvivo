@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { BRAND } from '@comvivo/shared';
 import { zeroize } from '@comvivo/shared/crypto';
 import { describe, expect, it } from 'vitest';
+import { KeychainUnavailable, osKeychain } from './keychain.js';
 import {
   disposeUnlock,
   isPassphraseRequired,
@@ -88,11 +89,40 @@ describe('nodeUnlockIo against the real environment', { tags: ['slow'] }, () => 
     }).not.toThrow();
   });
 
-  it('loads no native addon when the keychain is not configured', async () => {
-    // The reason `keychainGet` has a do-nothing default: `08` §3.7.3 says keychain mode is not for
-    // headless Linux, and merely importing a Secret Service client can block. A host that did not
-    // ask for it must not pay for it.
-    expect(await nodeUnlockIo.keychainGet()).toBeUndefined();
+  it('reaches the real keychain, and says so when the binding is absent', async () => {
+    // This used to assert `keychainGet()` **is** undefined, which is how a stub gets a passing
+    // test: the default returned `Promise.resolve(undefined)` and never reached `keychain.ts`, so
+    // a key written by `storeMasterKey` could never be read back. The test documented the gap.
+    //
+    // `@napi-rs/keyring` is deliberately not a declared dependency (`08` §3.7.3: keychain mode is
+    // not for headless Linux, and every install would pay for a per-platform native addon), so on
+    // this machine the correct answer is `KeychainUnavailable` with installation advice — not
+    // silence. Either outcome is acceptable here, because a developer machine with the addon
+    // present and an empty keychain legitimately answers `undefined`; what is **not** acceptable
+    // is the old unconditional `undefined`, which the second half rules out.
+    let caught: unknown;
+    let value: string | undefined;
+    try {
+      value = await nodeUnlockIo.keychainGet();
+    } catch (error) {
+      caught = error;
+    }
+
+    if (caught !== undefined) {
+      expect(caught).toBeInstanceOf(KeychainUnavailable);
+      expect((caught as KeychainUnavailable).hint).toContain('@napi-rs/keyring');
+      return;
+    }
+    expect(value).toBeUndefined();
+  });
+
+  it('is the real keychain and not a resolved undefined', async () => {
+    // The assertion the old test could not make. `osKeychain` is given a loader that throws a
+    // recognisable error; if `keychainGet` still short-circuited, this would resolve instead.
+    const sentinel = new Error('the loader ran');
+    await expect(osKeychain('service', () => Promise.reject(sentinel)).get()).rejects.toBe(
+      sentinel,
+    );
   });
 });
 

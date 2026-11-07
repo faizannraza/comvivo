@@ -431,6 +431,19 @@ module.exports = {
       to: { path: '^(node:)?crypto$', dependencyTypes: ['core'] },
     },
     {
+      name: 'libsodium-only-in-shared-crypto-and-storage-crypto',
+      comment:
+        'The sibling rule above restricts `node:crypto` and stops there, so the other half of ' +
+        "this project's cryptography — libsodium — was unrestricted. `libsodium-wrappers` is a " +
+        'runtime dependency of `@comvivo/storage` with no importer under `src/`, which means any ' +
+        'storage module could have reached for secretstream directly and passed every rule. ' +
+        '`08` PSC-8 wants one place to review and one place to run known-answer tests against, ' +
+        'and that argument does not depend on which library the primitive comes from.',
+      severity: 'error',
+      from: { path: '^(packages|apps)/', pathNot: `(${CRYPTO_ALLOWED}|${TEST_SHAPED})` },
+      to: { path: 'node_modules/(libsodium-wrappers(-sumo)?|sodium-native)(/|$)' },
+    },
+    {
       name: 'child-process-only-in-sandbox-and-transcription',
       comment:
         'Spawning a process is allowed only in the plugin sandbox launcher, the transcription ' +

@@ -17,6 +17,7 @@
  * fixture rather than also writing the test.
  */
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -332,6 +333,39 @@ describe('the migration source reads both layouts', () => {
     expect(checksumOf('CREATE TABLE a;\nCREATE TABLE b;\n')).toBe(
       checksumOf('CREATE TABLE a;\r\nCREATE TABLE b;\r\n'),
     );
+  });
+
+  it('is SHA-256 of the normalised text, against vectors computed independently', () => {
+    // The test above was the **only** direct test of `checksumOf`, and both of its sides call
+    // `checksumOf` — so an implementation that ignored its input entirely and returned a constant
+    // would pass it. That is not a hypothetical shape of bug for this function: its whole job is
+    // to make `migrations.lock.json` detect an edited migration, and a constant digest would make
+    // every released migration's checksum match every other. Found by the M1 independent review.
+    //
+    // `node:crypto` directly, so the expected values do not come from the module under test.
+    const sha256Of = (text: string): string =>
+      createHash('sha256').update(text, 'utf8').digest('hex');
+
+    expect(checksumOf('')).toBe('e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    expect(checksumOf('CREATE TABLE a;\nCREATE TABLE b;\n')).toBe(
+      'bcd49007849d5176e0434dc31c2a2b449b1802102675b2af5a97b886cc866120',
+    );
+    // CRLF input must hash as if it were LF — the normalisation is inside the digest, not applied
+    // by the caller.
+    expect(checksumOf('CREATE TABLE a;\r\nCREATE TABLE b;\r\n')).toBe(
+      sha256Of('CREATE TABLE a;\nCREATE TABLE b;\n'),
+    );
+    // Different input, different digest. A constant-returning implementation dies here even if
+    // somebody updated the two vectors above to match it.
+    expect(checksumOf('CREATE TABLE a;')).not.toBe(checksumOf('CREATE TABLE b;'));
+
+    // And the committed migrations hash to what the lock file would record, which is the only
+    // claim the rest of this suite relies on.
+    const committed = fileMigrationSource(MIGRATIONS_DIR).list();
+    expect(committed.length).toBeGreaterThan(1);
+    for (const migration of committed) {
+      expect(migration.checksum).toMatch(/^[0-9a-f]{64}$/);
+    }
   });
 
   it('drops comment-only fragments rather than counting them as statements', () => {

@@ -27,7 +27,7 @@
 import { readFile } from 'node:fs/promises';
 import { BRAND, envVar } from '@comvivo/shared';
 import { zeroize } from '@comvivo/shared/crypto';
-
+import { osKeychain } from './keychain.js';
 /** The modes `08` §3.7.3 defines. */
 export const UNLOCK_SOURCES = ['file', 'env', 'keychain', 'keyfile', 'passphrase'] as const;
 export type UnlockSourceKind = (typeof UNLOCK_SOURCES)[number];
@@ -131,8 +131,13 @@ export interface UnlockIo {
   deleteEnv(name: string): void;
   readFile(path: string): Promise<string>;
   fileExists(path: string): Promise<boolean>;
-  /** The OS keychain, or `undefined` when it is unavailable (`08` §3.7.3). */
-  keychainGet(): Promise<string | undefined>;
+  /**
+   * The OS keychain, or `undefined` when it holds nothing (`08` §3.7.3).
+   *
+   * Throws `KeychainUnavailable` when the platform binding is not installed, which is a different
+   * answer from "the keychain is empty" and needs a different message.
+   */
+  keychainGet(service?: string): Promise<string | undefined>;
 }
 
 export const nodeUnlockIo: UnlockIo = {
@@ -161,12 +166,17 @@ export const nodeUnlockIo: UnlockIo = {
       return false;
     }
   },
-  keychainGet() {
-    // The real keychain lives in `keychain.ts` behind a lazy optional import; this default never
-    // reaches for it, so a process that has not opted in does not load a native addon. Returning a
-    // resolved promise rather than being `async` because there is nothing to await — an `async`
-    // method with no `await` reads as though there might be.
-    return Promise.resolve(undefined);
+  keychainGet(service) {
+    // This returned `Promise.resolve(undefined)` and never reached `keychain.ts`, so a key could
+    // be **written** to the keychain by `storeMasterKey` and never read back — step 3 of `08`
+    // §3.7.5's unlock order was unreachable with the shipped default, and the test covering it
+    // asserted the gap rather than the behaviour. Found by the M1 independent review.
+    //
+    // The cost argument the old comment made is real and is handled at the **call site**:
+    // `resolveUnlock` only reaches this when `configured === 'keychain'`, and `osKeychain` imports
+    // the native addon lazily inside `get()`. A host that did not ask for keychain mode still
+    // loads nothing.
+    return osKeychain(service).get();
   },
 };
 
@@ -175,6 +185,8 @@ export interface ResolveOptions {
   readonly configured?: 'keyfile' | 'keychain' | 'passphrase';
   /** Where `master.key` lives, for `keyfile` mode. */
   readonly keyfilePath: string;
+  /** `08` §3.7.3's `keychainService`, so a host can run two instances side by side. */
+  readonly keychainService?: string;
   readonly io?: UnlockIo;
 }
 
@@ -229,7 +241,7 @@ export async function resolveUnlock(options: ResolveOptions): Promise<UnlockOutc
   // 3. The OS keychain, only when configured — it needs D-Bus and an unlocked session on Linux,
   //    so probing it unasked would hang or warn on every headless host.
   if (options.configured === 'keychain') {
-    const fromKeychain = await io.keychainGet();
+    const fromKeychain = await io.keychainGet(options.keychainService);
     if (fromKeychain !== undefined) {
       return { kind: 'keychain', key: decodeMasterKey(fromKeychain), detail: 'OS keychain' };
     }

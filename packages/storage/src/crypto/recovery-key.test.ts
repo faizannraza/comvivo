@@ -16,6 +16,7 @@
  * wrong, during the exact emergency the key exists for.
  */
 
+import { createHash } from 'node:crypto';
 import type { InstanceId } from '@comvivo/shared';
 import { CROCKFORD_ALPHABET, KEY_BYTES } from '@comvivo/shared/crypto';
 import fc from 'fast-check';
@@ -288,6 +289,67 @@ describe('the checksum catches every single-character error', () => {
     const key = keyFromSeed(3);
     expect(recoveryKeyChecksum(key)).toHaveLength(CHECKSUM_CHARS);
     expect(recoveryKeyChecksum(key)).not.toBe(recoveryKeyChecksum(keyFromSeed(4)));
+  });
+
+  it('derives the checksum the way 08 §3.7.6 describes, computed independently', () => {
+    // The assertion the test above only claims. Its two checks — "four characters" and "two keys
+    // differ" — both pass if `RECOVERY_KEY_PREFIX` is dropped from the hash input entirely, which
+    // is exactly the one-character change it says nothing else would notice. Found by the M1
+    // independent review.
+    //
+    // So this reimplements the spec from `node:crypto` rather than calling the module: the first
+    // 20 bits of `SHA-256("VRK1" ‖ key)`, Crockford-encoded. Two implementations of one sentence
+    // in the spec, which is what a known-answer test is for.
+    const crockford = (value: number, chars: number): string => {
+      let out = '';
+      for (let i = chars - 1; i >= 0; i -= 1) {
+        out += CROCKFORD_ALPHABET[(value >> (5 * i)) & 0x1f];
+      }
+      return out;
+    };
+
+    for (const seed of [0, 3, 11, 200]) {
+      const key = keyFromSeed(seed);
+      const digest = createHash('sha256')
+        .update(Buffer.from(RECOVERY_KEY_PREFIX, 'ascii'))
+        .update(key)
+        .digest();
+      const expected = crockford(digest.readUIntBE(0, 3) >> 4, CHECKSUM_CHARS);
+      expect(recoveryKeyChecksum(key), `seed ${String(seed)}`).toBe(expected);
+    }
+
+    // And the domain really is load-bearing: hashing the key alone gives a different answer, so
+    // the agreement above is not an accident of the encoding.
+    const key = keyFromSeed(3);
+    const withoutDomain = crockford(
+      createHash('sha256').update(key).digest().readUIntBE(0, 3) >> 4,
+      CHECKSUM_CHARS,
+    );
+    expect(recoveryKeyChecksum(key)).not.toBe(withoutDomain);
+  });
+
+  it('matches frozen vectors, so a change to the format is a visible change', () => {
+    // A host writes this string on paper. A silent change to the checksum domain, the bit slice or
+    // the alphabet makes every card already in a drawer fail to validate, and the failure appears
+    // at the worst possible moment — a restore. These three are the whole encoded form, not just
+    // the checksum, so the payload encoding is frozen too.
+    expect(encodeRecoveryKey(Buffer.alloc(KEY_BYTES, 0x00))).toBe(
+      'VRK1-0000-0000-0000-0000-0000-0000-0000-0000-0000-0000-0000-0000-0000-NQ0S',
+    );
+    expect(encodeRecoveryKey(Buffer.alloc(KEY_BYTES, 0x5a))).toBe(
+      'VRK1-0PJT-B9D5-MPJT-B9D5-MPJT-B9D5-MPJT-B9D5-MPJT-B9D5-MPJT-B9D5-MPJT-QEQM',
+    );
+    expect(encodeRecoveryKey(Buffer.alloc(KEY_BYTES, 0xff))).toBe(
+      'VRK1-1ZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZ-4ZT4',
+    );
+    // Each one decodes back to the key it came from, so the vectors are self-consistent rather
+    // than three strings somebody pasted.
+    for (const fill of [0x00, 0x5a, 0xff]) {
+      const key = Buffer.alloc(KEY_BYTES, fill);
+      const decoded = decodeRecoveryKey(encodeRecoveryKey(key));
+      expect(decoded.ok).toBe(true);
+      expect(decoded.ok ? decoded.key : undefined).toEqual(key);
+    }
   });
 
   it('spreads checksums across the space rather than clustering', () => {
