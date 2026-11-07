@@ -202,37 +202,20 @@ describe('the generated DDL is valid SQLite', () => {
     });
   });
 
-  it('declares the 19 tables of 02 §3.3.1–§3.3.3 and §3.3.8', () => {
-    withSchemaDb(ddl(), (db) => {
-      const names = (
+  it('generates every table the schema exports, dropping none', () => {
+    // The canonical inventory is pinned in `tables.test.ts`; duplicating it here would be two
+    // lists to update and one to forget. What only this suite can show is that `drizzle-kit`
+    // carried every exported table into the SQL.
+    const generatedNames = withSchemaDb(ddl(), (db) =>
+      (
         db
           .prepare(
             "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
           )
           .all() as { name: string }[]
-      ).map((row) => row.name);
-      expect(names).toEqual([
-        'app_meta',
-        'blobs',
-        'channel_identities',
-        'conversations',
-        'declassifications',
-        'deletions',
-        'groups',
-        'guardian_relations',
-        'instance',
-        'labels',
-        'members',
-        'message_attachments',
-        'message_reactions',
-        'messages',
-        'persons',
-        'reader_set_members',
-        'reader_set_seats',
-        'reader_sets',
-        'settings',
-      ]);
-    });
+      ).map((row) => row.name),
+    );
+    expect(generatedNames).toEqual(tables.map((table) => getTableName(table)).sort());
   });
 });
 
@@ -345,6 +328,16 @@ describe('partial and expression indexes', () => {
       'conversations_one_primary_uq',
       // 03 §3.3.3: only declassifications that cover a write.
       'declassifications_action_idx',
+      // 04 §3.8.6: exactly one space is searched at a time.
+      'embedding_spaces_one_active_uq',
+      // Q-JOB-6: empty once the embedding backlog is drained.
+      'memory_embed_pending_idx',
+      // Q-MEM-3: the small group-layer core read on every turn.
+      'memory_pinned_idx',
+      // Q-PRV-5: sources whose message has not been swept.
+      'memory_sources_message_idx',
+      // Q-MEM-1: only items that supersede something.
+      'memory_supersedes_idx',
       // 09: only web-chat messages carry a client id.
       'messages_client_id_uq',
       // Q-ING-5: only messages with a platform id.
@@ -418,22 +411,42 @@ describe('partial and expression indexes', () => {
 });
 
 describe('the index set as a whole', () => {
-  it('names every index after its table, so EXPLAIN QUERY PLAN output is readable', () => {
-    const named = withSchemaDb(ddl(), (db) =>
+  /**
+   * The prefix each table's index names may use.
+   *
+   * `02` §3.3.10 justifies every index by name and `M1-T19` asserts on `EXPLAIN QUERY PLAN`
+   * output, so a name has to say which table it belongs to. Most are the table's own name; the
+   * exceptions here are `02`'s own abbreviations, and listing them explicitly is the point — the
+   * first version of this test derived the prefix mechanically (table name minus a trailing `s`),
+   * which silently accepted every `memory_*` index on `memory_items` and would have accepted a
+   * name that pointed at the wrong table just as happily.
+   */
+  const PREFIXES: Readonly<Record<string, readonly string[]>> = {
+    message_attachments: ['attachments_'],
+    memory_items: ['memory_'],
+    memory_entity_aliases: ['memory_aliases_'],
+  };
+
+  it('names every index after its table or a declared abbreviation of it', () => {
+    const offenders = withSchemaDb(ddl(), (db) =>
       (
         db
           .prepare(
             "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
           )
           .all() as { name: string; tbl_name: string }[]
-      ).filter((row) => !row.name.startsWith(row.tbl_name.replace(/s$/, ''))),
+      ).filter((row) => {
+        const allowed = PREFIXES[row.tbl_name] ?? [`${row.tbl_name}_`];
+        return !allowed.some((prefix) => row.name.startsWith(prefix));
+      }),
     );
-    // `02` §3.3.10 justifies each index by name, and `M1-T19` asserts on `EXPLAIN QUERY PLAN`
-    // output — both of which need the name to say which table it belongs to. The two deliberate
-    // exceptions are abbreviations of their table's name.
-    expect(named.map((row) => row.name).sort()).toEqual([
-      'attachments_blob_idx',
-      'attachments_message_idx',
-    ]);
+    expect(offenders.map((row) => `${row.tbl_name}: ${row.name}`)).toEqual([]);
+  });
+
+  it('rejects a name that points at the wrong table', () => {
+    // The positive control. Without it, a `PREFIXES` entry loose enough to match anything would
+    // make the test above pass for every possible name.
+    const allowed = PREFIXES['memory_items'] ?? [];
+    expect(allowed.some((prefix) => 'messages_conv_rid_idx'.startsWith(prefix))).toBe(false);
   });
 });

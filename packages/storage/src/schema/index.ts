@@ -22,6 +22,8 @@ export {
   boolCheckSql,
   createdAt,
   instantMs,
+  type JsonColumnConfig,
+  jsonColumnTag,
   jsonOf,
   labelRef,
   MAX_EPOCH_MS,
@@ -47,5 +49,22 @@ export {
   readerSetSeats,
   readerSets,
 } from './ifc.js';
+export {
+  embeddingSpaces,
+  extractionCursors,
+  forgetFingerprints,
+  forgetSourceBlocks,
+  memoryAccessStats,
+  memoryConsolidationState,
+  memoryEntities,
+  memoryEntityAliases,
+  memoryEvents,
+  memoryItemEntities,
+  memoryItems,
+  memoryOpsApplied,
+  memorySources,
+  memorySubjects,
+  memoryTombstones,
+} from './memory.js';
 export { messageAttachments, messageReactions, messages } from './messages.js';
 export { appMeta, deletions, settings } from './system.js';

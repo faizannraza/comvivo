@@ -151,12 +151,44 @@ function assertStorableEpochMs(ms: number, direction: 'read' | 'write'): void {
  * `tag` is the column's name and goes into the error, because "a JSON column failed to parse" is
  * not actionable and `messages.parts` is.
  */
-export const jsonOf = <S extends z.ZodType>(schema: S, tag: string) =>
-  customType<{ data: z.output<S>; driverData: string }>({
+export const jsonOf = <S extends z.ZodType>(schema: S, tag: string) => {
+  const type = customType<{
+    data: z.output<S>;
+    driverData: string;
+    config: JsonColumnConfig;
+  }>({
     dataType: () => 'text',
     toDriver: (value) => JSON.stringify(validateJson(schema, value, tag, 'write')),
     fromDriver: (raw) => validateJson(schema, parseJsonText(raw, tag), tag, 'read'),
   });
+  // The tag is passed as drizzle's `fieldConfig` as well as captured in the closure, because
+  // drizzle keeps `fieldConfig` on the **built** column (`column.config.fieldConfig`) while the
+  // closure is invisible from outside. `M1-T12`'s acceptance criterion is a test that iterates
+  // every `jsonOf` tag and checks it against `02` §3.3.9's catalog, and `jsonColumnTag` below is
+  // how it finds them — without this, the catalog could drift from the schema with nothing to say
+  // so, which for a *size cap* means a column quietly losing its bound.
+  return (name: string) => type(name, { jsonTag: tag });
+};
+
+/** What `jsonOf` stores in drizzle's `fieldConfig` so the tag survives on the built column. */
+export interface JsonColumnConfig {
+  readonly jsonTag: string;
+}
+
+/**
+ * The `02` §3.3.9 tag of a JSON column, or `undefined` for any other column.
+ *
+ * Every helper in this file is a drizzle `customType`, so `columnType` alone cannot tell a
+ * `jsonOf` column from a `tid` or an `instantMs` one — the presence of `jsonTag` is what does.
+ */
+export function jsonColumnTag(column: unknown): string | undefined {
+  if (typeof column !== 'object' || column === null) return undefined;
+  const config = (column as { config?: { fieldConfig?: unknown } }).config;
+  const fieldConfig = config?.fieldConfig;
+  if (typeof fieldConfig !== 'object' || fieldConfig === null) return undefined;
+  const tag = (fieldConfig as { jsonTag?: unknown }).jsonTag;
+  return typeof tag === 'string' ? tag : undefined;
+}
 
 /** Parse the text of a JSON column, reporting the column rather than the position. */
 function parseJsonText(raw: string, tag: string): unknown {

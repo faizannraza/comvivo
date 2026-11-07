@@ -402,7 +402,7 @@ export const labels = sqliteTable('labels', {
   groupId: tid('grp')('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
   readerSetId: integer('reader_set_id').notNull().references(() => readerSets.id),
   ownerMemberId: tid('mbr')('owner_member_id').references(() => members.id),        // NULL = 'group'
-  coOwnerMemberIds: jsonOf(z.array(idSchema('mbr')).max(64), 'labels.co_owners')('co_owner_member_ids').notNull(), // sorted; excludes owner (A5)
+  coOwnerMemberIds: jsonOf(z.array(idSchema('mbr')).max(64), 'labels.co_owner_member_ids')('co_owner_member_ids').notNull(), // sorted; excludes owner (A5)
   sensitivity: text('sensitivity', { enum: ['normal', 'personal', 'sensitive'] }).notNull(),
   influence: text('influence', { enum: ['none', 'constraints'] }).notNull(),
   untrusted: bool('untrusted').notNull(),

@@ -15,6 +15,7 @@
 import { getTableColumns, getTableName, is } from 'drizzle-orm';
 import { getTableConfig, SQLiteSyncDialect, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import { describe, expect, it } from 'vitest';
+import { jsonColumnTag } from './_columns.js';
 import * as schema from './index.js';
 
 const dialect = new SQLiteSyncDialect();
@@ -58,7 +59,7 @@ const of = (name: string): Inventory => {
 };
 
 describe('the tables 02 §3.3 specifies', () => {
-  it('declares all nineteen, and nothing else', () => {
+  it('declares every table of 02 §3.3.1–§3.3.4 and §3.3.8, and nothing else', () => {
     expect([...byName.keys()].sort()).toEqual([
       'app_meta',
       'blobs',
@@ -66,11 +67,26 @@ describe('the tables 02 §3.3 specifies', () => {
       'conversations',
       'declassifications',
       'deletions',
+      'embedding_spaces',
+      'extraction_cursors',
+      'forget_fingerprints',
+      'forget_source_blocks',
       'groups',
       'guardian_relations',
       'instance',
       'labels',
       'members',
+      'memory_access_stats',
+      'memory_consolidation_state',
+      'memory_entities',
+      'memory_entity_aliases',
+      'memory_events',
+      'memory_item_entities',
+      'memory_items',
+      'memory_ops_applied',
+      'memory_sources',
+      'memory_subjects',
+      'memory_tombstones',
       'message_attachments',
       'message_reactions',
       'messages',
@@ -102,27 +118,39 @@ describe('every bool column is guarded in process', () => {
       .map((column) => ({
         table: getTableName(table),
         column: column.name,
+        notNull: column.notNull,
         label: `${getTableName(table)}.${column.name}`,
       })),
   );
 
-  it('finds the seven bool columns of part A', () => {
+  it('finds every bool column, and whether it is nullable', () => {
     // Pinned so that a new `bool()` column makes this suite notice, rather than silently adding a
     // case that happens to pass. Sorted, because discovery order follows the barrel's export
     // order — which Biome's `organizeImports` owns, not this schema.
-    expect(boolColumns.map((entry) => entry.label).sort()).toEqual([
+    expect(
+      boolColumns.map((entry) => `${entry.label}${entry.notNull ? '' : ' (nullable)'}`).sort(),
+    ).toEqual([
       'channel_identities.dm_reachable',
       'channel_identities.is_bot',
       'conversations.primary',
       'labels.untrusted',
+      // Three-valued on purpose: `04` §3.2.3's minor hint must distinguish "no" from "unknown".
+      'memory_entities.is_minor (nullable)',
+      'memory_items.pinned',
+      'memory_items.portable',
       'messages.delivered_late',
       'messages.truncated',
       'messages.untrusted',
     ]);
   });
 
-  it.each(boolColumns)('$label has a rendered IN (0, 1) check', ({ table, column }) => {
-    const expression = `"${table}"."${column}" IN (0, 1)`;
+  it.each(boolColumns)('$label is guarded against a value outside 0 and 1', (entry) => {
+    const { table, column, notNull } = entry;
+    const inZeroOne = `"${table}"."${column}" IN (0, 1)`;
+    // A **nullable** bool needs the `IS NULL` arm, or the constraint rejects the third state the
+    // column exists to hold — which for `04` §3.2.3's minor hint would force "unknown" to be
+    // stored as "no", the one direction that lowers a sensitivity floor.
+    const expression = notNull ? inZeroOne : `"${table}"."${column}" IS NULL OR ${inZeroOne}`;
     expect(of(table).checks.map((check) => check.sql)).toContain(expression);
   });
 });
@@ -353,9 +381,20 @@ describe('every declared foreign key resolves', () => {
       'blobs.group_id',
       'conversations.group_id',
       'declassifications.group_id',
+      'extraction_cursors.conversation_id',
       'guardian_relations.group_id',
       'labels.group_id',
       'members.group_id',
+      'memory_access_stats.memory_rid',
+      'memory_consolidation_state.group_id',
+      'memory_entities.group_id',
+      'memory_entity_aliases.entity_id',
+      'memory_events.group_id',
+      'memory_item_entities.entity_id',
+      'memory_item_entities.memory_rid',
+      'memory_items.group_id',
+      'memory_sources.memory_rid',
+      'memory_subjects.memory_rid',
       'message_attachments.group_id',
       'message_attachments.message_id',
       'message_reactions.message_rid',
@@ -371,5 +410,50 @@ describe('every declared foreign key resolves', () => {
       'instance.owner_person_id',
       'members.person_id',
     ]);
+  });
+});
+
+describe('the 02 §3.3.9 JSON column catalog', () => {
+  /**
+   * Every JSON column, found through the tag `jsonOf` leaves on the built column.
+   *
+   * `M1-T12`'s acceptance criterion asks for a test that iterates these tags. Finding them through
+   * `fieldConfig` rather than a hand-written list is what makes the iteration meaningful: a new
+   * `jsonOf` column appears here automatically, so the catalog cannot drift from the schema
+   * without this suite saying so — and for a *size cap*, drifting means a column quietly losing
+   * its bound.
+   */
+  const jsonColumns = tables.flatMap((table) =>
+    Object.values(getTableColumns(table)).flatMap((column) => {
+      const tag = jsonColumnTag(column);
+      return tag === undefined ? [] : [{ table: getTableName(table), column: column.name, tag }];
+    }),
+  );
+
+  it('finds a tag on every JSON column and on no other column', () => {
+    expect(jsonColumns.length).toBeGreaterThan(0);
+    // The negative half: `tid`, `instantMs`, `tzText` and `plainDate*` are all `customType`s too,
+    // so a reader that keyed on `columnType` alone would sweep them up as JSON columns.
+    const idColumn = getTableColumns(schema.groups).id;
+    expect(jsonColumnTag(idColumn)).toBeUndefined();
+    const instantColumn = getTableColumns(schema.groups).createdAt;
+    expect(jsonColumnTag(instantColumn)).toBeUndefined();
+  });
+
+  it.each(jsonColumns)('$tag names its own column', ({ table, column, tag }) => {
+    // The tag is what a `STORAGE_JSON_INVALID` error prints and what `doctor --deep` reports, so a
+    // tag that names no column sends a host looking for something that does not exist. `02`
+    // §3.3.2 wrote `labels.co_owners` for `co_owner_member_ids`; this assertion is why that was
+    // found and corrected rather than shipped.
+    expect(tag).toBe(`${table}.${column}`);
+  });
+
+  it('returns undefined for things that are not columns at all', () => {
+    for (const value of [undefined, null, 42, 'messages.rich_text', {}, { config: {} }]) {
+      expect(jsonColumnTag(value)).toBeUndefined();
+    }
+    expect(jsonColumnTag({ config: { fieldConfig: null } })).toBeUndefined();
+    expect(jsonColumnTag({ config: { fieldConfig: { jsonTag: 7 } } })).toBeUndefined();
+    expect(jsonColumnTag({ config: { fieldConfig: { jsonTag: 'x.y' } } })).toBe('x.y');
   });
 });

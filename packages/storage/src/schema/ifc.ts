@@ -164,7 +164,10 @@ export const labels = sqliteTable(
     /** Sorted, and excludes the owner (`01` §14 A5), so one ownership set has one encoding. */
     coOwnerMemberIds: jsonOf(
       z.array(idSchema('mbr')).max(64),
-      'labels.co_owners',
+      // `02` §3.3.2 writes this tag as `labels.co_owners`, which names no column. The tag is what
+      // a `STORAGE_JSON_INVALID` error prints and what `doctor --deep` reports, so it has to be
+      // findable — corrected to the column's own name (`M1-T12`; spec amended).
+      'labels.co_owner_member_ids',
     )('co_owner_member_ids').notNull(),
     sensitivity: text('sensitivity', { enum: ['normal', 'personal', 'sensitive'] }).notNull(),
     /** `constraints` lets the value shape behaviour without being quotable. */

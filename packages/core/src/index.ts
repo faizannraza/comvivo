@@ -72,6 +72,38 @@ export {
   type TextInline,
 } from './domain/rich-text.js';
 
+// --- Memory domain (`04` §3.2.2–§3.2.4; M1-T12 needs the schemas `02` §3.3.4's columns hold) ----
+export {
+  CommitmentContentSchema,
+  DecisionContentSchema,
+  FactContentSchema,
+  MEMORY_CONTENT_MAX_BYTES,
+  type MemoryContent,
+  MemoryContentSchema,
+  MULTI_VALUED_PROFILE_FIELDS,
+  NoteContentSchema,
+  PreferenceContentSchema,
+  ProfileContentSchema,
+  type ProfileField,
+  ProfileFieldSchema,
+} from './memory/kinds.js';
+export {
+  MEMORY_PROVENANCE_MAX_BYTES,
+  type MemoryProvenance,
+  MemoryProvenanceSchema,
+  type SourceSpan,
+  SourceSpanSchema,
+} from './memory/provenance.js';
+export {
+  type EntityRelation,
+  EntityRelationSchema,
+  type RelationKind,
+  RelationKindSchema,
+  type SubjectRef,
+  SubjectRefSchema,
+} from './memory/subjects.js';
+export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+
 // --- Ports: storage (M1-T9) ---------------------------------------------------------------------
 export type {
   NotPromise,
