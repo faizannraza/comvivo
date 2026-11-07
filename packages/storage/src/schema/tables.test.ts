@@ -59,22 +59,42 @@ const of = (name: string): Inventory => {
 };
 
 describe('the tables 02 §3.3 specifies', () => {
-  it('declares every table of 02 §3.3.1–§3.3.4 and §3.3.8, and nothing else', () => {
+  it('declares every table of 02 §3.3.1–§3.3.8, and nothing else', () => {
     expect([...byName.keys()].sort()).toEqual([
       'app_meta',
+      'audit_events',
       'blobs',
+      'calendar_subscriptions',
+      'catchup_cursors',
       'channel_identities',
+      'confirmation_requests',
+      'consent_events',
+      'constitution_versions',
+      'constraint_records',
       'conversations',
+      'decisions',
       'declassifications',
       'deletions',
       'embedding_spaces',
+      'event_attendee_overrides',
+      'event_attendees',
+      'event_overrides',
+      'events',
       'extraction_cursors',
       'forget_fingerprints',
       'forget_source_blocks',
       'groups',
       'guardian_relations',
+      'ics_feed_tokens',
       'instance',
+      'job_partitions',
+      'job_schedules',
+      'jobs',
       'labels',
+      'ledger_entries',
+      'list_category_overrides',
+      'list_items',
+      'lists',
       'members',
       'memory_access_stats',
       'memory_consolidation_state',
@@ -90,11 +110,35 @@ describe('the tables 02 §3.3 specifies', () => {
       'message_attachments',
       'message_reactions',
       'messages',
+      'outbox_messages',
       'persons',
+      'plan_steps',
+      'plans',
+      'poll_counts',
+      'poll_votes',
+      'polls',
+      'private_constraint_policies',
+      'proactive_candidates',
+      'proactivity_feedback',
+      'proposal_votes',
+      'proposals',
       'reader_set_members',
       'reader_set_seats',
       'reader_sets',
+      'reminder_firings',
+      'reminders',
+      'rotation_participants',
+      'rotations',
       'settings',
+      'standing_approvals',
+      'task_swaps',
+      'tasks',
+      'turn_effects',
+      'turn_trace_debug',
+      'turn_traces',
+      'turns',
+      'usage_daily',
+      'usage_records',
     ]);
   });
 
@@ -133,7 +177,17 @@ describe('every bool column is guarded in process', () => {
       'channel_identities.dm_reachable',
       'channel_identities.is_bot',
       'conversations.primary',
+      'event_overrides.cancelled',
+      'events.all_day',
+      'events.busy',
+      'events.rrule_invalid',
+      'job_partitions.paused',
+      'job_schedules.enabled',
+      'jobs.serial',
       'labels.untrusted',
+      'list_items.checked',
+      'lists.categories_enabled',
+      'lists.is_default',
       // Three-valued on purpose: `04` §3.2.3's minor hint must distinguish "no" from "unknown".
       'memory_entities.is_minor (nullable)',
       'memory_items.pinned',
@@ -141,6 +195,12 @@ describe('every bool column is guarded in process', () => {
       'messages.delivered_late',
       'messages.truncated',
       'messages.untrusted',
+      'outbox_messages.maybe_sent',
+      'polls.allow_multiple',
+      'polls.anonymous',
+      'rotation_participants.active',
+      'turns.recovery_done',
+      'usage_records.batch',
     ]);
   });
 
@@ -362,54 +422,47 @@ describe('every declared foreign key resolves', () => {
     expect(key?.reference().foreignColumns.map((column) => column.name)).toEqual(['id']);
   });
 
-  it('cascades group-scoped content from groups and nothing else', () => {
-    // `02` §151: references to *actors* (`person_id`, `*_member_id`) are `NO ACTION`, because
-    // members and persons are never hard-deleted outside the purge flows that delete dependents
-    // first. Only the `group_id` references cascade, which is what makes I4 a property of the
-    // database rather than of a query that might forget a `WHERE`.
-    const cascading: string[] = [];
-    const noAction: string[] = [];
+  it('cascades every group-scoped reference and no actor reference (02 §151)', () => {
+    // Asserted as the **rule** rather than as a list of 71 foreign keys. `02` §151 states it:
+    // references to *actors* (`person_id`, `*_member_id`) are `NO ACTION`, because members and
+    // persons are never hard-deleted outside the purge flows that delete dependents first, while
+    // every `group_id` reference cascades — which is what makes I4 a property of the database
+    // rather than of a query that might forget a `WHERE`.
+    //
+    // A rule scales where a list rots: a table added in `M3` that cascades from `members` fails
+    // here without anyone remembering to extend an inventory.
+    const wrongCascade: string[] = [];
+    const wrongNoAction: string[] = [];
     for (const table of tables) {
-      for (const key of getTableConfig(table).foreignKeys) {
+      const config = getTableConfig(table);
+      const primaryKeyColumns = new Set([
+        ...config.primaryKeys.flatMap((key) => key.columns.map((column) => column.name)),
+        ...Object.values(getTableColumns(table))
+          .filter((column) => column.primary)
+          .map((column) => column.name),
+      ]);
+      for (const key of config.foreignKeys) {
         const reference = key.reference();
-        const label = `${getTableName(table)}.${reference.columns.map((c) => c.name).join('+')}`;
-        if (key.onDelete === 'cascade') cascading.push(label);
-        else if (key.onDelete === undefined) noAction.push(label);
+        const names = reference.columns.map((column) => column.name);
+        const label = `${getTableName(table)}.${names.join('+')}`;
+        const isActor = names.some((name) => name === 'person_id' || name.endsWith('member_id'));
+        // **Refined by two real exceptions**, which `02` §3.3.5 and §3.3.6 both declare as
+        // `cascade`: `private_constraint_policies.member_id` and `catchup_cursors.member_id`. In
+        // both the member is part of the **primary key** — the row *is* per-member state, a
+        // privacy policy and a read cursor, worthless once the membership is gone. Where the
+        // member is merely referenced (an author, an assignee, a completer) the row is group
+        // history and must survive, which is §151's case. "In the primary key" is the line.
+        const identifiesTheRow = names.every((name) => primaryKeyColumns.has(name));
+        if (isActor && key.onDelete === 'cascade' && !identifiesTheRow) wrongCascade.push(label);
+        // A single-column `group_id` reference must cascade. The composite
+        // `(group_id, blob_sha256)` key is exempt: it points at `blobs`, not at `groups`.
+        if (names.length === 1 && names[0] === 'group_id' && key.onDelete !== 'cascade') {
+          wrongNoAction.push(label);
+        }
       }
     }
-    expect(cascading.sort()).toEqual([
-      'blobs.group_id',
-      'conversations.group_id',
-      'declassifications.group_id',
-      'extraction_cursors.conversation_id',
-      'guardian_relations.group_id',
-      'labels.group_id',
-      'members.group_id',
-      'memory_access_stats.memory_rid',
-      'memory_consolidation_state.group_id',
-      'memory_entities.group_id',
-      'memory_entity_aliases.entity_id',
-      'memory_events.group_id',
-      'memory_item_entities.entity_id',
-      'memory_item_entities.memory_rid',
-      'memory_items.group_id',
-      'memory_sources.memory_rid',
-      'memory_subjects.memory_rid',
-      'message_attachments.group_id',
-      'message_attachments.message_id',
-      'message_reactions.message_rid',
-      'messages.conversation_id',
-      'messages.group_id',
-      'reader_set_members.reader_set_id',
-      'reader_set_seats.reader_set_id',
-      'reader_sets.group_id',
-    ]);
-    // Every actor reference is NO ACTION.
-    expect(noAction.filter((label) => label.endsWith('person_id')).sort()).toEqual([
-      'channel_identities.person_id',
-      'instance.owner_person_id',
-      'members.person_id',
-    ]);
+    expect(wrongCascade, 'an actor reference must not cascade').toEqual([]);
+    expect(wrongNoAction, 'a group_id reference must cascade').toEqual([]);
   });
 });
 

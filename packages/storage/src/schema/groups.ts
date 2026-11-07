@@ -54,12 +54,24 @@ export const groups = sqliteTable(
     /** The constitution template this group started from (`00` §5). Amendments do not change it. */
     archetype: text('archetype', { enum: ARCHETYPES }).notNull(),
     /**
-     * The constitution in force (`03`).
+     * The constitution in force (`03`). **Deliberately without a foreign key.**
      *
      * Nullable only for the span of the group-creation transaction, which has to insert the group
-     * before the constitution version that references it. The foreign key to
-     * `constitution_versions` is added in `M1-T12` with `governance.ts`; no migration is generated
-     * before `M1-T13`, so the constraint appears in the first migration either way.
+     * before the constitution version that references it — and that ordering is the whole reason
+     * the column exists rather than the group being derived from its versions.
+     *
+     * `02` §3.3.1 writes this with `.references((): AnySQLiteColumn => constitutionVersions.id)`,
+     * which is cycle-free in a single-file listing and is not here: `governance.ts` must import
+     * this module for `constitution_versions.group_id`, so declaring the reverse reference makes
+     * `groups.ts → governance.ts → groups.ts`. Dependency-cruiser refuses it, and is right to —
+     * `CLAUDE.md` §2 says to fix the design rather than weaken the rule, and the design point is
+     * that the identity layer must not depend on governance.
+     *
+     * What is lost is small and what remains covers it: `constitution_versions.group_id` cascades,
+     * so a purged group takes its versions with it, and the pointer is set in the same transaction
+     * that creates the version it names (`M1-T20`'s governance repository owns that write). The
+     * data model's reference genuinely is cyclic; only one of the two directions can be an ORM
+     * foreign key in a layered module structure, and the cascading one is the one that matters.
      */
     constitutionVersionId: tid('cnst')('constitution_version_id'),
     /** `since_join` keeps a new member out of history they were never part of. */

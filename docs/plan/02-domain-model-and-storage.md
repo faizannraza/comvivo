@@ -283,8 +283,11 @@ export const groups = sqliteTable('groups', {
   id: tid('grp')('id').primaryKey(),
   name: text('name').notNull(),
   archetype: text('archetype', { enum: ARCHETYPES }).notNull(),   // 00 §5 list
-  constitutionVersionId: tid('cnst')('constitution_version_id')
-    .references((): AnySQLiteColumn => constitutionVersions.id),   // NULL only inside the creation tx
+  // NULL only inside the creation tx. **No foreign key**: `governance.ts` must import `groups.ts`
+  // for `constitution_versions.group_id`, so the reverse reference is a module cycle that
+  // dependency-cruiser refuses (found at M1-T12). The cascading direction is the one that matters;
+  // see the note in `packages/storage/src/schema/groups.ts`.
+  constitutionVersionId: tid('cnst')('constitution_version_id'),
   historyVisibility: text('history_visibility', { enum: ['since_join', 'all'] }).notNull().default('since_join'),
   timezone: tzText('timezone').notNull(),                  // 07 SC-2
   locale: text('locale').notNull().default('en'),           // 07 SC-2
@@ -692,8 +695,13 @@ export const events = sqliteTable('events', {
   index('events_group_start_idx').on(t.groupId, t.startAt),                                    // Q-CTX-6
   index('events_group_recurring_idx').on(t.groupId, t.recurrenceUntilAt).where(sql`${t.rrule} IS NOT NULL`), // Q-CTX-6b
   index('events_series_idx').on(t.seriesId),
-  uniqueIndex('events_subscription_src_uq').on(t.subscriptionId, t.sourceUid, sql`coalesce(${t.sourceRecurrenceId}, '')`)
-    .where(sql`${t.subscriptionId} IS NOT NULL`),                                              // Q-COO-6 feed diff
+  // Q-COO-6 feed diff, split in two: drizzle-kit 0.31.11 mangles a multi-argument function call in
+  // an index column list (it splits on the comma inside `coalesce`), so the equivalent pair of
+  // disjoint partial unique indexes is used instead. Found at M1-T12; see STATUS → Plan changes.
+  uniqueIndex('events_subscription_src_uq').on(t.subscriptionId, t.sourceUid)
+    .where(sql`${t.subscriptionId} IS NOT NULL AND ${t.sourceRecurrenceId} IS NULL`),
+  uniqueIndex('events_subscription_src_rec_uq').on(t.subscriptionId, t.sourceUid, t.sourceRecurrenceId)
+    .where(sql`${t.subscriptionId} IS NOT NULL AND ${t.sourceRecurrenceId} IS NOT NULL`),
 ]);
 export const eventOverrides = sqliteTable('event_overrides', {   // 07 EventOverride (A7)
   eventId: tid('evt')('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
@@ -1237,7 +1245,7 @@ export const outboxMessages = sqliteTable('outbox_messages', {
   priority: text('priority', { enum: ['interactive', 'scheduled', 'background'] }).notNull().default('interactive'),  // 06
   expiryClass: text('expiry_class', { enum: ['must_deliver', 'timely', 'best_effort'] }).notNull().default('timely'),   // 06
   payload: jsonOf(OutboundPayloadSchema, 'outbox_messages.payload')('payload').notNull(),
-  parts: jsonOf(OutboxPartsSchema, 'outbox_messages.parts')('parts_json').notNull(),   // 06: [{index, platformMessageId, sentAt, possibleDuplicate?}]
+  parts: jsonOf(OutboxPartsSchema, 'outbox_messages.parts_json')('parts_json').notNull(),   // 06: [{index, platformMessageId, sentAt, possibleDuplicate?}]
   contentHash: blob('content_hash', { mode: 'buffer' }).notNull(),   // sha256 of normalized rendered text
   audienceReaderSetId: integer('audience_reader_set_id').notNull().references(() => readerSets.id),
   labelId: labelRef(),
@@ -1294,7 +1302,7 @@ export const jobs = sqliteTable('jobs', {
   kind: text('kind').notNull(),                           // JobKind registry key, e.g. 'extract.conversation'
   partitionKey: text('partition_key').notNull(),          // groupId | '_instance'
   serial: bool('serial').notNull(),                       // ≤ 1 leased job per partition for serial kinds
-  payload: text('payload').notNull(),                     // JSON; validated by JobKind.payload schema
+  payload: text('payload').notNull(),                     // JSON; validated by JobKind.payload schema; §3.3.9's 64 KiB cap is a CHECK (jobs_payload_size_ck), since the schema is per-kind
   status: text('status', { enum: ['queued', 'leased', 'succeeded', 'dead', 'cancelled'] }).notNull(),
   priority: integer('priority').notNull().default(0),     // higher first; −10..10
   runAt: instantMs('run_at').notNull(),

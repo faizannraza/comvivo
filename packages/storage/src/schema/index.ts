@@ -35,6 +35,25 @@ export {
   version,
 } from './_columns.js';
 export { blobs } from './blobs.js';
+export {
+  calendarSubscriptions,
+  eventAttendeeOverrides,
+  eventAttendees,
+  eventOverrides,
+  events,
+  icsFeedTokens,
+} from './calendar.js';
+export { decisions } from './decisions.js';
+export {
+  confirmationRequests,
+  consentEvents,
+  constitutionVersions,
+  constraintRecords,
+  privateConstraintPolicies,
+  proposals,
+  proposalVotes,
+  standingApprovals,
+} from './governance.js';
 export { conversations, groups, guardianRelations, members } from './groups.js';
 // --- Tables (M1-T11: `02` §3.3.1–§3.3.3, §3.3.8) ------------------------------------------------
 //
@@ -49,6 +68,8 @@ export {
   readerSetSeats,
   readerSets,
 } from './ifc.js';
+export { jobPartitions, jobSchedules, jobs } from './jobs.js';
+export { listCategoryOverrides, listItems, lists } from './lists.js';
 export {
   embeddingSpaces,
   extractionCursors,
@@ -67,4 +88,23 @@ export {
   memoryTombstones,
 } from './memory.js';
 export { messageAttachments, messageReactions, messages } from './messages.js';
+export { planSteps, plans } from './plans.js';
+export { pollCounts, polls, pollVotes } from './polls.js';
+export {
+  catchupCursors,
+  proactiveCandidates,
+  proactivityFeedback,
+} from './proactivity.js';
+export { reminderFirings, reminders } from './reminders.js';
+export {
+  auditEvents,
+  outboxMessages,
+  turnEffects,
+  turns,
+  turnTraceDebug,
+  turnTraces,
+  usageDaily,
+  usageRecords,
+} from './runtime.js';
 export { appMeta, deletions, settings } from './system.js';
+export { ledgerEntries, rotationParticipants, rotations, taskSwaps, tasks } from './tasks.js';

@@ -320,49 +320,86 @@ describe('partial and expression indexes', () => {
   it('creates exactly the partial indexes 02 §3.3 asks for', () => {
     const { partial } = withSchemaDb(ddl(), classifyIndexes);
     expect(partial).toEqual([
-      // Q-BLOB-1: only attachments whose blob is stored.
       'attachments_blob_idx',
-      // Q-BLOB-2: only blobs that are GC candidates.
       'blobs_unref_idx',
-      // At most one primary conversation per group (01 §14 A7).
+      'confirmations_pending_idx',
+      'constraints_active_idx',
       'conversations_one_primary_uq',
-      // 03 §3.3.3: only declassifications that cover a write.
+      'decisions_memory_uq',
       'declassifications_action_idx',
-      // 04 §3.8.6: exactly one space is searched at a time.
       'embedding_spaces_one_active_uq',
-      // Q-JOB-6: empty once the embedding backlog is drained.
+      'events_group_recurring_idx',
+      'events_subscription_src_rec_uq',
+      'events_subscription_src_uq',
+      'job_schedules_due_idx',
+      'jobs_debounce_uq',
+      'jobs_idempotency_uq',
+      'jobs_leased_partition_idx',
+      'jobs_leased_until_idx',
+      'jobs_queued_due_idx',
+      'jobs_terminal_finished_idx',
+      'lists_default_kind_uq',
+      'lists_group_name_uq',
       'memory_embed_pending_idx',
-      // Q-MEM-3: the small group-layer core read on every turn.
       'memory_pinned_idx',
-      // Q-PRV-5: sources whose message has not been swept.
       'memory_sources_message_idx',
-      // Q-MEM-1: only items that supersede something.
       'memory_supersedes_idx',
-      // 09: only web-chat messages carry a client id.
       'messages_client_id_uq',
-      // Q-ING-5: only messages with a platform id.
       'messages_conv_platform_uq',
-      // Q-ING-1 / I6: only messages with a dedupe key.
       'messages_dedupe_uq',
-      // Q-RET-1: only messages subject to retention.
       'messages_retention_idx',
+      'outbox_class_idx',
+      'outbox_conv_seq_idx',
+      'outbox_dispatch_idx',
+      'outbox_recent_sent_idx',
+      'outbox_sending_idx',
+      'polls_open_deadline_idx',
+      'proposals_diff_idx',
+      'proposals_open_idx',
+      'reminders_about_idx',
+      'reminders_due_idx',
+      'standing_approvals_ward_idx',
+      'task_swaps_open_idx',
+      'tasks_open_due_idx',
+      'tasks_rotation_occurrence_uq',
+      'turn_effects_intent_idx',
+      'turn_effects_unacked_idx',
+      'turns_running_idx',
+      'turns_timeout_idx',
     ]);
   });
 
-  it('has no expression index in part A, and detects one when there is', () => {
-    // `02`'s only expression index is `lists_group_name_uq` — `lower(name)` on `lists`, a
-    // coordination table that `M1-T12` adds. Asserting the empty set rather than skipping the
-    // check is what makes `M1-T12` fail here and force a look at the generated `lower(…)` SQL.
+  it('creates exactly one expression index, and detects one when there is', () => {
+    // `02`'s only expression index is `lists_group_name_uq` — unique on `(group_id, lower(name))`
+    // among live lists — and `M1-T12` is where it arrives. `M1-T11` asserted the empty set
+    // precisely so that this moment would fail and force a look at the generated SQL, which is
+    // how the `coalesce` defect below was found.
     //
-    // The positive control is the point of this test. Without it, a detection that silently
-    // stopped working would report "no expression indexes" forever and pass.
-    const { before, after } = withSchemaDb(ddl(), (db) => {
+    // The positive control stays: without it, a detection that silently stopped working would
+    // report "no expression indexes" forever and pass.
+    const { after, before } = withSchemaDb(ddl(), (db) => {
       const before = classifyIndexes(db).expression;
       db.exec('CREATE UNIQUE INDEX probe_expr_uq ON labels (group_id, lower(canonical_key))');
       return { before, after: classifyIndexes(db).expression };
     });
-    expect(before).toEqual([]);
-    expect(after).toEqual(['probe_expr_uq']);
+    expect(before).toEqual(['lists_group_name_uq']);
+    expect(after).toEqual(['lists_group_name_uq', 'probe_expr_uq']);
+  });
+
+  it('renders the expression index with lower() in the generated SQL', () => {
+    // The part `PRAGMA index_info` cannot show: that `drizzle-kit` emitted the function call
+    // rather than treating `lower(name)` as a column name. It gets this right for a
+    // single-argument call and **wrong** for a multi-argument one — see the note on
+    // `events_subscription_src_uq` in `calendar.ts`.
+    expect(ddl()).toContain('lower("name")');
+  });
+
+  it('emits no mangled function call in any index column list', () => {
+    // The regression guard for the defect `events_subscription_src_uq` hit: drizzle-kit split
+    // `coalesce("x", '')` on its comma and wrapped the fragments as identifiers, producing
+    // ``(`a`,`coalesce("x"`,` '')`)`` — which SQLite rejects with `no such column`. Any backtick
+    // immediately followed by a function-call fragment is that bug.
+    expect(ddl()).not.toMatch(/`[a-z_]+\("/i);
   });
 
   it('enforces one primary conversation per group through the partial unique index', () => {
@@ -422,9 +459,15 @@ describe('the index set as a whole', () => {
    * name that pointed at the wrong table just as happily.
    */
   const PREFIXES: Readonly<Record<string, readonly string[]>> = {
-    message_attachments: ['attachments_'],
-    memory_items: ['memory_'],
+    audit_events: ['audit_'],
+    confirmation_requests: ['confirmations_'],
+    constraint_records: ['constraints_'],
+    ledger_entries: ['ledger_'],
     memory_entity_aliases: ['memory_aliases_'],
+    memory_items: ['memory_'],
+    message_attachments: ['attachments_'],
+    outbox_messages: ['outbox_'],
+    usage_records: ['usage_'],
   };
 
   it('names every index after its table or a declared abbreviation of it', () => {

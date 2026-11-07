@@ -7,6 +7,75 @@
  * `docs/plan/14-milestones.md`.
  */
 
+// --- Coordination domain (`07` §3; the schemas `02` §3.3.5's columns hold) ----------------------
+export {
+  type EventPatch,
+  EventPatchSchema,
+  type EventSource,
+  EventSourceSchema,
+  type Location,
+  LocationSchema,
+} from './coordination/calendar.js';
+export {
+  type DecidedBy,
+  DecidedBySchema,
+  type DecisionAlternatives,
+  DecisionAlternativesSchema,
+  type DecisionSourceRefs,
+  DecisionSourceRefsSchema,
+} from './coordination/decisions.js';
+export {
+  type PlanBudgetNotes,
+  PlanBudgetNotesSchema,
+  type PlanSecrecy,
+  PlanSecrecySchema,
+  type PlanStepLinks,
+  PlanStepLinksSchema,
+  type StepDue,
+  StepDueSchema,
+} from './coordination/plans.js';
+export {
+  type PlatformPollRef,
+  PlatformPollRefSchema,
+  type PollOptions,
+  PollOptionsSchema,
+  type PollOutcome,
+  PollOutcomeSchema,
+  type PollQuorum,
+  PollQuorumSchema,
+} from './coordination/polls.js';
+export {
+  type CandidatePayload,
+  CandidatePayloadSchema,
+  type CandidateTarget,
+  CandidateTargetSchema,
+  type ScoreBreakdown,
+  ScoreBreakdownSchema,
+  type UrgencyInputs,
+  UrgencyInputsSchema,
+} from './coordination/proactivity.js';
+export {
+  type ReminderRecipients,
+  ReminderRecipientsSchema,
+  type ReminderSchedule,
+  ReminderScheduleSchema,
+} from './coordination/reminders.js';
+export {
+  type RotationCursor,
+  RotationCursorSchema,
+  type TaskDue,
+  TaskDueSchema,
+  type TaskTemplate,
+  TaskTemplateSchema,
+} from './coordination/tasks.js';
+export {
+  DurationSchema,
+  type Recurrence,
+  RecurrenceSchema,
+  type RecurringSchedule,
+  RecurringScheduleSchema,
+  WeekdaySchema,
+} from './coordination/when.js';
 // --- Domain: value objects and the JSON-column schemas `02` §3.3.9 names (M1-T11) --------------
 //
 // `02` §3.3.9 cites these as `@comvivo/core/domain/<name>`. They are exported from the package
@@ -44,6 +113,11 @@ export {
   EntityRefSchema,
 } from './domain/entity-ref.js';
 export {
+  ERROR_INFO_MESSAGE_MAX,
+  type ErrorInfo,
+  ErrorInfoSchema,
+} from './domain/error-info.js';
+export {
   ARCHETYPES,
   type GroupArchetype,
   groupArchetypeSchema,
@@ -71,7 +145,45 @@ export {
   RichTextSchema,
   type TextInline,
 } from './domain/rich-text.js';
-
+export {
+  jsonObjectShape,
+  type StorageContract,
+  storageContracts,
+} from './domain/storage-contract.js';
+// --- Governance and runtime domain (`03`, `05`; the schemas `02` §3.3.6–§3.3.8's columns hold) --
+export {
+  ActionRequestSnapshotSchema,
+  type ConfirmationResponse,
+  ConfirmationResponseSchema,
+  type CopyRef,
+  CopyRefSchema,
+} from './governance/confirmations.js';
+export {
+  CONSTRAINT_KINDS_V1,
+  type ConstraintKind,
+  ConstraintKindSchema,
+  type ConstraintScope,
+  ConstraintScopeSchema,
+  ConstraintValueSchema,
+  type PrivateConstraintPolicy,
+  PrivateConstraintPolicySchema,
+} from './governance/constraints.js';
+export {
+  CompiledPolicySchema,
+  type PolicyReason,
+  PolicyReasonSchema,
+} from './governance/policy.js';
+export {
+  type AdoptedBy,
+  AdoptedBySchema,
+  type BallotRef,
+  BallotRefSchema,
+  type ProposalOutcome,
+  ProposalOutcomeSchema,
+  ProposalPayloadSchema,
+  type ProposalRule,
+  ProposalRuleSchema,
+} from './governance/proposals.js';
 // --- Memory domain (`04` §3.2.2–§3.2.4; M1-T12 needs the schemas `02` §3.3.4's columns hold) ----
 export {
   CommitmentContentSchema,
@@ -103,7 +215,6 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
-
 // --- Ports: storage (M1-T9) ---------------------------------------------------------------------
 export type {
   NotPromise,
@@ -114,3 +225,42 @@ export type {
   UnitOfWork,
   WriteResult,
 } from './ports/storage/store.js';
+export {
+  type AuditDecision,
+  AuditDecisionSchema,
+  type AuditDetails,
+  AuditDetailsSchema,
+} from './runtime/audit.js';
+export { OutboundPayloadSchema } from './runtime/outbox.js';
+export {
+  CRON_PATTERN,
+  CronExprSchema,
+  HHMM_PATTERN,
+  type ScheduleSpec,
+  ScheduleSpecSchema,
+  type TzRef,
+  TzRefSchema,
+} from './runtime/schedule.js';
+export {
+  type ContextManifest,
+  ContextManifestSchema,
+  GuardResultTraceSchema,
+  type LatencyTrace,
+  LatencyTraceSchema,
+  ModelCallTraceSchema,
+  PolicyDecisionTraceSchema,
+  ToolCallTraceSchema,
+  TRACE_TOTAL_BUDGET_BYTES,
+  type TraceReplayMeta,
+  TraceReplayMetaSchema,
+  TraceTriggerSchema,
+} from './runtime/traces.js';
+export {
+  type EffectSummaryParams,
+  EffectSummaryParamsSchema,
+  type OutboxParts,
+  OutboxPartsSchema,
+  TriggerMessageIdsSchema,
+  type TurnFailure,
+  TurnFailureSchema,
+} from './runtime/turns.js';
