@@ -22,15 +22,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parseJsonc } from '../support/jsonc.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
-
-/** Strip `//` and `/* *\/` comments so a jsonc tsconfig can be parsed as JSON. */
-function parseJsonc(source: string): unknown {
-  const withoutBlocks = source.replaceAll(/\/\*[\s\S]*?\*\//g, '');
-  const withoutLines = withoutBlocks.replaceAll(/(^|[^:"])\/\/.*$/gm, '$1');
-  return JSON.parse(withoutLines.replaceAll(/,(\s*[}\]])/g, '$1'));
-}
 
 function workspaceManifests(): { path: string; name: string; exports: string[] }[] {
   const files = execFileSync(

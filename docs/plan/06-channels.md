@@ -211,7 +211,16 @@ Rules:
 
 ### 3.5 RichText AST, parsing, rendering, splitting
 
-#### 3.5.1 AST (`channel-sdk/src/richtext/ast.ts`)
+#### 3.5.1 AST (`core/src/domain/rich-text.ts`; parser and renderers in `channel-sdk/src/richtext/`)
+
+> **Moved at `M1-T11`.** This section used to put the AST in `channel-sdk/src/richtext/ast.ts`,
+> next to the only code that builds or consumes it. But `02` §3.3.9 exports `RichTextSchema` from
+> `@comvivo/core/domain/rich-text`, because `messages.rich_text` is a column and
+> `packages/storage` may not depend on a channel package (`01` §4 as amended by A11). Two homes
+> for one type is the outcome worth avoiding, so the types **and** the schema live in `core` — it
+> is a pure data shape with no I/O — and `channel-sdk` imports them. The parser, which needs
+> `mdast-util-from-markdown`, stays in `channel-sdk` as described below.
+
 ```ts
 export type RichText = { v: 1; blocks: Block[] };
 export type Block =

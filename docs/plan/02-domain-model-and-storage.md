@@ -433,20 +433,28 @@ export const declassifications = sqliteTable('declassifications', {   // I2 "rec
 
 #### 3.3.3 Messages & attachments — `messages.ts`
 ```ts
-> **`kind='assistant'`, not `kind='assistant'`** (decided 2026-11-03, M0 exit gate; STATUS → Plan
-> changes). The enum value was named after the product. A column **value** named after the brand
-> turns a rename into a data migration, which is precisely what ADR-024's `BRAND` indirection and
-> the rename codemod exist to prevent — and the product has already been renamed once. Changed here
-> rather than at use, because `M1-T5` writes this table's first migration and that is the last
-> moment the change is free. Every later reference in this document and in `06` reads `village` for
-> historical reasons; implement `assistant`.
+> **`kind` uses `'assistant'` for the agent's own messages, never the product's name** (decided
+> 2026-11-03, M0 exit gate; STATUS → Plan changes). The value was originally named after the
+> product. A column **value** named after the brand turns a rename into a data migration, which is
+> precisely what ADR-024's `BRAND` indirection and the rename codemod exist to prevent — and the
+> product has already been renamed once. Changed at the schema rather than at each use, because the
+> migration that creates this table (`02:M1-T9`, canonical `M1-T13`) is the last moment the change
+> is free.
+>
+> **This note demonstrated its own point, and was corrected at `M1-T11`.** It used to name the old
+> value as a contrast — "`'assistant'`, not `'<brand>'`" — and the rename codemod rewrote *both*
+> sides, leaving a sentence that said a thing was not itself. Its closing line, that later
+> references still read the old name, had stopped being true for the same reason. The codemod
+> exempts only the **bodies of HISTORY files** (`scripts/brand/rename-policy.ts`), so any other
+> passage that depends on quoting the superseded name will be erased on the next rename. State the
+> rule instead of quoting the old value, as this note now does.
 
 export const messages = sqliteTable('messages', {
   rid: integer('rid').primaryKey({ autoIncrement: true }),
   id: tid('msg')('id').notNull().unique(),
   groupId: tid('grp')('group_id').notNull().references(() => groups.id, { onDelete: 'cascade' }),
   conversationId: tid('cnv')('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['member', 'assistant', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`; was 'village' — see note below
+  kind: text('kind', { enum: ['member', 'assistant', 'system', 'derived', 'external'] }).notNull(),   // 06 `senderKind`; renamed off the brand — see the note above
   senderMemberId: tid('mbr')('sender_member_id').references(() => members.id),
   senderIdentityId: tid('chid')('sender_identity_id').references(() => channelIdentities.id, { onDelete: 'set null' }),
   platformMessageId: text('platform_message_id'),

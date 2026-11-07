@@ -230,6 +230,7 @@ export {
 } from './uuidv7.js';
 export {
   type Branded,
+  capped,
   describeIssues,
   type FormattedIssue,
   formatIssues,

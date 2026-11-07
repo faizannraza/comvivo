@@ -3,7 +3,7 @@
   "display": "Comvivo workspace paths",
   // Every workspace package name mapped to its **source** entry point.
   //
-  // One file, read by three things that would otherwise disagree:
+  // One file, read by four things that would otherwise disagree:
   //
   //   - `tsconfig.depcruise.json`, so dependency-cruiser sees `src/` rather than resolving a
   //     workspace import through `node_modules` into `dist/` — where a rule anchored on a `src/`
@@ -12,8 +12,12 @@
   //     build having run first.
   //   - `vitest.shared.ts`, which builds its `resolve.alias` from this file, so a test runs
   //     against source and never against a stale or missing `dist/`.
+  //   - `test/support/paths-tsconfig.ts`, which writes a derived tsconfig for the **child
+  //     contexts** Vitest's alias cannot reach: a `node:worker_threads` worker running under `tsx`
+  //     (`M1-T8`) and the `drizzle-kit` CLI (`M1-T11`). Both resolve workspace imports through the
+  //     package `exports` map, so both land in `dist/` without it.
   //
-  // The three drifting apart is exactly the kind of silent gap this repository keeps finding, so
+  // Them drifting apart is exactly the kind of silent gap this repository keeps finding, so
   // `test/boundaries/depcruise-paths.test.ts` asserts that every declared package export has an
   // entry here, that every entry points at a file that exists, and that the Vitest alias covers
   // the same set.

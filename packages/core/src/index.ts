@@ -7,6 +7,71 @@
  * `docs/plan/14-milestones.md`.
  */
 
+// --- Domain: value objects and the JSON-column schemas `02` §3.3.9 names (M1-T11) --------------
+//
+// `02` §3.3.9 cites these as `@comvivo/core/domain/<name>`. They are exported from the package
+// root instead of as deep subpaths, the same way `ports/storage/store.ts` is: a subpath export per
+// schema would be twenty entries in `exports` that every consumer has to spell out, and `core` has
+// no code-splitting story that would make the narrower entry points pay for themselves. The module
+// layout under `src/domain/` is the one `02` §3.3.9 and `12` §P1 describe.
+export { AUDIT_ACTOR_MAX_BYTES, type AuditActor, AuditActorSchema } from './domain/audit.js';
+export {
+  CHANNEL_IDS,
+  type ChannelId,
+  channelIdSchema,
+  isKnownChannelId,
+  type KnownChannelId,
+} from './domain/channel.js';
+export {
+  DECLASS_APPROVER_MAX_BYTES,
+  DECLASS_APPROVERS_MAX,
+  type DeclassApprover,
+  DeclassApproverSchema,
+  POLICY_GROUP_STANDARD,
+} from './domain/declassify.js';
+export {
+  DELETION_COUNTS_MAX_KEYS,
+  DELETION_STEP_PATTERN,
+  type DeletionProgress,
+  DeletionProgressSchema,
+} from './domain/deletion.js';
+export {
+  ENTITY_REF_KINDS,
+  ENTITY_REF_MAX_PER_LIST,
+  type EntityRef,
+  type EntityRefKind,
+  EntityRefListSchema,
+  EntityRefSchema,
+} from './domain/entity-ref.js';
+export {
+  ARCHETYPES,
+  type GroupArchetype,
+  groupArchetypeSchema,
+} from './domain/group.js';
+export {
+  ATTACHMENT_REF_MAX_BYTES,
+  type AttachmentRef,
+  AttachmentRefSchema,
+  FORWARD_INFO_MAX_BYTES,
+  type ForwardInfo,
+  ForwardInfoSchema,
+} from './domain/message-content.js';
+export {
+  type Block,
+  type Inline,
+  type Mark,
+  type MentionTarget,
+  RICH_TEXT_LANG_PATTERN,
+  RICH_TEXT_LINK_SCHEMES,
+  RICH_TEXT_MAX_BYTES,
+  RICH_TEXT_MAX_LIST_DEPTH,
+  RICH_TEXT_MAX_NODES,
+  RICH_TEXT_MAX_QUOTE_DEPTH,
+  type RichText,
+  RichTextSchema,
+  type TextInline,
+} from './domain/rich-text.js';
+
 // --- Ports: storage (M1-T9) ---------------------------------------------------------------------
 export type {
   NotPromise,

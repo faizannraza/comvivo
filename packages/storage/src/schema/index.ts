@@ -1,9 +1,10 @@
 /**
- * `@comvivo/storage/schema` — the column vocabulary, and later the tables.
+ * `@comvivo/storage/schema` — the column vocabulary and the tables.
  *
- * `02` §3.1's custom column types are the whole of this module today. They are exported as a
- * subpath rather than through the package root because `M1-T11` onward adds the tables here, and a
- * schema is the one thing in this package that `drizzle-kit` reads directly.
+ * This module is what `drizzle-kit` reads (`drizzle.config.ts`: `schema: './src/schema/index.ts'`),
+ * so a table that is not re-exported here does not exist as far as migration generation is
+ * concerned. It is exported as a subpath rather than through the package root for that reason: the
+ * generator needs one file that names every table, and nothing else does.
  *
  * The three invariants these carry, in one line each, because they are the reason the helpers exist
  * rather than bare `text()` and `integer()`:
@@ -18,6 +19,7 @@
 export {
   bool,
   boolCheck,
+  boolCheckSql,
   createdAt,
   instantMs,
   jsonOf,
@@ -30,3 +32,20 @@ export {
   updatedAt,
   version,
 } from './_columns.js';
+export { blobs } from './blobs.js';
+export { conversations, groups, guardianRelations, members } from './groups.js';
+// --- Tables (M1-T11: `02` §3.3.1–§3.3.3, §3.3.8) ------------------------------------------------
+//
+// Alphabetical, because Biome's `organizeImports` sorts this block and a hand-kept order would
+// drift back on every `--write`. Order is immaterial here: `drizzle-kit` resolves foreign keys
+// from the schema graph and emits `CREATE TABLE` in its own order.
+export { channelIdentities, instance, persons } from './identity.js';
+export {
+  declassifications,
+  labels,
+  readerSetMembers,
+  readerSetSeats,
+  readerSets,
+} from './ifc.js';
+export { messageAttachments, messageReactions, messages } from './messages.js';
+export { appMeta, deletions, settings } from './system.js';

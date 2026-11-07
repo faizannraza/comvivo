@@ -37,7 +37,8 @@ import {
   unwrapId,
   type z,
 } from '@comvivo/shared';
-import { customType, integer } from 'drizzle-orm/sqlite-core';
+import { type SQL, sql } from 'drizzle-orm';
+import { type AnySQLiteColumn, customType, integer } from 'drizzle-orm/sqlite-core';
 import { Temporal } from 'temporal-polyfill';
 
 /**
@@ -231,8 +232,24 @@ function validateJson<S extends z.ZodType>(
  */
 export const bool = (name: string) => integer(name, { mode: 'boolean' });
 
-/** The `CHECK` expression a `bool` column needs, so every table writes the same one. */
+/**
+ * The `CHECK` expression a `bool` column needs, as text, so every table writes the same one.
+ *
+ * The string form exists so `_columns.int.test.ts` can paste it into a hand-written `CREATE TABLE`
+ * and prove against real SQLite that the expression rejects `2`. Tables use {@link boolCheckSql}.
+ */
 export const boolCheck = (column: string): string => `${column} IN (0, 1)`;
+
+/**
+ * The same `CHECK` expression, for a `sqliteTable` definition.
+ *
+ * Taking the column rather than its name is what makes this safe to use twenty times: drizzle
+ * quotes the identifier, and a check written against the wrong column is a type error instead of a
+ * constraint that silently guards a different field. `M1-T11`'s DDL-review test asserts the
+ * rendered `CHECK ("…" IN (0, 1))` is present for every `bool` column in the schema, which is what
+ * ties this form to the SQLite behaviour the string form demonstrates.
+ */
+export const boolCheckSql = (column: AnySQLiteColumn): SQL => sql`${column} IN (0, 1)`;
 
 /**
  * A wall-clock date and time with no zone: `'YYYY-MM-DDTHH:mm:ss'` (`02` §3.1, D3).

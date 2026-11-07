@@ -1,0 +1,439 @@
+/**
+ * The generated DDL, reviewed against `02` §3.3 and executed by SQLite (`M1-T11`).
+ *
+ * `M1-T11`'s acceptance criterion is "`drizzle-kit generate` output reviewed; CHECK, partial and
+ * expression indexes present in the SQL". A one-time reading of the SQL cannot be that review,
+ * because the thing being asserted is a property of a *generator* against a *schema*, and both
+ * change. So this suite does the review the way it has to be done to stay true:
+ *
+ *  1. it runs the real `drizzle-kit generate` against `src/schema/index.ts`;
+ *  2. it **executes** the result in SQLite with `foreign_keys = ON`, which is the only authority on
+ *     whether the DDL is valid — and it found something a reading would not have: drizzle emits
+ *     table-qualified column names inside `CHECK(…)` and inside a partial index's `WHERE`, and
+ *     those are legal in both positions;
+ *  3. it asks SQLite, through `PRAGMA index_list` and `PRAGMA index_info`, which indexes are
+ *     partial and which are expression indexes, rather than pattern-matching the SQL text.
+ *
+ * The third point matters more than it looks. A regex over generated SQL is the kind of guard that
+ * passes after the thing it guards has stopped working; `index_list.partial` and the `NULL` column
+ * name that `index_info` reports for an expression are SQLite's own answers. The expression check
+ * carries a **positive control** — a `lower(…)` index created inside the test — so that the
+ * detection cannot quietly start returning nothing.
+ */
+import { execFileSync } from 'node:child_process';
+import { readdirSync } from 'node:fs';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { BRAND } from '@comvivo/shared';
+import Database from 'better-sqlite3-multiple-ciphers';
+import { getTableColumns, getTableName, is } from 'drizzle-orm';
+import { SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { writeSourcePathsTsconfig } from '../../../../test/support/paths-tsconfig.js';
+import * as schema from './index.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const PACKAGE_ROOT = resolve(HERE, '../..');
+const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');
+
+/**
+ * The generated SQL, produced once.
+ *
+ * Memoised in a `const` object rather than a module-level `let`, which
+ * `scripts/hygiene/check.ts` refuses. Only the text is cached: a database is a handle, and each
+ * test opening its own in-memory copy from this text costs about a millisecond.
+ */
+const generated: { sql?: string } = {};
+
+/**
+ * Run `drizzle-kit generate` into a throwaway directory and return the migration it wrote.
+ *
+ * Two things here are load-bearing, and neither is obvious.
+ *
+ * **The generated `tsconfig.json`.** drizzle-kit loads the schema in a *child process*, which
+ * resolves `@comvivo/core` through the package `exports` map and lands in `dist/`. Vitest's
+ * `resolve.alias` does not reach a child, so without this the suite is green on a machine that has
+ * built and red on every clean runner — the same trap `M1-T8`'s worker hit, in the one place the
+ * alias cannot reach. drizzle-kit's `resolveTsPaths` discovers a `tsconfig.json` beside its config,
+ * so writing the workspace paths map there points it at source. Measured both ways: with the file,
+ * generation succeeds from a `dist`-free tree; without it, it fails.
+ *
+ * **The output is checked, not the exit code.** Measured on drizzle-kit 0.31.11: when it cannot
+ * load the schema it prints `Error: Cannot find module …`, writes nothing, and **exits 0**. A
+ * caller that trusts the exit status therefore concludes a migration was generated when none was.
+ * So the assertion is on the file appearing, and drizzle-kit's own output is folded into the
+ * failure message — otherwise this reports "expected 0 to be 1" and says nothing about why.
+ * `M1-T14`'s `db:generate` has to make the same check.
+ */
+async function generateDdl(): Promise<string> {
+  const out = await mkdtemp(join(tmpdir(), `${BRAND.slug}-ddl-`));
+  try {
+    writeSourcePathsTsconfig(out, REPO_ROOT);
+    const configPath = join(out, 'drizzle.review.config.ts');
+    // A config of its own, so this never writes into the repository's `migrations/` directory —
+    // that is `M1-T13`'s artifact, generated once the search and guard tables exist.
+    await writeFile(
+      configPath,
+      [
+        "import { defineConfig } from 'drizzle-kit';",
+        'export default defineConfig({',
+        "  dialect: 'sqlite',",
+        `  schema: ${JSON.stringify(join(HERE, 'index.ts'))},`,
+        `  out: ${JSON.stringify(out)},`,
+        '  strict: true,',
+        "  casing: 'snake_case',",
+        '});',
+        '',
+      ].join('\n'),
+      'utf8',
+    );
+    const output = execFileSync(
+      join(PACKAGE_ROOT, 'node_modules/.bin/drizzle-kit'),
+      ['generate', `--config=${configPath}`],
+      // `cwd` is the temp directory so `resolveTsPaths` finds the tsconfig written above.
+      { cwd: out, stdio: 'pipe', encoding: 'utf8' },
+    );
+    const migrations = readdirSync(out).filter((name) => name.endsWith('.sql'));
+    expect(
+      migrations,
+      `drizzle-kit wrote no migration and still exited 0. Its output was:\n${output}`,
+    ).toHaveLength(1);
+    return await readFile(join(out, migrations[0] ?? ''), 'utf8');
+  } finally {
+    await rm(out, { recursive: true, force: true });
+  }
+}
+
+/** Apply the DDL to a fresh in-memory database and hand it to `fn`. */
+function withSchemaDb<T>(sql: string, fn: (db: Database.Database) => T): T {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    for (const statement of sql.split('--> statement-breakpoint')) {
+      const trimmed = statement.trim();
+      if (trimmed !== '') db.exec(trimmed);
+    }
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Every table the schema barrel exports, as drizzle sees it.
+ *
+ * The values are widened to `unknown` before filtering because the barrel exports column helpers
+ * alongside tables, and `Array.prototype.filter`'s predicate has to narrow *to a subtype of the
+ * element type* — which `SQLiteTable<TableConfig>` is not, relative to a union of nineteen
+ * fully-specified table types.
+ */
+const exported: unknown[] = Object.values(schema);
+const tables = exported.filter((value): value is SQLiteTable => is(value, SQLiteTable));
+
+/**
+ * Every `bool()` column in the schema (`02` §3.1).
+ *
+ * `label` is precomputed rather than interpolated in the test title as `$table.$column`, which is
+ * what this suite did first: vitest reads a `$` path with a dot as a *nested* property access, so
+ * all seven cases were named "guards undefined" and a failure could not say which column had lost
+ * its CHECK. A test whose failure does not name the subject is most of the way to a useless test.
+ */
+const boolColumns = tables.flatMap((table) =>
+  Object.values(getTableColumns(table))
+    .filter((column) => column.columnType === 'SQLiteBoolean')
+    .map((column) => ({
+      table: getTableName(table),
+      column: column.name,
+      label: `${getTableName(table)}.${column.name}`,
+    })),
+);
+
+interface IndexRow {
+  readonly name: string;
+  readonly partial: number;
+}
+interface IndexColumn {
+  readonly name: string | null;
+}
+
+/** The names of every partial and every expression index SQLite reports. */
+function classifyIndexes(db: Database.Database): { partial: string[]; expression: string[] } {
+  const partial: string[] = [];
+  const expression: string[] = [];
+  const tableNames = db
+    .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
+    .all() as { name: string }[];
+  for (const { name } of tableNames) {
+    for (const index of db.pragma(`index_list(${JSON.stringify(name)})`) as IndexRow[]) {
+      if (index.partial === 1) partial.push(index.name);
+      const columns = db.pragma(`index_info(${JSON.stringify(index.name)})`) as IndexColumn[];
+      // SQLite reports a `NULL` column name for the expression terms of an expression index.
+      if (columns.some((column) => column.name === null)) expression.push(index.name);
+    }
+  }
+  return { partial: partial.sort(), expression: expression.sort() };
+}
+
+beforeAll(async () => {
+  generated.sql = await generateDdl();
+}, 120_000);
+
+/** The generated SQL, after `beforeAll`. */
+function ddl(): string {
+  const { sql } = generated;
+  if (sql === undefined) throw new Error('the DDL was not generated');
+  return sql;
+}
+
+describe('the generated DDL is valid SQLite', () => {
+  it('applies in full with foreign keys on', () => {
+    withSchemaDb(ddl(), (db) => {
+      const applied = db
+        .prepare(
+          "SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'",
+        )
+        .get() as { n: number };
+      expect(applied.n).toBe(tables.length);
+      // Empty, but it proves every `REFERENCES` resolved to a real table and column: SQLite only
+      // reports violations for parents it can find, and a missing parent table is a DDL error above.
+      expect(db.pragma('foreign_key_check')).toEqual([]);
+    });
+  });
+
+  it('declares the 19 tables of 02 §3.3.1–§3.3.3 and §3.3.8', () => {
+    withSchemaDb(ddl(), (db) => {
+      const names = (
+        db
+          .prepare(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+          )
+          .all() as { name: string }[]
+      ).map((row) => row.name);
+      expect(names).toEqual([
+        'app_meta',
+        'blobs',
+        'channel_identities',
+        'conversations',
+        'declassifications',
+        'deletions',
+        'groups',
+        'guardian_relations',
+        'instance',
+        'labels',
+        'members',
+        'message_attachments',
+        'message_reactions',
+        'messages',
+        'persons',
+        'reader_set_members',
+        'reader_set_seats',
+        'reader_sets',
+        'settings',
+      ]);
+    });
+  });
+});
+
+describe('CHECK constraints', () => {
+  it.each(boolColumns)(
+    'guards $label against a value that is neither 0 nor 1',
+    ({ table, column }) => {
+      // **Why every `bool` column needs this.** `_columns.ts` measured that drizzle's
+      // `{ mode: 'boolean' }` maps `1` to `true` and *everything else* to `false`, so a `2` in a
+      // consent or `untrusted` column reads back as a confident `false` rather than as nonsense.
+      // The CHECK is the only layer that can stop the value existing, and deriving this list from
+      // the schema is what makes a new `bool` column without a CHECK fail here.
+      const definition = withSchemaDb(ddl(), (db) => {
+        const row = db
+          .prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+          .get(table) as { sql: string };
+        return row.sql;
+      });
+      expect(definition).toContain(`"${column}" IN (0, 1)`);
+    },
+  );
+
+  it('rejects a boolean column value of 2 at the database, not at the mapper', () => {
+    withSchemaDb(ddl(), (db) => {
+      db.exec(
+        'INSERT INTO persons (id, display_name, display_name_source, created_at, updated_at) ' +
+          "VALUES ('prs_01jtest0000000000000000010', 'A', 'platform', 0, 0)",
+      );
+      const insert = db.prepare(
+        'INSERT INTO channel_identities ' +
+          '(id, channel, platform_user_id, person_id, display_name_snapshot, is_bot, dm_reachable, created_at) ' +
+          'VALUES (?, ?, ?, ?, ?, ?, 0, 0)',
+      );
+      expect(() =>
+        insert.run(
+          'chid_01jtest0000000000000000100',
+          'telegram',
+          'u1',
+          'prs_01jtest0000000000000000010',
+          'A',
+          2,
+        ),
+      ).toThrow(/CHECK constraint failed/);
+      expect(() =>
+        insert.run(
+          'chid_01jtest0000000000000000200',
+          'telegram',
+          'u2',
+          'prs_01jtest0000000000000000010',
+          'A',
+          1,
+        ),
+      ).not.toThrow();
+    });
+  });
+
+  it('declares the named constraints 02 §3.3 specifies', () => {
+    const sql = ddl();
+    for (const name of [
+      'instance_singleton_ck',
+      'members_ageband_ck',
+      'conversations_dm_ck',
+      'conversations_primary_ck',
+    ]) {
+      expect(sql, `${name} is in 02 §3.3`).toContain(name);
+    }
+  });
+
+  it('makes the child role and a non-adult age band imply each other in both directions', () => {
+    // `members_ageband_ck` is a biconditional, and the two halves fail differently: a child with
+    // `age_band='adult'` would let 03's content rules treat a minor as an adult, and a teen with
+    // `role='member'` would skip guardian approval. One constraint has to forbid both.
+    withSchemaDb(ddl(), (db) => {
+      db.exec(
+        'INSERT INTO persons (id, display_name, display_name_source, created_at, updated_at) ' +
+          "VALUES ('prs_01jtest0000000000000000010', 'A', 'platform', 0, 0)",
+      );
+      db.exec(
+        'INSERT INTO groups (id, name, archetype, history_visibility, timezone, locale, week_start, status, ' +
+          'membership_epoch, extensions_version, created_at, updated_at, version) ' +
+          "VALUES ('grp_01jtest0000000000000000010', 'G', 'family', 'since_join', 'UTC', 'en', 1, 'active', 0, 0, 0, 0, 1)",
+      );
+      const insert = db.prepare(
+        'INSERT INTO members (id, group_id, person_id, role, age_band, handle, status, consent, ' +
+          'joined_at, created_at, updated_at, version) ' +
+          "VALUES (?, 'grp_01jtest0000000000000000010', 'prs_01jtest0000000000000000010', ?, ?, ?, 'active', 'unknown', 0, 0, 0, 1)",
+      );
+      expect(() => insert.run('mbr_01jtest0000000000000000100', 'child', 'adult', 'm1')).toThrow(
+        /CHECK constraint failed/,
+      );
+      expect(() => insert.run('mbr_01jtest0000000000000000200', 'member', 'teen', 'm2')).toThrow(
+        /CHECK constraint failed/,
+      );
+      expect(() =>
+        insert.run('mbr_01jtest0000000000000000300', 'child', 'teen', 'm3'),
+      ).not.toThrow();
+    });
+  });
+});
+
+describe('partial and expression indexes', () => {
+  it('creates exactly the partial indexes 02 §3.3 asks for', () => {
+    const { partial } = withSchemaDb(ddl(), classifyIndexes);
+    expect(partial).toEqual([
+      // Q-BLOB-1: only attachments whose blob is stored.
+      'attachments_blob_idx',
+      // Q-BLOB-2: only blobs that are GC candidates.
+      'blobs_unref_idx',
+      // At most one primary conversation per group (01 §14 A7).
+      'conversations_one_primary_uq',
+      // 03 §3.3.3: only declassifications that cover a write.
+      'declassifications_action_idx',
+      // 09: only web-chat messages carry a client id.
+      'messages_client_id_uq',
+      // Q-ING-5: only messages with a platform id.
+      'messages_conv_platform_uq',
+      // Q-ING-1 / I6: only messages with a dedupe key.
+      'messages_dedupe_uq',
+      // Q-RET-1: only messages subject to retention.
+      'messages_retention_idx',
+    ]);
+  });
+
+  it('has no expression index in part A, and detects one when there is', () => {
+    // `02`'s only expression index is `lists_group_name_uq` — `lower(name)` on `lists`, a
+    // coordination table that `M1-T12` adds. Asserting the empty set rather than skipping the
+    // check is what makes `M1-T12` fail here and force a look at the generated `lower(…)` SQL.
+    //
+    // The positive control is the point of this test. Without it, a detection that silently
+    // stopped working would report "no expression indexes" forever and pass.
+    const { before, after } = withSchemaDb(ddl(), (db) => {
+      const before = classifyIndexes(db).expression;
+      db.exec('CREATE UNIQUE INDEX probe_expr_uq ON labels (group_id, lower(canonical_key))');
+      return { before, after: classifyIndexes(db).expression };
+    });
+    expect(before).toEqual([]);
+    expect(after).toEqual(['probe_expr_uq']);
+  });
+
+  it('enforces one primary conversation per group through the partial unique index', () => {
+    withSchemaDb(ddl(), (db) => {
+      db.exec(
+        'INSERT INTO groups (id, name, archetype, history_visibility, timezone, locale, week_start, status, ' +
+          'membership_epoch, extensions_version, created_at, updated_at, version) ' +
+          "VALUES ('grp_01jtest0000000000000000010', 'G', 'family', 'since_join', 'UTC', 'en', 1, 'active', 0, 0, 0, 0, 1)",
+      );
+      const insert = db.prepare(
+        'INSERT INTO conversations (id, group_id, channel, platform_chat_id, kind, "primary", bound_at, created_at, updated_at) ' +
+          "VALUES (?, 'grp_01jtest0000000000000000010', 'telegram', ?, 'group', ?, 0, 0, 0)",
+      );
+      insert.run('cnv_01jtest0000000000000000010', 'c1', 1);
+      // A second *primary* collides…
+      expect(() => insert.run('cnv_01jtest0000000000000000020', 'c2', 1)).toThrow(
+        /UNIQUE constraint failed/,
+      );
+      // …while any number of non-primary conversations do not, which is what "partial" buys.
+      expect(() => insert.run('cnv_01jtest0000000000000000030', 'c3', 0)).not.toThrow();
+      expect(() => insert.run('cnv_01jtest0000000000000000040', 'c4', 0)).not.toThrow();
+    });
+  });
+
+  it('keeps a DM out of the primary slot and requires a DM to have an owner', () => {
+    withSchemaDb(ddl(), (db) => {
+      db.exec(
+        'INSERT INTO groups (id, name, archetype, history_visibility, timezone, locale, week_start, status, ' +
+          'membership_epoch, extensions_version, created_at, updated_at, version) ' +
+          "VALUES ('grp_01jtest0000000000000000010', 'G', 'family', 'since_join', 'UTC', 'en', 1, 'active', 0, 0, 0, 0, 1)",
+      );
+      const insert = db.prepare(
+        'INSERT INTO conversations (id, group_id, channel, platform_chat_id, kind, member_id, "primary", bound_at, created_at, updated_at) ' +
+          "VALUES (?, 'grp_01jtest0000000000000000010', 'telegram', ?, ?, ?, ?, 0, 0, 0)",
+      );
+      // A DM with no owner, and a group chat with one, are both refused by `conversations_dm_ck`.
+      expect(() => insert.run('cnv_01jtest0000000000000000010', 'c1', 'dm', null, 0)).toThrow(
+        /CHECK constraint failed/,
+      );
+      // A primary DM is refused by `conversations_primary_ck` (01 §14 A7).
+      expect(() => insert.run('cnv_01jtest0000000000000000020', 'c2', 'dm', null, 1)).toThrow(
+        /CHECK constraint failed/,
+      );
+    });
+  });
+});
+
+describe('the index set as a whole', () => {
+  it('names every index after its table, so EXPLAIN QUERY PLAN output is readable', () => {
+    const named = withSchemaDb(ddl(), (db) =>
+      (
+        db
+          .prepare(
+            "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
+          )
+          .all() as { name: string; tbl_name: string }[]
+      ).filter((row) => !row.name.startsWith(row.tbl_name.replace(/s$/, ''))),
+    );
+    // `02` §3.3.10 justifies each index by name, and `M1-T19` asserts on `EXPLAIN QUERY PLAN`
+    // output — both of which need the name to say which table it belongs to. The two deliberate
+    // exceptions are abbreviations of their table's name.
+    expect(named.map((row) => row.name).sort()).toEqual([
+      'attachments_blob_idx',
+      'attachments_message_idx',
+    ]);
+  });
+});

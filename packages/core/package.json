@@ -30,7 +30,8 @@
   },
   "dependencies": {
     "@comvivo/shared": "workspace:*",
-    "temporal-polyfill": "catalog:"
+    "temporal-polyfill": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "vitest": "catalog:"
