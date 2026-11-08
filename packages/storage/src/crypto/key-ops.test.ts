@@ -76,6 +76,141 @@ async function survivors(store: KeyringStore): Promise<readonly Keyring[]> {
   return [live, previous].filter((keyring): keyring is Keyring => keyring !== undefined);
 }
 
+/**
+ * Crash safety for the operations that had none (`08` §3.7.7; `M1-T6` AC "each crash-safe").
+ *
+ * `io.armFault` appeared at exactly three sites — `rotateMaster`, `recover` and `rotateData` — so
+ * five of the ten library operations had only happy-path, precondition and thrown-callback tests.
+ * The generic `KeyringStore.write` crash suite does not cover them either: it proves the *write* is
+ * atomic, and what these operations add is multi-step work **around** that write. Found by the M1
+ * independent review.
+ *
+ * `rotateSessions` is the exception and is covered separately below: it never touches the keyring
+ * store at all — it reads and writes a single integer through `SessionEpochStore` — so arming a
+ * keyring fault would prove nothing about it. Adding `armFault` to all five mechanically would
+ * have produced one test that passes for the wrong reason.
+ */
+describe('a crash leaves a usable keyring (08 §3.7.7)', () => {
+  /** Every operation that writes the keyring, as a thunk over a fresh world. */
+  const OPERATIONS: readonly {
+    readonly name: string;
+    run: (
+      current: ReturnType<typeof world>,
+      fixture: ReturnType<typeof buildKeyring>,
+    ) => Promise<unknown>;
+    /** Options for the fixture this operation needs. */
+    readonly fixture?: FixtureOptions;
+  }[] = [
+    {
+      name: 'rotateRecovery',
+      run: ({ store }, fixture) =>
+        rotateRecovery({
+          store,
+          keyring: fixture.keyring,
+          currentSlotKey: fixture.masterKey,
+          ceremony: () => Promise.resolve(true),
+        }),
+    },
+    {
+      name: 'addPassphrase',
+      run: ({ store }, fixture) =>
+        addPassphrase({
+          store,
+          keyring: fixture.keyring,
+          currentSlotKey: fixture.masterKey,
+          passphrase: 'correct horse battery staple',
+          params: FAST_SCRYPT,
+        }),
+    },
+    {
+      name: 'removeKeySlot',
+      // Needs a slot that is removable: the last recovery slot and the last master slot are not.
+      fixture: { withPassphrase: true },
+      run: ({ store }, fixture) =>
+        removeKeySlot({
+          store,
+          keyring: fixture.keyring,
+          gen: fixture.keyring.current,
+          slotId: 'pp1',
+        }),
+    },
+    {
+      name: 'purgeRetired',
+      fixture: { gen: 3, retiredGenerations: [1, 2] },
+      run: ({ store }, fixture) =>
+        purgeRetired({ store, keyring: fixture.keyring, blobsRewrapped: true }),
+    },
+  ];
+
+  it.each(OPERATIONS)('$name survives a crash at every write step', async (operation) => {
+    for (const point of FAULT_POINTS) {
+      const current = world();
+      const fixture = buildKeyring(operation.fixture ?? {});
+      await current.store.write(fixture.keyring);
+
+      current.io.armFault(point);
+      let threw = false;
+      await operation.run(current, fixture).catch(() => {
+        threw = true;
+      });
+      // Non-vacuous, the same way the `rotateMaster` suite is: without this the loop would pass
+      // for a fault that never fired, and the test would be asserting that a *successful*
+      // operation leaves a usable keyring.
+      expect(threw, `${operation.name}: the fault at ${point} did not fire`).toBe(true);
+
+      const candidates = await survivors(current.store);
+      expect(
+        candidates.length,
+        `${operation.name}: a crash at ${point} left no readable keyring`,
+      ).toBeGreaterThan(0);
+      // The property that matters to a host: a key they already hold still opens something that is
+      // still on disk. Anything less means the data is gone with no error until a restore.
+      expect(
+        candidates.some((keyring) => opens(keyring, fixture.masterKey)),
+        `${operation.name}: a crash at ${point} left no keyring the master key opens`,
+      ).toBe(true);
+    }
+  });
+
+  it('covers every keyring-writing operation, so the list cannot quietly shrink', () => {
+    // `it.each([])` runs no cases and passes. Both numbers are pinned: the operations under test
+    // and the fault points each one is driven through.
+    expect(OPERATIONS.map((operation) => operation.name)).toEqual([
+      'rotateRecovery',
+      'addPassphrase',
+      'removeKeySlot',
+      'purgeRetired',
+    ]);
+    expect(FAULT_POINTS.length).toBeGreaterThan(2);
+  });
+
+  it('rotateSessions keeps the old epoch when the write fails', async () => {
+    // Its own shape of the same question. `rotateSessions` writes one integer through
+    // `SessionEpochStore`, so the failure that matters is that write failing — and the invariant is
+    // that the **old** epoch is still what a reader sees. The opposite would be worse than it
+    // sounds: a half-applied epoch bump invalidates every session, magic link and pairing code
+    // while reporting that nothing happened.
+    let stored = 7;
+    const epochs: SessionEpochStore = {
+      read: () => Promise.resolve(stored),
+      write: () => Promise.reject(new Error('the settings table is read-only')),
+    };
+    await expect(rotateSessions(epochs)).rejects.toThrow('read-only');
+    expect(stored).toBe(7);
+    // And a working store still advances, so the assertion above is about the failure and not
+    // about `rotateSessions` being inert.
+    const working: SessionEpochStore = {
+      read: () => Promise.resolve(stored),
+      write: (epoch: number) => {
+        stored = epoch;
+        return Promise.resolve();
+      },
+    };
+    expect(await rotateSessions(working)).toEqual({ previous: 7, epoch: 8 });
+    expect(stored).toBe(8);
+  });
+});
+
 describe('status (08 §3.7.7)', () => {
   it('reports the generations, slots and current generation', () => {
     const { keyring } = buildKeyring({ gen: 2, retiredGenerations: [1], withPassphrase: true });
