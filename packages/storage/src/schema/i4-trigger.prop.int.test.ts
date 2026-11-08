@@ -65,12 +65,30 @@ describe('labels.i4-trigger.property — structural', { tags: ['db'] }, () => {
 
 describe('labels.i4-trigger.property — behavioural', { tags: ['prop', 'db'] }, () => {
   it('accepts a label from the row’s own group and rejects any other', () => {
-    fc.assert(
-      fc.property(fc.boolean(), (useOwnLabel) => {
-        withMigratedDb((db) => {
-          const own = seedGroup(db, 'i4a');
-          const other = seedGroup(db, 'i4b');
-          const labelId = useOwnLabel ? own.labelId : other.labelId;
+    // Two changes from the first version, both of which the M1 independent review prompted.
+    //
+    // **It is a property now.** It was `fc.property(fc.boolean(), …)` — a two-element space
+    // explored a hundred times, which is a parameterised test wearing a property's clothes. The
+    // generator picks the **group the label belongs to** out of four, so a run covers "own group"
+    // and three distinct foreign ones rather than "own" and "the other".
+    //
+    // **The database is built once.** `withMigratedDb` was *inside* the property, so a hundred
+    // iterations meant a hundred migrated databases: 1.5 s for a test whose subject is one trigger.
+    // Hoisting it is what makes a wider space affordable.
+    withMigratedDb((db) => {
+      const groups = ['i4a', 'i4b', 'i4c', 'i4d'].map((tag) => seedGroup(db, tag));
+      const own = groups[0];
+      if (own === undefined) throw new Error('the seed produced no groups');
+      let counter = 0;
+
+      fc.assert(
+        fc.property(fc.integer({ min: 0, max: groups.length - 1 }), (index) => {
+          const label = groups[index]?.labelId;
+          if (label === undefined) throw new Error(`no group at ${String(index)}`);
+          counter += 1;
+          // A fresh id per iteration, because the database outlives the iteration now and a
+          // primary-key collision would look like the trigger refusing a legitimate write.
+          const id = `msg_01ji4${String(counter).padStart(21, '0')}`;
           const write = () =>
             db
               .prepare(
@@ -78,17 +96,21 @@ describe('labels.i4-trigger.property — behavioural', { tags: ['prop', 'db'] },
                    label_id, sent_at, received_at, delivered_late, truncated, edit_count)
                  VALUES (?, ?, ?, 'member', 'hello', 0, ?, 0, 0, 0, 0, 0)`,
               )
-              .run('msg_01ji4000000000000000000001', own.groupId, own.conversationId, labelId);
+              .run(id, own.groupId, own.conversationId, label);
 
-          if (useOwnLabel) {
-            expect(write).not.toThrow();
-          } else {
-            expect(write).toThrow(/I4_LABEL_GROUP_MISMATCH/);
-          }
-        });
-      }),
-      fcConfig(),
-    );
+          if (index === 0) expect(write).not.toThrow();
+          else expect(write).toThrow(/I4_LABEL_GROUP_MISMATCH/);
+        }),
+        fcConfig(),
+      );
+
+      // Non-vacuity: `fc.assert` with a generator that produced nothing would pass silently.
+      expect(counter).toBeGreaterThan(10);
+      // And both outcomes really were exercised, not just one side of the space.
+      const written = db.prepare('SELECT count(*) AS n FROM messages').get() as { n: number };
+      expect(written.n).toBeGreaterThan(0);
+      expect(written.n).toBeLessThan(counter);
+    });
   });
 
   it('rejects an update that re-points a row at a foreign label', () => {
