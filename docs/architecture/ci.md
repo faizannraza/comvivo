@@ -65,6 +65,7 @@ whose checks are required.
 | `review` | `dependency-review.yml` | a newly added dependency with a high+ advisory or a denied licence |
 | `policy` | `supply-policy.yml` | a non-registry dependency, an unlisted install script, or a secret-shaped literal |
 | `zizmor-ok` | `zizmor.yml` | a high-severity GitHub Actions finding |
+| `docs-ok` | `docs.yml` | a docs build failure, a broken internal link, or a Vale error |
 
 Not yet required, and why:
 
@@ -97,7 +98,11 @@ What *is* enforced today and does not need a second person:
 - branches must be up to date with `main` before merging;
 - review threads must be resolved;
 - no force pushes, no branch deletion;
-- squash is the only merge method.
+- **merge commits and squash are both allowed.** Squash-only was the original choice and was
+  reversed on 2026-11-03: `STATUS.md` cites a per-task commit hash for every task, and
+  squashing a milestone branch would dangle all of them. This sentence still said
+  "squash is the only merge method" until 2026-11-07, which the M0 independent review caught
+  by reading the live ruleset rather than this file.
 
 ## The merge queue — configured, not yet enabled
 
@@ -145,11 +150,15 @@ git switch -c m1-storage          # one branch per milestone
 # …commits…
 pnpm verify                        # everything CI runs, locally
 gh pr create
-# CI green → add to the merge queue → it merges itself
+# CI green → merge (the queue needs the org move, H-6 — see above)
 ```
 
-Direct pushes to `main` are blocked. Release pull requests from Changesets go through the queue
-like anything else.
+Direct pushes to `main` are blocked. Release pull requests from Changesets merge the same way.
+
+This walkthrough said "add to the merge queue → it merges itself" until 2026-11-07, eighty lines
+below the section explaining that the queue cannot be enabled. Found by the M0 independent review,
+which is worth recording as a shape: the caveat was documented, and the instruction somebody would
+actually copy was not.
 
 ## Timing
 

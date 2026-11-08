@@ -136,6 +136,103 @@ describe('02 §3.3.9 JSON column catalog', () => {
     ).toBe(true);
   });
 
+  /**
+   * `jsonOf` columns that `02` §3.3.9 does not list.
+   *
+   * The test above checks **spec → schema**: every catalog entry has its cap enforced. Nothing
+   * checked the other direction, so a new `jsonOf` column missing from §3.3.9 passed silently —
+   * and `STATUS.md` described this file as checking "all 99 `jsonOf` tags against it", which it
+   * did not. Found by the M1 independent review.
+   *
+   * Measured: **49 catalog entries, 99 `jsonOf` columns, 57 absent.** The *guarantee* is intact —
+   * each of these carries its cap in its own `jsonOf` schema, which is where `capped()` lives — so
+   * this is a spec-coverage gap rather than an unbounded column. Pinning the list is what keeps it
+   * from growing: a new JSON column must either appear in §3.3.9 or be added here on purpose, and
+   * a column that gets a catalog entry must be removed from here.
+   */
+  const ABSENT_FROM_CATALOG: ReadonlySet<string> = new Set([
+    'calendar_subscriptions.last_error',
+    'calendar_subscriptions.lead_times',
+    'confirmation_requests.action_request',
+    'confirmation_requests.eligible_member_ids',
+    'confirmation_requests.options',
+    'confirmation_requests.prompt_outbox_ids',
+    'confirmation_requests.reasons',
+    'confirmation_requests.responses',
+    'confirmation_requests.summary',
+    'constitution_versions.adopted_by',
+    'constraint_records.approved_by',
+    'constraint_records.owner_member_ids',
+    'constraint_records.sealed_source_refs',
+    'decisions.alternatives_rejected',
+    'decisions.source_refs',
+    'decisions.topic_tags',
+    'declassifications.subject_refs',
+    'deletions.requested_by',
+    'jobs.last_error',
+    'labels.co_owner_member_ids',
+    'memory_entities.possible_same_as',
+    'memory_entities.relation',
+    'memory_events.actor',
+    'outbox_messages.last_error',
+    'outbox_messages.manifest_label_ids',
+    'plan_steps.depends_on',
+    'plan_steps.due',
+    'plan_steps.links',
+    'plan_steps.owner_member_ids',
+    'plans.assumptions',
+    'plans.budget_notes',
+    'plans.owner_member_ids',
+    'plans.secrecy',
+    'poll_counts.counts',
+    'poll_votes.option_ids',
+    'polls.eligible_member_ids',
+    'polls.options',
+    'polls.platform_poll_ref',
+    'proactive_candidates.decision',
+    'proactive_candidates.payload',
+    'proactive_candidates.target',
+    'proactive_candidates.urgency_inputs',
+    'proposals.ballot_refs',
+    'proposals.electorate',
+    'reminder_firings.outbox_ids',
+    'rotations.cursor',
+    'rotations.schedule',
+    'rotations.task_template',
+    'standing_approvals.action_patterns',
+    'turn_traces.context_manifest',
+    'turn_traces.guard_results',
+    'turn_traces.latency',
+    'turn_traces.model_calls',
+    'turn_traces.policy_decisions',
+    'turn_traces.replay',
+    'turn_traces.tool_calls',
+    'turn_traces.trigger',
+  ]);
+
+  it('lists every jsonOf column in 02 §3.3.9, or declares the gap', () => {
+    const inCatalog = new Set(catalog);
+    const absent = jsonColumns
+      .map((column) => column.tag)
+      .filter((tag) => !inCatalog.has(tag))
+      .toSorted();
+    expect(
+      absent.filter((tag) => !ABSENT_FROM_CATALOG.has(tag)),
+      'these JSON columns are in neither `02` §3.3.9 nor the declared-gap list. Add the column to ' +
+        'the spec catalog, or add it here with a reason.',
+    ).toEqual([]);
+    // The other direction, so the list cannot keep entries that have since been catalogued.
+    expect(
+      [...ABSENT_FROM_CATALOG].filter((tag) => inCatalog.has(tag)),
+      'these are now in `02` §3.3.9 and should come off the declared-gap list',
+    ).toEqual([]);
+    // Pinned, so a parser that stopped finding anything would fail here rather than make both
+    // comparisons trivially empty.
+    expect(inCatalog.size).toBe(49);
+    expect(jsonColumns).toHaveLength(99);
+    expect(absent).toHaveLength(57);
+  });
+
   it('defers no table that already exists', () => {
     // Keeps the allowlist honest: once `M3-T1` adds `chat_bindings`, this fails until its entry
     // is removed, so the list cannot become a permanent excuse.
