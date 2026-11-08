@@ -279,7 +279,19 @@ describe('the real probe', { tags: ['slow'] }, () => {
     // subject.
     const check = await checkFilesystem('/definitely/not/a/path/at/all', nodeFsProbe);
     expect(['ok', 'warn', 'unsafe', 'unknown']).toContain(check.verdict);
-    expect(check.verdict).toBe('unknown');
+
+    // The verdict for a path that does not exist is **platform-dependent**, and asserting one
+    // value was wrong: `/proc/mounts` matches by path prefix rather than by existence, so on Linux
+    // the root mount still answers and the type is determined. Only where there is no readable
+    // mount table does `statfs` failing leave nothing to go on. Found by CI — this assertion
+    // passed on darwin and failed on the Node-floor job, which is exactly the kind of claim a
+    // single-platform measurement produces.
+    if (process.platform === 'linux') {
+      expect(check.type).toBeTypeOf('string');
+      expect(check.verdict).not.toBe('unknown');
+    } else if (process.platform === 'darwin') {
+      expect(check.verdict).toBe('unknown');
+    }
   });
 
   it('determines the type of a local checkout on this platform', async () => {
