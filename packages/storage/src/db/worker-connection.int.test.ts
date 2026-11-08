@@ -362,11 +362,27 @@ describe('a worker reads while the main thread writes (02 D22)', { tags: ['db', 
   it('will not create a database the worker cannot find', async () => {
     // `fileMustExist` for every role but `main`. A worker that created an empty database would
     // leave something the next boot reads as a fresh install.
+    //
+    // **With `readonly: false`**, which is what makes this about `fileMustExist` at all. The
+    // default is `readonly: true`, and a read-only open of a missing file fails for *that* reason —
+    // so the original version of this test would have passed with `fileMustExist` removed
+    // entirely. Found by the M1 independent review.
     await withDataDir(async (root) => {
       const handshake: WorkerHandshake = { kind: 'no-database-key' };
-      expect(() => openWorkerConnection(handshake, { path: join(root, 'absent.db') })).toThrow(
+      const absent = join(root, 'absent.db');
+
+      // A writable worker connection: `fileMustExist` is the only thing that can refuse this, and
+      // the file must not appear as a side effect.
+      expect(() => openWorkerConnection(handshake, { path: absent, readonly: false })).toThrow(
         StorageError,
       );
+      expect(existsSync(absent), 'the worker created a database').toBe(false);
+
+      // And the read-only default refuses too, for its own reason — both paths matter, because a
+      // worker is read-only in production and the writable case is what a future heavy operation
+      // might reach for.
+      expect(() => openWorkerConnection(handshake, { path: absent })).toThrow(StorageError);
+      expect(existsSync(absent)).toBe(false);
     });
   });
 });
