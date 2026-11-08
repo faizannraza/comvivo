@@ -64,7 +64,10 @@ describe('createTestDb', { tags: ['db'] }, () => {
       const triggers = db
         .prepare("SELECT count(*) AS n FROM sqlite_master WHERE type = 'trigger'")
         .get() as { n: number };
-      expect(triggers.n).toBe(91);
+      // 116 since the `group_id` immutability guards landed (25 tables). Pinned exactly rather
+      // than bounded: a clone that silently lost its triggers would still have the tables,
+      // and every I4, FTS and immutability guarantee rides on them being present.
+      expect(triggers.n).toBe(116);
       // The bookkeeping table travels with the image, so a clone knows it is migrated.
       expect(
         (db.prepare(`SELECT count(*) AS n FROM ${MIGRATIONS_TABLE}`).get() as { n: number }).n,

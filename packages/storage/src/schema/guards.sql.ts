@@ -109,6 +109,66 @@ BEGIN SELECT RAISE(ABORT, 'I4_LABEL_GROUP_MISMATCH'); END`,
   ];
 }
 
+/**
+ * Tables whose `group_id` may never change, with the trigger that enforces it.
+ *
+ * ## The hole this closes
+ *
+ * `event_attendees.note_label_id`, `poll_votes.label_id` and `proposal_votes.label_id` reach their
+ * group through a parent (`GROUP_VIA_PARENT`), so their I4 triggers watch the label column and the
+ * parent key — not `group_id`, which those tables do not have. The parent's own trigger blocks a
+ * bare `group_id` move, because the move would leave its label pointing at the old group. But
+ * moving a parent **and** relabeling it in one statement satisfies that trigger:
+ *
+ * ```sql
+ * UPDATE events SET group_id = 'grp_b', label_id = <a label in grp_b> WHERE id = ?;
+ * ```
+ *
+ * Every attendee row of that event now carries a `note_label_id` belonging to `grp_a` while its
+ * parent is in `grp_b`, and **no trigger fires** — a datum readable in the wrong group's context,
+ * which is I4 failing. `guards.sql.ts` claimed a "complete guard". Found by the M1 independent
+ * review.
+ *
+ * ## Why immutability rather than another trigger per child
+ *
+ * A per-child trigger would have to re-check every child on every parent update, which is a scan
+ * per write for a case that should not exist. **Nothing in this product moves a row between
+ * groups**: `02` D14 is explicit that there is no cross-group sharing, a purge deletes a group's
+ * rows rather than reassigning them, and `01` §294's I4 reads "no datum with `groupId = g1` is ever
+ * readable in a context for `g2`". A row belongs to one group for its lifetime, so saying that in
+ * the schema is both cheaper and more honest than policing the consequences of it changing.
+ *
+ * `BEFORE UPDATE OF group_id` with `WHEN NEW.group_id IS NOT OLD.group_id`, so an ordinary update
+ * that happens to list `group_id` in its `SET` without changing the value is untouched.
+ */
+export function groupImmutableTrigger(table: string): string {
+  return `CREATE TRIGGER trg_${table}_group_immutable BEFORE UPDATE OF group_id ON ${table}
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END`;
+}
+
+/**
+ * Every table carrying a `group_id` that a labeled row's group is derived from.
+ *
+ * The labeled tables themselves plus the three parents in `GROUP_VIA_PARENT`. A table with no
+ * labeled row depending on it is left alone: this guard exists to protect the label-to-group
+ * relationship, not to make the whole schema immutable.
+ */
+export function groupImmutableTables(): readonly string[] {
+  const parents = Object.values(GROUP_VIA_PARENT).map((parent) => parent.table);
+  const labeled = labeledColumns()
+    .map((entry) => entry.table)
+    .filter((table) => GROUP_VIA_PARENT[table] === undefined);
+  return [...new Set([...labeled, ...parents])]
+    .filter((table) => schemaColumns(table)?.includes('group_id') === true)
+    .sort();
+}
+
+/** Every `group_id` immutability trigger, in table order. */
+export function allGroupImmutableTriggers(): readonly string[] {
+  return groupImmutableTables().map((table) => groupImmutableTrigger(table));
+}
+
 /** Every I4 trigger, in table order. */
 export function allI4Triggers(): readonly string[] {
   return labeledColumns().flatMap((entry) => i4Triggers(entry));

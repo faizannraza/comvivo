@@ -26,6 +26,7 @@ import {
   vec0TableName,
 } from '../search/vec0.js';
 import {
+  groupImmutableTables,
   guardedTables,
   IMMUTABLE_GUARDS,
   labeledColumns,
@@ -56,6 +57,104 @@ describe('the committed migration is generated, not hand-written', () => {
       );
     }
     expect(committed).toContain('contentless_delete=1');
+  });
+});
+
+describe('a group move is refused (I4)', { tags: ['db'] }, () => {
+  /**
+   * The hole: a parent moved **and relabeled** in one statement.
+   *
+   * `event_attendees.note_label_id` reaches its group through `events`, so its I4 trigger watches
+   * the label column and `event_id` — not `group_id`, which `event_attendees` does not have. The
+   * parent's own trigger blocks a bare `group_id` move, because that would leave its label in the
+   * old group. Moving and relabeling together satisfied it, and every attendee row was then
+   * carrying a label from the old group under a parent in the new one, with no trigger firing.
+   * Found by the M1 independent review, which also noted that `guards.sql.ts` claimed a "complete
+   * guard".
+   */
+  it('refuses moving an event between groups, even with a valid new label', () => {
+    withMigratedDb((db) => {
+      const own = seedGroup(db, 'gm1');
+      const other = seedGroup(db, 'gm2');
+      const eventId = 'evt_01jgm10000000000000000000';
+
+      db.prepare(
+        `INSERT INTO events (id, group_id, series_id, title, all_day, tz, start_local, start_at,
+           rdates, exdates, status, busy, source, label_id, ics_uid, tzdata_version,
+           created_at, updated_at, version)
+         VALUES (?, ?, ?, 'Recital', 0, 'UTC', '2026-11-17T19:00', 0, '[]', '[]', 'confirmed',
+           1, 'local', ?, ?, '2026a', 0, 0, 1)`,
+      ).run(eventId, own.groupId, eventId, own.labelId, eventId);
+
+      // The attendee's note label belongs to the event's group, which is correct today.
+      db.prepare(
+        `INSERT INTO event_attendees (event_id, member_id, rsvp, note_label_id, updated_at)
+         VALUES (?, ?, 'accepted', ?, 0)`,
+      ).run(eventId, own.memberId, own.labelId);
+
+      // The move-and-relabel that used to be accepted.
+      expect(() =>
+        db
+          .prepare('UPDATE events SET group_id = ?, label_id = ? WHERE id = ?')
+          .run(other.groupId, other.labelId, eventId),
+      ).toThrow(/I4_GROUP_IMMUTABLE/);
+
+      // Nothing moved, so the attendee's label still matches its parent's group.
+      const row = db.prepare('SELECT group_id FROM events WHERE id = ?').get(eventId) as {
+        group_id: string;
+      };
+      expect(row.group_id).toBe(own.groupId);
+    });
+  });
+
+  it('still allows an update that does not change the group', () => {
+    // The trigger is `WHEN NEW.group_id IS NOT OLD.group_id`, so listing `group_id` in a `SET`
+    // without changing it is untouched — which is what an ORM-generated full-row update does.
+    withMigratedDb((db) => {
+      const own = seedGroup(db, 'gm3');
+      const eventId = 'evt_01jgm30000000000000000000';
+      db.prepare(
+        `INSERT INTO events (id, group_id, series_id, title, all_day, tz, start_local, start_at,
+           rdates, exdates, status, busy, source, label_id, ics_uid, tzdata_version,
+           created_at, updated_at, version)
+         VALUES (?, ?, ?, 'Recital', 0, 'UTC', '2026-11-17T19:00', 0, '[]', '[]', 'confirmed',
+           1, 'local', ?, ?, '2026a', 0, 0, 1)`,
+      ).run(eventId, own.groupId, eventId, own.labelId, eventId);
+
+      expect(() =>
+        db
+          .prepare('UPDATE events SET group_id = ?, title = ? WHERE id = ?')
+          .run(own.groupId, 'Renamed', eventId),
+      ).not.toThrow();
+      const row = db.prepare('SELECT title FROM events WHERE id = ?').get(eventId) as {
+        title: string;
+      };
+      expect(row.title).toBe('Renamed');
+    });
+  });
+
+  it('guards every table a labeled row derives its group from', () => {
+    // 25 tables: the labeled ones that carry `group_id` themselves, plus the three parents the
+    // others reach through. Pinned so a new labeled table cannot arrive without one.
+    const tables = groupImmutableTables();
+    expect(tables).toHaveLength(25);
+    for (const parent of parentLookups()) {
+      expect(tables, `${parent.parent} is a parent and must be guarded`).toContain(parent.parent);
+    }
+    // And every one of them is installed in the committed migration, not merely generated.
+    withMigratedDb((db) => {
+      const installed = new Set(
+        (
+          db
+            .prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE ?")
+            .all('%_group_immutable') as { name: string }[]
+        ).map((row) => row.name),
+      );
+      expect(installed.size).toBe(25);
+      for (const table of tables) {
+        expect(installed, table).toContain(`trg_${table}_group_immutable`);
+      }
+    });
   });
 });
 

@@ -490,6 +490,106 @@ WHEN NEW.label_id IS NOT NULL
  AND (SELECT group_id FROM labels WHERE id = NEW.label_id) IS NOT NEW.group_id
 BEGIN SELECT RAISE(ABORT, 'I4_LABEL_GROUP_MISMATCH'); END;
 --> statement-breakpoint
+CREATE TRIGGER trg_calendar_subscriptions_group_immutable BEFORE UPDATE OF group_id ON calendar_subscriptions
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_confirmation_requests_group_immutable BEFORE UPDATE OF group_id ON confirmation_requests
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_constraint_records_group_immutable BEFORE UPDATE OF group_id ON constraint_records
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_decisions_group_immutable BEFORE UPDATE OF group_id ON decisions
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_declassifications_group_immutable BEFORE UPDATE OF group_id ON declassifications
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_events_group_immutable BEFORE UPDATE OF group_id ON events
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_ledger_entries_group_immutable BEFORE UPDATE OF group_id ON ledger_entries
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_list_items_group_immutable BEFORE UPDATE OF group_id ON list_items
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_lists_group_immutable BEFORE UPDATE OF group_id ON lists
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_memory_entity_aliases_group_immutable BEFORE UPDATE OF group_id ON memory_entity_aliases
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_memory_items_group_immutable BEFORE UPDATE OF group_id ON memory_items
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_message_attachments_group_immutable BEFORE UPDATE OF group_id ON message_attachments
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_messages_group_immutable BEFORE UPDATE OF group_id ON messages
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_outbox_messages_group_immutable BEFORE UPDATE OF group_id ON outbox_messages
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_plans_group_immutable BEFORE UPDATE OF group_id ON plans
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_polls_group_immutable BEFORE UPDATE OF group_id ON polls
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_private_constraint_policies_group_immutable BEFORE UPDATE OF group_id ON private_constraint_policies
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_proactive_candidates_group_immutable BEFORE UPDATE OF group_id ON proactive_candidates
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_proposals_group_immutable BEFORE UPDATE OF group_id ON proposals
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_reminders_group_immutable BEFORE UPDATE OF group_id ON reminders
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_rotations_group_immutable BEFORE UPDATE OF group_id ON rotations
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_task_swaps_group_immutable BEFORE UPDATE OF group_id ON task_swaps
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_tasks_group_immutable BEFORE UPDATE OF group_id ON tasks
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_turn_effects_group_immutable BEFORE UPDATE OF group_id ON turn_effects
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
+CREATE TRIGGER trg_turn_traces_group_immutable BEFORE UPDATE OF group_id ON turn_traces
+WHEN NEW.group_id IS NOT OLD.group_id
+BEGIN SELECT RAISE(ABORT, 'I4_GROUP_IMMUTABLE'); END;
+--> statement-breakpoint
 CREATE TRIGGER trg_memory_items_immutable BEFORE UPDATE OF content, statement, search_terms, kind, group_id, provenance ON memory_items
 BEGIN SELECT RAISE(ABORT, 'MEMORY_CONTENT_IMMUTABLE'); END;
 --> statement-breakpoint

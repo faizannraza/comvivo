@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  allGroupImmutableTriggers,
   allI4Triggers,
   allImmutabilityTriggers,
 } from '../packages/storage/src/schema/guards.sql.js';
@@ -65,6 +66,9 @@ export function migrationStatements(): readonly string[] {
     ...SECURE_DELETE_STATEMENTS,
     ...allFtsTriggers(),
     ...allI4Triggers(),
+    // After the I4 triggers and before the table-level immutability ones: a `group_id` move is an
+    // I4 violation reached through a parent, so it belongs with its own family.
+    ...allGroupImmutableTriggers(),
     ...allImmutabilityTriggers(),
   ];
 }

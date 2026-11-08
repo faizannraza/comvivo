@@ -46,9 +46,10 @@ describe('every storage error code is classified', () => {
   });
 
   it('lists every member of the union, so the loop above is not short', () => {
-    // The array is hand-written beside a 36-member union, so the two can drift. 36 is pinned
-    // because a silent shrink would make the loop pass over whatever was removed.
-    expect(STORAGE_ERROR_CODES).toHaveLength(36);
+    // The array is hand-written beside the union, so the two can drift. The count is pinned
+    // because a silent shrink would make the loop pass over whatever was removed. 37 since
+    // `I4_GROUP_IMMUTABLE` was added for the group-move guard.
+    expect(STORAGE_ERROR_CODES).toHaveLength(37);
     expect(new Set(STORAGE_ERROR_CODES).size).toBe(STORAGE_ERROR_CODES.length);
   });
 
