@@ -15,8 +15,10 @@
  *
  * The registry is empty and will stay empty until a release needs one. That is not a placeholder:
  * `02` §3.12.1 says a data migration is added as a file here, and `dataMigrationFor` is what the
- * source calls to find it. The mechanism is exercised by `source.test.ts` with a registered
- * fixture, so the first real one does not also debug the wiring.
+ * source calls to find it. The mechanism is exercised by `migrate-parts.int.test.ts` with a
+ * registered fixture, so the first real one does not also debug the wiring. (This named
+ * `source.test.ts`, which does not exist — a pointer to a test is only useful if a reader can
+ * open it.)
  */
 import type Database from 'better-sqlite3-multiple-ciphers';
 

@@ -154,4 +154,4 @@ eligible-label filter applied to both.
 |---|---|
 | **H-10 — a Raspberry Pi 5 afternoon** | U7 (every §3.16.4 latency), SP-2's 40 MB/s gate, and the linux-arm64 legs of SP-1 and U5. `scripts/bench/pi.sh` is the one-command session |
 | **The Docker base** | linux-x64 is **done** — the spike suite and `pnpm verify` are green on `ubuntu-24.04` on both Node versions (run [`41802692194`](https://github.com/faizannraza/comvivo/actions/runs/41802692194)), which is where the prebuilt `linux-x64` binaries of both native modules get exercised. The `node:26-trixie-slim` base arrives with `12`'s image work in M14 |
-| **ADR-005 addendum** | Written: `docs/adr/ADR-005-sqlite-and-encryption.md` |
+| **ADR-005 addendum** | Written: [`docs/adr/ADR-005-storage.md`](../adr/ADR-005-storage.md) §"SP-1 addendum". (This cell named `ADR-005-sqlite-and-encryption.md`, which has never existed; corrected 2026-11-07. Written as a link now rather than as inline code, so the offline link checker can see it — which is why the wrong path survived.) |
