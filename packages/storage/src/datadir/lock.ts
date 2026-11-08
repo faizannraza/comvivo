@@ -164,7 +164,7 @@ export async function acquireLock(
   options: { readonly role?: string } = {},
 ): Promise<AcquireResult> {
   const role = options.role ?? 'main';
-  const path = lockPath(root, role);
+  const path = lockPath(root, role, environment.pid);
   await mkdir(dataDirLayout(root).run, { recursive: true, mode: DIR_MODE });
 
   const next = newLock(environment, role);
@@ -230,7 +230,7 @@ export async function heartbeat(
   options: { readonly role?: string } = {},
 ): Promise<boolean> {
   const role = options.role ?? 'main';
-  const path = lockPath(root, role);
+  const path = lockPath(root, role, environment.pid);
   const existing = await readLock(path);
   if (existing === undefined) return false;
   if (!ownedBy(existing, environment, role)) return false;
@@ -246,7 +246,7 @@ export async function releaseLock(
   options: { readonly role?: string } = {},
 ): Promise<boolean> {
   const role = options.role ?? 'main';
-  const path = lockPath(root, role);
+  const path = lockPath(root, role, environment.pid);
   const existing = await readLock(path);
   if (existing === undefined || !ownedBy(existing, environment, role)) return false;
   await rm(path, { force: true });
@@ -259,7 +259,7 @@ export async function readLockHolder(
   environment: LockEnvironment,
   options: { readonly role?: string } = {},
 ): Promise<LockHolder | undefined> {
-  const existing = await readLock(lockPath(root, options.role ?? 'main'));
+  const existing = await readLock(lockPath(root, options.role ?? 'main', environment.pid));
   return existing === undefined ? undefined : toHolder(existing, environment.now());
 }
 
@@ -287,10 +287,35 @@ export function lockedError(holder: LockHolder, path: string): StorageError {
   );
 }
 
-/** `12` §3.7: `main` uses `<slug>.lock`; other roles take their own file. */
-export function lockPath(root: string, role = 'main'): string {
+/**
+ * `12` §3.7: `main` uses `<slug>.lock`; every other role takes `run/<role>.<pid>.lock`.
+ *
+ * The two serve different purposes, and conflating them was the bug. The **instance** lock is
+ * exclusive — "one writer per data dir", invariant C1 — and a second process asking for it is
+ * refused. A **role** lock is a *presence marker*: `12` §3.7 says "`--role=web` processes take
+ * `run/web.<pid>.lock`", one file per process, because a host runs several web workers and they do
+ * not contend with each other or with the writer.
+ *
+ * This returned `run/<role>.lock` with no pid, so a second `--role=web` process was **refused** —
+ * and `lock.test.ts` asserted that refusal as correct, which is the part that would have cost
+ * someone an afternoon: a future engineer adding a second worker would have hit a refusal with a
+ * passing test telling them it was intended. Found by the M1 independent review.
+ *
+ * `pid` is required for a non-`main` role precisely so a caller cannot forget it and silently get
+ * a shared file back.
+ */
+export function lockPath(root: string, role = 'main', pid?: number): string {
   const layout = dataDirLayout(root);
-  return role === 'main' ? layout.lock : `${layout.run}/${role}.lock`;
+  if (role === 'main') return layout.lock;
+  if (pid === undefined) {
+    throw new StorageError('STORAGE_IO', `a ${role} lock path needs the process id`, {
+      hint:
+        'Role locks are per-process (`12` §3.7: `run/web.<pid>.lock`), so the pid is part of the ' +
+        'name. Pass `environment.pid`.',
+      category: 'bug',
+    });
+  }
+  return `${layout.run}/${role}.${String(pid)}.lock`;
 }
 
 function newLock(environment: LockEnvironment, role: string): LockFile {

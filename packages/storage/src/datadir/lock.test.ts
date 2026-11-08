@@ -384,17 +384,64 @@ describe('roles (12 §3.7)', { tags: ['slow'] }, () => {
 
       expect((await acquireLock(root, main)).acquired).toBe(true);
       expect((await acquireLock(root, web, { role: 'web' })).acquired).toBe(true);
-      expect(lockPath(root, 'web')).not.toBe(lockPath(root));
+      expect(lockPath(root, 'web', 200)).not.toBe(lockPath(root));
     });
   });
 
-  it('still allows only one process per role', async () => {
+  it('gives **every** web process its own lock, which 12 §3.7 requires', async () => {
+    // This test previously asserted the opposite — "still allows only one process per role", with
+    // the second web process **refused**. `12` §3.7 says "`--role=web` processes take
+    // `run/web.<pid>.lock`": one file per process, because a host runs several web workers and
+    // they do not contend. The code returned `run/web.lock` with no pid, so the second was
+    // refused, and this test pinned that refusal as correct.
+    //
+    // That is the expensive shape of wrong test: a future engineer adding a second worker would
+    // have hit a refusal with a green suite telling them it was intended. Found by the M1
+    // independent review.
+    await withDataDir(async (root) => {
+      const first = fakeEnvironment({ pid: 100 });
+      const second = fakeEnvironment({ pid: 200, alive: [100, 200] });
+      const third = fakeEnvironment({ pid: 300, alive: [100, 200, 300] });
+
+      for (const environment of [first, second, third]) {
+        expect(
+          (await acquireLock(root, environment, { role: 'web' })).acquired,
+          `pid ${String(environment.pid)} could not take its own web lock`,
+        ).toBe(true);
+      }
+
+      // Three distinct files, named by pid, so `doctor` can enumerate the live workers.
+      expect(
+        new Set([
+          lockPath(root, 'web', 100),
+          lockPath(root, 'web', 200),
+          lockPath(root, 'web', 300),
+        ]).size,
+      ).toBe(3);
+      expect(lockPath(root, 'web', 200)).toContain('web.200.lock');
+    });
+  });
+
+  it('the instance lock is still exclusive, which is the one C1 cares about', async () => {
+    // The distinction the fix rests on: role locks are presence markers, the **instance** lock is
+    // "one writer per data dir". Loosening the first must not loosen the second.
     await withDataDir(async (root) => {
       const first = fakeEnvironment({ pid: 100 });
       const second = fakeEnvironment({ pid: 200, alive: [100, 200] });
 
-      expect((await acquireLock(root, first, { role: 'web' })).acquired).toBe(true);
-      expect((await acquireLock(root, second, { role: 'web' })).acquired).toBe(false);
+      expect((await acquireLock(root, first)).acquired).toBe(true);
+      expect((await acquireLock(root, second)).acquired).toBe(false);
+    });
+  });
+
+  it('refuses a role lock path with no pid, rather than sharing one', async () => {
+    // The pid is required so a caller cannot forget it and silently get a shared file back, which
+    // is exactly how the single-file behaviour arose.
+    await withDataDir((root) => {
+      expect(() => lockPath(root, 'web')).toThrow(/needs the process id/);
+      // `main` needs none: there is only ever one.
+      expect(() => lockPath(root)).not.toThrow();
+      return Promise.resolve();
     });
   });
 
