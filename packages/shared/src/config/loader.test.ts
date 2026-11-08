@@ -81,6 +81,7 @@ describe('reading the file', () => {
     const result = load({
       [CONFIG]: 'instance:\n  name: The Hendersons\ndashboard:\n  port: 8080\n',
     });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('The Hendersons');
       expect(result.value.config.dashboard.port).toBe(8080);
@@ -137,6 +138,7 @@ describe('reading the file', () => {
       [CONFIG]: 'instance:\n  name: Current\n',
       [legacy]: 'instance:\n  name: Old\n',
     });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('Current');
       expect(result.value.warnings).toEqual([]);
@@ -147,6 +149,7 @@ describe('reading the file', () => {
 describe('.env', () => {
   it('reads values from .env', () => {
     const result = load({ [ENV_FILE]: `${BRAND.envPrefix}LOGGING_LEVEL=debug\n` });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.logging.level).toBe('debug');
       expect(result.value.envFile).toBe(ENV_FILE);
@@ -158,6 +161,7 @@ describe('.env', () => {
       { [ENV_FILE]: `${BRAND.envPrefix}LOGGING_LEVEL=debug\n` },
       { [`${BRAND.envPrefix}LOGGING_LEVEL`]: 'warn' },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.level).toBe('warn');
   });
 
@@ -203,6 +207,7 @@ describe('.env', () => {
 describe('environment overrides', () => {
   it('coerces and applies a typed override', () => {
     const result = load({}, { [`${BRAND.envPrefix}DASHBOARD_PORT`]: '9999' });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.dashboard.port).toBe(9999);
       expect(result.value.origin.get('dashboard.port')).toBe('env');
@@ -214,6 +219,7 @@ describe('environment overrides', () => {
       { [CONFIG]: 'dashboard:\n  port: 8080\n' },
       { [`${BRAND.envPrefix}DASHBOARD_PORT`]: '9999' },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.dashboard.port).toBe(9999);
   });
 
@@ -245,6 +251,7 @@ describe('environment overrides', () => {
 describe('the database, and host-only keys', () => {
   it('applies a group-owned setting from the database', () => {
     const result = load({}, {}, { db: { instance: { name: 'Renamed in the dashboard' } } });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('Renamed in the dashboard');
       expect(result.value.origin.get('instance.name')).toBe('db');
@@ -268,6 +275,7 @@ describe('the database, and host-only keys', () => {
 
   it('ignores an attempt to turn off encryption from the database', () => {
     const result = load({}, {}, { db: { privacy: { encryptAtRest: false } } });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.privacy.encryptAtRest).toBe(true);
       expect(result.value.rejectedHostOnlyFromDb).toContain('privacy.encryptAtRest');
@@ -276,6 +284,7 @@ describe('the database, and host-only keys', () => {
 
   it('ignores an attempt to enable content debug logging from the database', () => {
     const result = load({}, {}, { db: { logging: { debugContent: true } } });
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.debugContent).toBe(false);
   });
 
@@ -285,6 +294,7 @@ describe('the database, and host-only keys', () => {
       {},
       { db: { logging: { debugContent: false } } },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.debugContent).toBe(true);
   });
 
@@ -294,6 +304,7 @@ describe('the database, and host-only keys', () => {
       {},
       { db: { instance: { name: 'ok' }, logging: { debugContent: true } } },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('ok');
       expect(result.value.config.logging.debugContent).toBe(false);
@@ -309,15 +320,19 @@ describe('precedence, end to end', () => {
 
     expect(load({}).ok && load({}).ok).toBe(true);
     const def = load({});
+    expect(def.ok).toBe(true);
     if (def.ok) expect(def.value.config.logging.level).toBe('info');
 
     const fromYaml = load(yaml);
+    expect(fromYaml.ok).toBe(true);
     if (fromYaml.ok) expect(fromYaml.value.config.logging.level).toBe('error');
 
     const fromDb = load(yaml, {}, { db });
+    expect(fromDb.ok).toBe(true);
     if (fromDb.ok) expect(fromDb.value.config.logging.level).toBe('warn');
 
     const fromEnv = load(yaml, { [name]: 'debug' }, { db });
+    expect(fromEnv.ok).toBe(true);
     if (fromEnv.ok) expect(fromEnv.value.config.logging.level).toBe('debug');
   });
 });
@@ -355,7 +370,13 @@ describe('coerceEnvValue', () => {
     ['off', false],
   ])('reads %s as a boolean', (raw, expected) => {
     const result = coerceEnvValue(leafFor('privacy.encryptAtRest')!, raw);
-    expect(result.ok && result.value).toBe(expected);
+    // `expect(result.ok && result.value).toBe(expected)` passed the four `false` rows whether the
+    // coercion produced `false` **or failed outright** — `false && anything` is `false` either way.
+    // So half this table was asserting nothing about half its cases, and the setting it covers is
+    // `privacy.encryptAtRest`: a host writing `COMVIVO_PRIVACY_ENCRYPT_AT_REST=off` and a host
+    // writing a typo would have been indistinguishable here. Found by the M1 independent review.
+    expect(result.ok, `coercing ${raw} failed`).toBe(true);
+    expect(result.ok ? result.value : undefined).toBe(expected);
   });
 
   it('rejects a boolean it cannot read, and lists what it accepts', () => {

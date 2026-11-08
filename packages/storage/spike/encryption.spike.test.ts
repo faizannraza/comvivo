@@ -14,6 +14,7 @@ import { spawnSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { env } from 'node:process';
 import { BRAND } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import {
@@ -185,8 +186,20 @@ describe('U2 — nothing readable reaches the disk', { tags: ['db', 'slow'] }, (
     withSpikeDir((dir) => {
       writeCanaries(dir, 10_000);
       const files = allBytes(dir);
-      // Non-vacuous: if SQLite wrote only one file, the WAL assertion below proves nothing.
-      expect(files.map((f) => f.file)).toContain(DB_FILENAME);
+      const names = files.map((f) => f.file);
+      // Non-vacuous, and about the right files. This asserted only that the **main database** was
+      // present, while the test is named for the WAL and the shm — and `writeCanaries` closes the
+      // connection before returning, so SQLite checkpoints and **removes** `-wal` and `-shm`.
+      // Both halves of the name were therefore iterating over files that are not there. Found by
+      // the M1 independent review.
+      //
+      // After a clean close the sidecars are legitimately gone, so the honest assertion is that
+      // the database is present and the sidecars are **absent for that reason** — the
+      // connection-open case is the next test, which is where the WAL really matters.
+      expect(names).toContain(DB_FILENAME);
+      expect(names).not.toContain(`${DB_FILENAME}-wal`);
+      expect(names).not.toContain(`${DB_FILENAME}-shm`);
+      expect(files.length, 'nothing to scan').toBeGreaterThan(0);
       for (const { file, bytes } of files) {
         for (const form of canaryForms()) {
           expect(bytes.includes(form.bytes), `${file} contains the canary (${form.label})`).toBe(
@@ -227,9 +240,14 @@ describe('U2 — nothing readable reaches the disk', { tags: ['db', 'slow'] }, (
   it('does not start with the plaintext SQLite header', () => {
     withSpikeDir((dir) => {
       writeCanaries(dir, 10);
-      const header = allBytes(dir)
-        .find((f) => f.file === DB_FILENAME)
-        ?.bytes.subarray(0, 16);
+      // `expect(header?.toString(…)).not.toBe(…)` was here, and optional chaining made a **missing
+      // database file** satisfy the negative: `undefined` is not the header string either. So the
+      // one assertion in a test named for the file's first bytes passed when there were no bytes.
+      const found = allBytes(dir).find((f) => f.file === DB_FILENAME);
+      expect(found, `${DB_FILENAME} was not written`).toBeDefined();
+      const header = found?.bytes.subarray(0, 16);
+      expect(header).toBeDefined();
+      expect(header).toHaveLength(16);
       expect(header?.toString('latin1')).not.toBe('SQLite format 3\0');
     });
   });
@@ -241,7 +259,21 @@ describe('U2 — nothing readable reaches the disk', { tags: ['db', 'slow'] }, (
         encoding: 'utf8',
       });
       if (probe.error !== undefined) {
-        // No `sqlite3` on this machine. Say so rather than passing quietly.
+        // No `sqlite3` on `PATH`. This used to assert the error said `ENOENT` and `return`, so on
+        // any slim container — the common case for a Node base image — the test passed having
+        // checked only that a missing binary is missing, while its name still read "is unreadable
+        // by the sqlite3 CLI". Found by the M1 independent review.
+        //
+        // In CI that is a configuration problem to fix, not a condition to tolerate: the whole
+        // point of this test is that it is the demo a host can run themselves, and a demo nobody
+        // has executed is not evidence. Locally it degrades to a clear skip.
+        if (env['CI'] !== undefined && env['CI'] !== '') {
+          throw new Error(
+            'the sqlite3 CLI is not installed on this runner, so the demo in `08` §3.7.2 was ' +
+              'never executed. Install it in the workflow (`apt-get install -y sqlite3`) rather ' +
+              'than letting this test pass over a missing binary.',
+          );
+        }
         expect(probe.error.message).toContain('ENOENT');
         return;
       }
@@ -386,7 +418,17 @@ describe('PRAGMA rekey — rotating the data key', { tags: ['db', 'slow'] }, () 
       } finally {
         db.close();
       }
-      for (const { file, bytes } of allBytes(dir)) {
+      const scanned = allBytes(dir);
+      // The only dynamically discovered case list here with no non-empty guard: an empty
+      // `readdirSync` would have made "leaves no plaintext behind after a rotation" pass over
+      // nothing at all. Its sibling above has one; this did not.
+      expect(
+        scanned.map((f) => f.file),
+        'nothing to scan after the rotation',
+      ).toContain(DB_FILENAME);
+      expect(canaryForms().length, 'no canary forms to look for').toBeGreaterThan(0);
+      for (const { file, bytes } of scanned) {
+        expect(bytes.length, `${file} is empty`).toBeGreaterThan(0);
         for (const form of canaryForms()) {
           expect(bytes.includes(form.bytes), `${file} (${form.label})`).toBe(false);
         }

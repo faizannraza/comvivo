@@ -11,6 +11,7 @@ describe('ok and err', () => {
     const result = ok(7);
     expect(isOk(result)).toBe(true);
     expect(isErr(result)).toBe(false);
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toBe(7);
   });
 

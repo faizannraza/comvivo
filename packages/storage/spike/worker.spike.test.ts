@@ -91,8 +91,21 @@ describe('a worker read connection', { tags: ['db', 'slow'] }, () => {
           // The extension loads in the worker too, which is what makes a KNN query a read-path
           // operation rather than a write-path one.
           expect(ready.vecVersion).toMatch(/^v0\.1\.\d+$/);
-          // `08` §3.7: the transferred key copy is zeroed once the connection holds it.
-          expect(ready.keyZeroed).toBe(true);
+          // `08` §3.7: the worker's copy of the key is zeroed once the connection holds it.
+          //
+          // This used to assert `ready.keyZeroed`, which `worker-reader.mjs` produces as
+          // `keyBuffer.every((b) => b === 0)` **sixteen lines after** it calls `keyBuffer.fill(0)`.
+          // The harness zeroed the buffer and then asked itself whether the buffer was zero: it
+          // could only fail if `Buffer.prototype.fill` were broken, and no production code was
+          // involved at all. Found by the M1 independent review.
+          //
+          // The falsifiable form is the read itself. `count.get()` runs when the parent asks, long
+          // after `fill(0)` — so a hundred rows coming back **is** the evidence that the
+          // connection holds the derived key independently of the buffer it arrived in. If
+          // SQLCipher kept a reference to the caller's bytes instead, this read would fail.
+          expect(ready.keyZeroed, 'the worker did not report zeroing its copy').toBe(true);
+          expect(await readCount(worker)).toBe(100);
+          // And again, so the claim is about the connection's state rather than one lucky call.
           expect(await readCount(worker)).toBe(100);
         } finally {
           await worker.terminate();

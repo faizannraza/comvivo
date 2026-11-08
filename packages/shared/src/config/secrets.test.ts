@@ -35,6 +35,7 @@ describe('resolveSecret', () => {
       { ANTHROPIC_API_KEY_FILE: '/run/secrets/anthropic' },
       files({ '/run/secrets/anthropic': 'sk-2' }),
     );
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value?.value).toBe('sk-2');
       expect(result.value?.source).toBe('file');
@@ -50,6 +51,7 @@ describe('resolveSecret', () => {
       { ANTHROPIC_API_KEY_FILE: '/f' },
       files({ '/f': 'sk-3\n' }),
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value?.value).toBe('sk-3');
   });
 
@@ -59,16 +61,19 @@ describe('resolveSecret', () => {
       { ANTHROPIC_API_KEY: 'from-env', ANTHROPIC_API_KEY_FILE: '/f' },
       files({ '/f': 'from-file' }),
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value?.value).toBe('from-env');
   });
 
   it('treats an empty environment variable as absent, not as an empty secret', () => {
     const result = resolveSecret('ANTHROPIC_API_KEY', { ANTHROPIC_API_KEY: '' }, files({}));
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toBeUndefined();
   });
 
   it('returns nothing when neither form is set', () => {
     const result = resolveSecret('ANTHROPIC_API_KEY', {}, files({}));
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value).toBeUndefined();
   });
 

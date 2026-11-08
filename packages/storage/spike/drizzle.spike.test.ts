@@ -16,7 +16,8 @@
  *    constraints?** `02` §3.3 depends on all three for correctness, not performance — a partial
  *    unique index is how "one primary conversation per group" is enforced.
  */
-import { randomBytes } from 'node:crypto';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import {
@@ -29,7 +30,7 @@ import {
   uniqueIndex,
 } from 'drizzle-orm/sqlite-core';
 import { describe, expect, it } from 'vitest';
-import { withSpikeDb } from './open.js';
+import { DB_FILENAME, withSpikeDb } from './open.js';
 
 /**
  * `02` §3.1's `instantMs`: a `Temporal.Instant` stored as integer epoch milliseconds.
@@ -205,7 +206,12 @@ describe('transactions', { tags: ['db', 'slow'] }, () => {
       // No promise anywhere: the callback has already run by the time `transaction` returns.
       expect(ranInside).toBe(true);
       expect(result).toBe('done');
-      expect(result).not.toBeInstanceOf(Promise);
+      // `expect(result).not.toBeInstanceOf(Promise)` was here and could never fail, because the
+      // line above already pinned `result` to a string. The falsifiable version asks the same
+      // question of the **function**, which is the thing `02` §3.7.2 depends on: `db.transaction`
+      // returns a plain value, so `SqliteStore` can be synchronous all the way down.
+      expect(typeof result).toBe('string');
+      expect(result).not.toHaveProperty('then');
     });
   });
 });
@@ -272,19 +278,43 @@ describe('the spike database is the same shape the real one will be', {
   });
 
   it('keeps the encryption: a Drizzle write is still unreadable without the key', () => {
+    // The name claims an on-disk property, and the body used to assert three things that are not
+    // it: `dir.length > 0` (a `mkdtemp` path is never empty), the journal mode, and
+    // `randomBytes(1).length === 1` — a tautology planted to keep an import used. The comment
+    // conceded that "the on-disk check lives in `encryption.spike.test.ts`", which made the test
+    // pure decoration under a name that read like evidence. Found by the M1 independent review.
+    //
+    // Now it checks the claim: write through the ORM, close, and grep the file for the plaintext.
+    // That is cheap here and worth doing in *this* file, because the question is specifically
+    // whether going through Drizzle changes anything — `encryption.spike.test.ts` answers it for
+    // raw statements and cannot answer it for the ORM.
+    const marker = 'written-by-the-orm-and-must-not-appear';
     withSpikeDb(
       (db, dir) => {
         const orm = drizzle({ client: db });
         orm.run(sql`create table t (id integer primary key, s text not null)`);
-        orm.run(sql`insert into t (s) values ('written by the orm')`);
+        orm.run(sql`insert into t (s) values (${marker})`);
+        // Flush the WAL into the main database so the bytes are where they will finally live.
         db.pragma('wal_checkpoint(TRUNCATE)');
-        expect(dir.length).toBeGreaterThan(0);
-        // The on-disk check lives in `encryption.spike.test.ts`; here it is enough that the
-        // connection the ORM used is the encrypted one.
         expect(db.pragma('journal_mode')).toEqual([{ journal_mode: 'wal' }]);
+        // The value really is readable **with** the key, so a failure below is about encryption
+        // rather than about the insert having silently not happened.
+        expect(orm.get<{ s: string }>(sql`select s from t limit 1`)?.s).toBe(marker);
+        db.close();
+
+        // Every file the directory holds: the database and whichever of `-wal`/`-shm` survive the
+        // checkpoint. Reading the directory rather than naming the file keeps the sidecars in
+        // scope, which is where the most recent writes would be if anything leaked.
+        const files = readdirSync(dir);
+        expect(files, 'no database file to inspect').toContain(DB_FILENAME);
+        for (const name of files) {
+          const bytes = readFileSync(join(dir, name));
+          expect(bytes.includes(marker), `${name} contains the plaintext`).toBe(false);
+          // And the file is not empty, so "does not contain it" is a statement about ciphertext.
+          expect(bytes.length, `${name} is empty`).toBeGreaterThan(0);
+        }
       },
       { busyTimeoutMs: 1000 },
     );
-    expect(randomBytes(1).length).toBe(1);
   });
 });

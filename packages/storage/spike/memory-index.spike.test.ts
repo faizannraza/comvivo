@@ -16,7 +16,6 @@
  * `04` §10's acceptance is "all 4 pass, or a documented fallback". All four pass; (d) passes even
  * in the plaintext D9 shape, which is the one where it would have mattered most.
  */
-import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import Database from 'better-sqlite3-multiple-ciphers';
@@ -361,7 +360,6 @@ describe('(d) deleting a vector removes it, bytes and all', { tags: ['db', 'slow
       } finally {
         db.close();
       }
-      expect(randomBytes(1).length).toBe(1);
     });
   });
 });
