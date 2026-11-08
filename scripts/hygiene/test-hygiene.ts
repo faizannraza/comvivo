@@ -99,6 +99,9 @@ export function isExempt(path: string): boolean {
   return EXEMPT.some((pattern) => pattern.test(path));
 }
 
+/** Line and inline block comments, stripped before a construct rule reads the line. */
+const STRIP_COMMENTS = /\/\/.*$|\/\*.*?\*\//g;
+
 /** `// skip(M5-T12): blocked on the guard landing` — a task id and a reason. */
 const JUSTIFIED_SKIP = /\/\/\s*skip\((M\d+-T\d+|[a-z-]+#\d+)\)\s*:\s*\S/;
 
@@ -116,13 +119,26 @@ interface LineContext {
   /** The raw line. */
   readonly text: string;
   /**
-   * The line with string and template literals blanked out.
+   * The line with string and template literals blanked out **and comments removed**.
    *
    * Every construct rule matches against this rather than the raw text, so a rule name quoted in
    * an assertion is not mistaken for the construct itself. Without it, every test asserting on this
    * check's own output would violate it — which is how a linter earns an ignore file.
+   *
+   * Comments are stripped for the same reason, and that half was missing: a comment explaining
+   * *why* a test avoids `tmpdir()` tripped `no-shared-temp-dir`, so the rule punished the sentence
+   * that documented compliance with it. Found by writing exactly that comment.
    */
   readonly code: string;
+  /**
+   * The raw line with **comments** removed and string literals left intact.
+   *
+   * For the rules whose banned construct *is* a string literal — `no-shared-temp-dir` matches
+   * `'/tmp/'` and `tmpdir()`, so blanking strings would make it inert. Those rules read the raw
+   * text, which meant a comment explaining why a test avoids `tmpdir()` tripped the rule that
+   * comment was documenting compliance with. Found by writing exactly that comment.
+   */
+  readonly withoutComments: string;
   readonly previous: string;
   readonly gate: boolean;
 }
@@ -186,9 +202,10 @@ const LINE_RULES: readonly LineRule[] = [
   },
   {
     id: 'no-shared-temp-dir',
-    check: ({ text }) =>
-      // Matched against the raw text: the path is the string literal.
-      /(?:['"]\/tmp\/|tmpdir\s*\(\s*\))/.test(text) && !/mkdtemp/i.test(text)
+    check: ({ withoutComments: line }) =>
+      // String literals are kept, because the path **is** one — but comments are stripped, or a
+      // sentence explaining why a test avoids `tmpdir()` would violate this rule.
+      /(?:['"]\/tmp\/|tmpdir\s*\(\s*\))/.test(line) && !/mkdtemp/i.test(line)
         ? 'use fs.mkdtemp/mkdtempSync so each run gets its own directory.'
         : undefined,
   },
@@ -322,7 +339,10 @@ export function findHygieneViolations(
   lines.forEach((text, index) => {
     const context: LineContext = {
       text,
-      code: text.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""'),
+      // Strings first, then comments: a `//` inside a string literal is not a comment, and
+      // blanking the string makes the comment strip safe.
+      code: text.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(STRIP_COMMENTS, ''),
+      withoutComments: text.replace(STRIP_COMMENTS, ''),
       previous: lines[index - 1] ?? '',
       gate: options.gate === true,
     };

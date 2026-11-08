@@ -14,7 +14,7 @@
  * `quick_check` then runs on the copy. A backup nobody verified is a backup that is discovered to
  * be useless at the only moment it is needed.
  */
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, rmSync, statfsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
@@ -23,8 +23,94 @@ import DatabaseCtor from 'better-sqlite3-multiple-ciphers';
 /** The subdirectory of `backupDir` that pre-migration copies live in. */
 export const PRE_MIGRATE_DIR = 'pre-migrate';
 
-/** `02` §3.12.2: the runner needs at least this multiple of the database size free. */
-export const REQUIRED_FREE_SPACE_MULTIPLE = 2;
+/**
+ * `12` §3.7 step 6: the runner needs at least this multiple of the database size free.
+ *
+ * **2.2, not 2**, and nothing read it at all. The constant was `2` and there was no free-space
+ * probe anywhere in this module, so `12` §3.7's "require free space ≥ 2.2× the DB size (else 75)"
+ * was a published requirement with no code behind it. Found by the M1 independent review.
+ *
+ * Why more than 2×: `VACUUM INTO` writes a full copy, and the migration that follows it then needs
+ * room for its own journal and for any table rebuild. The 0.2 is that headroom — running out of
+ * space *during* the upgrade is strictly worse than refusing to start, because the backup exists
+ * and the database is half-migrated.
+ */
+export const REQUIRED_FREE_SPACE_MULTIPLE = 2.2;
+
+/** How the free-space check reads the filesystem. Injected so a test can state a full disk. */
+export interface SpaceProbe {
+  /** Bytes available to this user at `path`, or `undefined` when it cannot be determined. */
+  freeBytes(path: string): number | undefined;
+}
+
+export const nodeSpaceProbe: SpaceProbe = {
+  freeBytes(path: string): number | undefined {
+    try {
+      const stats = statfsSync(path);
+      // `bavail`, not `bfree`: the difference is the reserve only root can use, and this process
+      // is not root. Reporting the larger number would let the check pass and the write fail.
+      return stats.bsize * stats.bavail;
+    } catch {
+      return undefined;
+    }
+  },
+};
+
+/**
+ * Refuse the upgrade when the disk cannot hold the backup.
+ *
+ * `STORAGE_DISK_SPACE_LOW` maps to exit **75** (`12` §4.2, `shared/src/exit-codes.ts`), which is
+ * what `12` §3.7 step 6 asks for: an orchestrator backs off and retries rather than treating a
+ * full disk as a configuration error a human must fix before the service may start again.
+ *
+ * An unreadable `statfs` is **not** a failure. This check exists to turn a predictable
+ * out-of-space into a clean refusal; a platform that cannot answer should not be able to stop an
+ * upgrade that would otherwise have worked.
+ */
+export function assertSpaceForBackup(
+  databaseBytes: number,
+  directory: string,
+  probe: SpaceProbe = nodeSpaceProbe,
+): void {
+  const free = probe.freeBytes(directory);
+  if (free === undefined) return;
+  const needed = Math.ceil(databaseBytes * REQUIRED_FREE_SPACE_MULTIPLE);
+  if (free >= needed) return;
+  throw new StorageError(
+    'STORAGE_DISK_SPACE_LOW',
+    'there is not enough free space for the pre-migration backup',
+    {
+      hint:
+        `The upgrade needs ${String(Math.ceil(needed / 1_048_576))} MiB free and the backup ` +
+        `directory has ${String(Math.floor(free / 1_048_576))} MiB. Free some space and start ` +
+        'again — migrations are forward-only, so this backup is the rollback path and the upgrade ' +
+        'will not begin without it.',
+      detail: {
+        freeBytes: free,
+        neededBytes: needed,
+        databaseBytes,
+        multiple: REQUIRED_FREE_SPACE_MULTIPLE,
+      },
+    },
+  );
+}
+
+/** The database file's size on disk, including its WAL, or 0 when it cannot be read. */
+export function databaseBytesOf(db: Database.Database): number {
+  const rows = db.pragma('database_list') as { name: string; file: string }[];
+  const file = rows.find((row) => row.name === 'main')?.file ?? '';
+  if (file === '') return 0;
+  let total = 0;
+  for (const candidate of [file, `${file}-wal`]) {
+    try {
+      total += statSync(candidate).size;
+    } catch {
+      // Absent: an in-memory database has no file, and the WAL exists only while a connection is
+      // open in WAL mode.
+    }
+  }
+  return total;
+}
 
 export interface PreMigrationBackupOptions {
   /** The data directory's backup root. */
@@ -37,6 +123,8 @@ export interface PreMigrationBackupOptions {
   readonly keep: number;
   /** Epoch milliseconds, injected so the file name is deterministic in tests. */
   readonly nowMs: number;
+  /** Injected so a test can state a full disk rather than need one. */
+  readonly space?: SpaceProbe;
 }
 
 /** `02` §3.12.4's file name: `<fromLastId>__<toLastId>__<ts>.db`. */
@@ -63,6 +151,23 @@ export function preMigrationBackup(
     // that this is why the upgrade stopped. Found by the test that asserts the failure is a
     // `StorageError`.
     mkdirSync(directory, { recursive: true });
+  } catch (cause) {
+    throw new StorageError('MIGRATION_FAILED', 'the pre-migration backup could not be written', {
+      hint:
+        'Migrations are forward-only, so this backup is the rollback path and the upgrade will ' +
+        'not start without it. Check the permissions on the backup directory.',
+      detail: { path },
+      cause,
+    });
+  }
+
+  // After the directory exists, so the probe reads the filesystem the copy will land on — a
+  // separate mount for `backups/` is a normal arrangement and its free space is the one that
+  // matters. Outside the `try` below because this is a clean refusal with its own code and exit
+  // status, not a write that failed.
+  assertSpaceForBackup(databaseBytesOf(db), directory, options.space);
+
+  try {
     // `VACUUM INTO` refuses to overwrite, which is the behaviour we want: a name collision means
     // two migrations started in the same millisecond, and silently replacing the first copy would
     // destroy the only rollback path for one of them.

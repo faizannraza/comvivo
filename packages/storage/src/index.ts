@@ -8,12 +8,16 @@
  */
 
 export {
+  assertSpaceForBackup,
+  databaseBytesOf,
+  nodeSpaceProbe,
   PRE_MIGRATE_DIR,
   type PreMigrationBackupOptions,
   preMigrationBackup,
   preMigrationBackupName,
   pruneOldBackups,
   REQUIRED_FREE_SPACE_MULTIPLE,
+  type SpaceProbe,
 } from './migrate/backup.js';
 export {
   type DataMigration,

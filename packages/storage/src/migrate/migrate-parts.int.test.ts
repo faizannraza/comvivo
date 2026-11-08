@@ -18,14 +18,19 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { BRAND, StorageError } from '@comvivo/shared';
+import { BRAND, exitCodeFor, StorageError } from '@comvivo/shared';
 import Database from 'better-sqlite3-multiple-ciphers';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
+  assertSpaceForBackup,
+  databaseBytesOf,
+  nodeSpaceProbe,
   PRE_MIGRATE_DIR,
   preMigrationBackup,
   preMigrationBackupName,
   pruneOldBackups,
+  REQUIRED_FREE_SPACE_MULTIPLE,
+  type SpaceProbe,
 } from './backup.js';
 import { type DataMigration, dataMigrationFor, dataMigrations } from './data/index.js';
 import { assertLockMatches, lockFor, readLock, writeLock } from './lock.js';
@@ -449,3 +454,125 @@ function writeEmpty(path: string): void {
   db.close();
   expect(statSync(path).isFile()).toBe(true);
 }
+
+describe('the free-space guard (12 §3.7 step 6)', () => {
+  // `12` §3.7 step 6 requires free space ≥ 2.2× the database size before the backup, "else 75".
+  // `REQUIRED_FREE_SPACE_MULTIPLE` existed, said `2`, and **nothing read it** — there was no
+  // `statfs` call anywhere in `backup.ts`, so the requirement was published with no code behind it.
+  // Found by the M1 independent review, which noticed the constant had no caller.
+  const full: SpaceProbe = { freeBytes: () => 0 };
+  const roomy: SpaceProbe = { freeBytes: () => 10 * 1_048_576 };
+
+  it('is the multiple the spec states', () => {
+    expect(REQUIRED_FREE_SPACE_MULTIPLE).toBe(2.2);
+  });
+
+  it('refuses when free space is below the multiple, with the code that maps to 75', () => {
+    const caught = (() => {
+      try {
+        assertSpaceForBackup(1_000_000, '/anywhere', full);
+        return undefined;
+      } catch (error) {
+        return error;
+      }
+    })();
+    expect(caught).toBeInstanceOf(StorageError);
+    const error = caught as StorageError;
+    expect(error.storageCode).toBe('STORAGE_DISK_SPACE_LOW');
+    expect(exitCodeFor(error)).toBe(75);
+    // The message has to be actionable: how much is needed and how much there is.
+    expect(error.hint).toContain('free');
+    expect(error.detail?.['neededBytes']).toBe(2_200_000);
+    expect(error.detail?.['freeBytes']).toBe(0);
+  });
+
+  it('accepts exactly the multiple, and refuses one byte less', () => {
+    // The boundary in both directions, because an off-by-one here either blocks an upgrade that
+    // would have worked or allows one that runs out of space mid-migration.
+    const bytes = 1_000_000;
+    const needed = bytes * 2.2;
+    expect(() => {
+      assertSpaceForBackup(bytes, '/anywhere', { freeBytes: () => needed });
+    }).not.toThrow();
+    expect(() => {
+      assertSpaceForBackup(bytes, '/anywhere', { freeBytes: () => needed - 1 });
+    }).toThrow(StorageError);
+  });
+
+  it('allows the upgrade when the platform cannot answer', () => {
+    // Deliberate: this check turns a predictable out-of-space into a clean refusal. A platform
+    // whose `statfs` fails should not be able to stop an upgrade that would have worked — the
+    // failure mode of being wrong here is refusing every upgrade on that platform forever.
+    expect(() => {
+      assertSpaceForBackup(1_000_000, '/anywhere', { freeBytes: () => undefined });
+    }).not.toThrow();
+  });
+
+  it('reads the real filesystem through nodeSpaceProbe', () => {
+    // Non-vacuity for the default: every case above injects a probe, so without this the real one
+    // could return `undefined` always and the guard would be permanently inert.
+    // `tempDir()` rather than `tmpdir()`: the probe only reads, so either would do, but
+    // `scripts/hygiene`'s `no-shared-temp-dir` is a line scanner that cannot tell reading from
+    // creating, and it is right that a test naming a fixed temp path is worth a second look.
+    const free = nodeSpaceProbe.freeBytes(tempDir());
+    expect(free).toBeTypeOf('number');
+    expect(free ?? 0).toBeGreaterThan(0);
+  });
+
+  it('measures the database and its WAL', () => {
+    {
+      const dir = tempDir();
+      const file = join(dir, 'size.db');
+      const db = new Database(file);
+      try {
+        db.pragma('journal_mode = WAL');
+        db.exec('CREATE TABLE t (x TEXT)');
+        const insert = db.prepare('INSERT INTO t (x) VALUES (?)');
+        for (let i = 0; i < 500; i += 1) insert.run('x'.repeat(200));
+        const measured = databaseBytesOf(db);
+        // Bigger than the main file alone, because the WAL holds the writes until a checkpoint —
+        // and the WAL is exactly the part a naive `statSync` on the database would miss.
+        expect(measured).toBeGreaterThan(statSync(file).size);
+      } finally {
+        db.close();
+      }
+    }
+  });
+
+  it('refuses a real backup on a disk the probe reports as full', () => {
+    // End to end through `preMigrationBackup`, so the guard is proven to be *wired* and not just
+    // exported. The directory is created first either way, which is what lets the probe read the
+    // filesystem the copy would land on.
+    {
+      const dir = tempDir();
+      const db = new Database(join(dir, 'src.db'));
+      try {
+        db.exec('CREATE TABLE t (x TEXT)');
+        expect(() =>
+          preMigrationBackup(db, {
+            backupDir: join(dir, 'backups'),
+            fromLastId: 'empty',
+            toLastId: '0001',
+            keep: 3,
+            nowMs: 1,
+            space: full,
+          }),
+        ).toThrow(/not enough free space/);
+        // And it succeeds with room, so the refusal is about space rather than about the backup
+        // being broken.
+        expect(
+          preMigrationBackup(db, {
+            backupDir: join(dir, 'backups'),
+            fromLastId: 'empty',
+            toLastId: '0001',
+            keep: 3,
+            nowMs: 2,
+            space: roomy,
+          }),
+        ).toContain(PRE_MIGRATE_DIR);
+      } finally {
+        db.close();
+      }
+    }
+  });
+});
