@@ -207,7 +207,15 @@ export function parentLookups(): readonly { table: string; parent: string; via: 
   }));
 }
 
-/** Every table in the schema, by name — used by the guard tests to validate the lookups. */
+/**
+ * Every table in the schema, by name.
+ *
+ * Its docstring said "used by the guard tests to validate the lookups" and **no test used it** —
+ * which is the kind of claim that stops a reviewer looking. Found by the M1 independent review.
+ * Kept rather than deleted, because `parentLookups()` names three tables and their parents as
+ * string literals, and a typo in one of those is a silently missing I4 guard; `guards.int.test.ts`
+ * now checks every name against this list, which is the use the docstring always claimed.
+ */
 export function schemaTableNames(): readonly string[] {
   return (Object.values(schema) as unknown[])
     .filter((value): value is SQLiteTable => is(value, SQLiteTable))

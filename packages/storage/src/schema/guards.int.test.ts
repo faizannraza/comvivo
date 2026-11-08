@@ -31,6 +31,7 @@ import {
   labeledColumns,
   parentLookups,
   schemaColumns,
+  schemaTableNames,
 } from './guards.sql.js';
 import { FTS_TABLES } from './search.sql.js';
 import { seedGroup, withMigratedDb } from './testing/migrated-db.js';
@@ -55,6 +56,46 @@ describe('the committed migration is generated, not hand-written', () => {
       );
     }
     expect(committed).toContain('contentless_delete=1');
+  });
+});
+
+describe('the parent lookups name real tables', () => {
+  // `GROUP_VIA_PARENT` is three entries of **string literals** — a table, its parent, and the
+  // column that points at it. A typo in any of them is a silently missing I4 guard: the generator
+  // would emit a trigger referencing a table that does not exist, or worse, reference the wrong
+  // one and compare against a group it has no business reading.
+  //
+  // `schemaTableNames()` existed for exactly this and its docstring said "used by the guard tests
+  // to validate the lookups" while **no test used it**. Found by the M1 independent review.
+  it('names a table and a parent that exist in the schema', () => {
+    const tables = new Set(schemaTableNames());
+    // 78 is the schema's table count, which `M1-T12` recorded. Pinned rather than bounded: both
+    // sides of the comparison below are computed, so an empty set would make it pass over nothing.
+    expect(tables.size).toBe(78);
+    for (const lookup of parentLookups()) {
+      expect(tables, `${lookup.table} is not a table in the schema`).toContain(lookup.table);
+      expect(tables, `${lookup.parent} is not a table in the schema`).toContain(lookup.parent);
+    }
+  });
+
+  it('names a `via` column that exists on the child, and an id on the parent', () => {
+    for (const lookup of parentLookups()) {
+      const child = schemaColumns(lookup.table);
+      expect(child, `${lookup.table} has no columns`).toBeDefined();
+      expect(child ?? [], `${lookup.table}.${lookup.via}`).toContain(lookup.via);
+      // The generated trigger joins on the parent's `id`, so the parent must have one.
+      expect(schemaColumns(lookup.parent) ?? [], `${lookup.parent}.id`).toContain('id');
+    }
+  });
+
+  it('covers exactly the three tables 02 §3.3 gives no group_id', () => {
+    // Pinned, so a fourth such table cannot be added without someone deciding how its group is
+    // reached — which is the moment the I4 guard either gets written or silently does not.
+    expect(
+      parentLookups()
+        .map((lookup) => lookup.table)
+        .toSorted(),
+    ).toEqual(['event_attendees', 'poll_votes', 'proposal_votes']);
   });
 });
 

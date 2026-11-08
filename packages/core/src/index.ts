@@ -250,10 +250,14 @@ export {
   ModelCallTraceSchema,
   PolicyDecisionTraceSchema,
   ToolCallTraceSchema,
+  TRACE_JSON_COLUMNS,
   TRACE_TOTAL_BUDGET_BYTES,
+  type TraceJsonColumn,
   type TraceReplayMeta,
   TraceReplayMetaSchema,
   TraceTriggerSchema,
+  traceBudgetOverage,
+  traceRowBytes,
 } from './runtime/traces.js';
 export {
   type EffectSummaryParams,

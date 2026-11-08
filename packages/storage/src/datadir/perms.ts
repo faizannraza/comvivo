@@ -25,7 +25,7 @@
  * Skipped on Windows, where POSIX mode bits are synthesised and would refuse every install
  * (`08` §3.7.3).
  */
-import { chmod, chown, lstat, readdir } from 'node:fs/promises';
+import { chmod, lstat, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { StorageError } from '@comvivo/shared';
 import { DIR_MODE, dataDirLayout, FILE_MODE, KEY_FILES } from './layout.js';
@@ -338,12 +338,21 @@ function currentUid(): number | undefined {
   return typeof process.getuid === 'function' ? process.getuid() : undefined;
 }
 
-/**
- * Take ownership of a path, for an installer running as root that has just created the directory.
+/*
+ * `takeOwnership(path, uid, gid)` was here: a three-line `chown` wrapper, exported on the public
+ * barrel, with **no caller and no test** — so a privileged filesystem operation had never once
+ * executed. Deleted 2026-11-07 (M1 independent review), rather than given a test, because it is
+ * the wrong layer twice over:
  *
- * Exported for `12`'s installers rather than used at boot: the server never changes ownership of
- * anything, because a server that could would be a server that can be tricked into doing it.
+ *  - `12` §3.8's root-start mode does this in the **shell entrypoint**, with
+ *    `find /data -xdev \( ! -user $PUID -o ! -group $PGID \) -exec chown $PUID:$PGID {} +`, and
+ *    then `exec setpriv` to drop privileges. By the time Node runs, the process is uid 1000
+ *    (`USER 1000:1000`) and has no `CAP_CHOWN` — so this function would have failed with `EPERM`
+ *    wherever it was called from.
+ *  - Its own docstring said the server "never changes ownership of anything, because a server that
+ *    could would be a server that can be tricked into doing it". That argument is right, and it is
+ *    an argument for the function not existing.
+ *
+ * An exported privileged operation that cannot work where it lives is worse than an absent one:
+ * somebody finds it, calls it, and gets a confusing `EPERM` instead of the entrypoint fix.
  */
-export async function takeOwnership(path: string, uid: number, gid: number): Promise<void> {
-  await chown(path, uid, gid);
-}

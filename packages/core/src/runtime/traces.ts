@@ -142,3 +142,69 @@ export const GuardResultTraceSchema = storageContract(
 
 /** The combined budget `02` §3.3.9 sets for one trace row's JSON columns. */
 export const TRACE_TOTAL_BUDGET_BYTES = TRACE_TOTAL_MAX_BYTES;
+
+/** The seven `turn_traces` JSON columns the combined budget covers (`02` §3.3.9). */
+export const TRACE_JSON_COLUMNS = [
+  'trigger',
+  'context_manifest',
+  'model_calls',
+  'tool_calls',
+  'policy_decisions',
+  'guard_results',
+  'latency',
+] as const;
+
+export type TraceJsonColumn = (typeof TRACE_JSON_COLUMNS)[number];
+
+/** How many UTF-8 bytes a trace row's JSON columns occupy together. */
+export function traceRowBytes(row: Partial<Record<TraceJsonColumn, unknown>>): number {
+  let total = 0;
+  for (const column of TRACE_JSON_COLUMNS) {
+    const value = row[column];
+    if (value === undefined) continue;
+    // Byte length, not string length: a trace carries member handles and group names, and one
+    // emoji is four bytes where `.length` says two.
+    // No `?? ''`: in `core`'s lib (`ES2024`, `types: []`) `JSON.stringify` is typed as returning
+    // `string`, so a fallback is an unnecessary condition the lint rejects — and `value` is never
+    // `undefined` here, because the branch above skipped it. `shared/src/zod.ts` needs a helper
+    // for this and `core` does not, which is a difference in `lib`, not in the runtime.
+    total += utf8Bytes(JSON.stringify(value));
+  }
+  return total;
+}
+
+/**
+ * Whether a trace row fits `02` §3.3.9's **combined** 512 KiB budget.
+ *
+ * The per-column caps are 128 KiB each and there are seven columns, so a row can satisfy every
+ * individual cap and still be ~896 KiB — the combined budget was published as a constant with
+ * nothing reading it, which made it a number in a spec rather than a bound. Found by the M1
+ * independent review.
+ *
+ * Returns the overage rather than throwing, because the caller's right response is to **drop
+ * detail and keep the trace**, not to fail the turn: `05` §3.10 makes the trace an observability
+ * artefact, and a turn that failed because its own trace was too big would be the worst possible
+ * trade. The writer (`M1-T22`) truncates the longest list and records that it did.
+ */
+export function traceBudgetOverage(row: Partial<Record<TraceJsonColumn, unknown>>): number {
+  return Math.max(0, traceRowBytes(row) - TRACE_TOTAL_BUDGET_BYTES);
+}
+
+/**
+ * UTF-8 byte length, without `Buffer` or `TextEncoder`.
+ *
+ * `@comvivo/core` is pure (`CLAUDE.md` §2): no `node:*`, and its `lib` is `ES2024` with `types: []`
+ * so `TextEncoder` is not declared either. Counting code points by range is the arithmetic those
+ * would have done.
+ */
+function utf8Bytes(text: string): number {
+  let bytes = 0;
+  for (const character of text) {
+    const code = character.codePointAt(0) ?? 0;
+    if (code < 0x80) bytes += 1;
+    else if (code < 0x800) bytes += 2;
+    else if (code < 0x10000) bytes += 3;
+    else bytes += 4;
+  }
+  return bytes;
+}

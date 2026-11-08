@@ -46,6 +46,17 @@ export const PAYLOAD_CHARS = 52;
 export const CHECKSUM_CHARS = 4;
 export const CHECKSUM_BITS = CHECKSUM_CHARS * 5;
 
+/**
+ * Bits to drop from the three bytes `recoveryKeyChecksum` reads, to leave {@link CHECKSUM_BITS}.
+ *
+ * `CHECKSUM_BITS` was exported and read by nothing while the implementation carried a bare `>> 4`.
+ * Deriving the shift means the two cannot disagree: changing `CHECKSUM_CHARS` moves the shift with
+ * it, and a combination that is not a whole number of bytes fails below rather than silently
+ * truncating. Found by the M1 independent review, which listed `CHECKSUM_BITS` among the exports
+ * with no reader.
+ */
+const CHECKSUM_SHIFT = 24 - CHECKSUM_BITS;
+
 /** The whole body, excluding the `VRK1-` tag. */
 export const BODY_CHARS = PAYLOAD_CHARS + CHECKSUM_CHARS;
 
@@ -133,7 +144,7 @@ export function recoveryKeyChecksum(key: Uint8Array): string {
   // that can never fire on a 32-byte digest, and a fallback that cannot run reads as a handled
   // case while sitting as missed coverage forever.
   const bits = digest.readUIntBE(0, 3);
-  return toCrockford(BigInt(bits >> 4), CHECKSUM_CHARS);
+  return toCrockford(BigInt(bits >> CHECKSUM_SHIFT), CHECKSUM_CHARS);
 }
 
 /** Big-endian Crockford, zero-padded to `length` characters. */

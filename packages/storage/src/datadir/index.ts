@@ -77,5 +77,4 @@ export {
   type PermissionAudit,
   type PermissionFinding,
   secureDatabaseFiles,
-  takeOwnership,
 } from './perms.js';

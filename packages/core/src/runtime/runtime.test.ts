@@ -4,7 +4,15 @@
 import { describe, expect, it } from 'vitest';
 import { AuditDecisionSchema, AuditDetailsSchema } from './audit.js';
 import { CronExprSchema, ScheduleSpecSchema, TzRefSchema } from './schedule.js';
-import { ContextManifestSchema, LatencyTraceSchema, TraceReplayMetaSchema } from './traces.js';
+import {
+  ContextManifestSchema,
+  LatencyTraceSchema,
+  TRACE_JSON_COLUMNS,
+  TRACE_TOTAL_BUDGET_BYTES,
+  TraceReplayMetaSchema,
+  traceBudgetOverage,
+  traceRowBytes,
+} from './traces.js';
 import { EffectSummaryParamsSchema, OutboxPartsSchema, TurnFailureSchema } from './turns.js';
 
 const MEMBER = 'mbr_01jqw8z5h7e9r3t4y5v6k7p8q9';
@@ -209,5 +217,81 @@ describe('schedules (02 §3.10.5)', () => {
         tz: { group: GROUP },
       }).success,
     ).toBe(false);
+  });
+});
+
+describe('the combined trace budget (02 §3.3.9)', () => {
+  // `02` §3.3.9 says `turn_traces.*` is "512 KiB **total**", and only the per-column caps existed:
+  // 128 KiB each across seven columns, so a row could satisfy every individual cap and still be
+  // ~896 KiB. `TRACE_TOTAL_BUDGET_BYTES` was exported with **no reader**, which made the combined
+  // budget a number in a spec rather than a bound. Found by the M1 independent review.
+  it('names the seven columns the budget covers', () => {
+    expect(TRACE_JSON_COLUMNS).toEqual([
+      'trigger',
+      'context_manifest',
+      'model_calls',
+      'tool_calls',
+      'policy_decisions',
+      'guard_results',
+      'latency',
+    ]);
+    expect(TRACE_TOTAL_BUDGET_BYTES).toBe(512 * 1024);
+  });
+
+  it('counts UTF-8 bytes, not string length', () => {
+    // A trace carries member handles and group names. One emoji is four bytes where `.length`
+    // says two, and `@comvivo/core` has neither `Buffer` nor `TextEncoder` — so the arithmetic is
+    // hand-rolled and worth pinning against a known answer.
+    const ascii = traceRowBytes({ trigger: 'abc' });
+    // `JSON.stringify('abc')` is `"abc"` — five characters.
+    expect(ascii).toBe(5);
+    // A four-byte code point: `JSON.stringify` keeps it literal, so `"X"` is 2 quotes + 4 bytes.
+    expect(traceRowBytes({ trigger: '👪' })).toBe(6);
+    // Two bytes for a Latin-1 letter, three for a CJK one.
+    expect(traceRowBytes({ trigger: 'é' })).toBe(4);
+    expect(traceRowBytes({ trigger: '家' })).toBe(5);
+  });
+
+  it('adds every column together, which is the whole point', () => {
+    const one = traceRowBytes({ trigger: 'abc' });
+    const two = traceRowBytes({ trigger: 'abc', latency: 'abc' });
+    expect(two).toBe(one * 2);
+    // An absent column contributes nothing, so a sparse row is not penalised.
+    expect(traceRowBytes({})).toBe(0);
+  });
+
+  it('reports the overage for a row that is inside every column cap and over the total', () => {
+    // The failure the combined budget exists for, constructed: six columns of 100 KiB each. Every
+    // one is under the 128 KiB per-column cap; together they are 600 KiB against a 512 KiB budget.
+    const chunk = 'x'.repeat(100 * 1024);
+    const row = {
+      trigger: chunk,
+      context_manifest: chunk,
+      model_calls: chunk,
+      tool_calls: chunk,
+      policy_decisions: chunk,
+      guard_results: chunk,
+    };
+    const bytes = traceRowBytes(row);
+    expect(bytes).toBeGreaterThan(TRACE_TOTAL_BUDGET_BYTES);
+    expect(traceBudgetOverage(row)).toBe(bytes - TRACE_TOTAL_BUDGET_BYTES);
+    // And each column on its own is within its cap, so the per-column checks would have passed it.
+    expect(traceRowBytes({ trigger: chunk })).toBeLessThan(128 * 1024);
+  });
+
+  it('reports no overage for a row that fits', () => {
+    expect(traceBudgetOverage({ trigger: 'small' })).toBe(0);
+    // Exactly at the budget is not over it.
+    const exact = 'x'.repeat(TRACE_TOTAL_BUDGET_BYTES - 2);
+    expect(traceRowBytes({ trigger: exact })).toBe(TRACE_TOTAL_BUDGET_BYTES);
+    expect(traceBudgetOverage({ trigger: exact })).toBe(0);
+  });
+
+  it('returns an overage rather than throwing, so a trace cannot fail a turn', () => {
+    // Deliberate: `05` §3.10 makes the trace an observability artefact, and a turn that failed
+    // because its own trace was too big would be the worst possible trade. The writer (`M1-T22`)
+    // truncates the longest list and records that it did.
+    expect(() => traceBudgetOverage({ trigger: 'x'.repeat(2 * 1024 * 1024) })).not.toThrow();
+    expect(traceBudgetOverage({ trigger: 'x'.repeat(2 * 1024 * 1024) })).toBeGreaterThan(0);
   });
 });
