@@ -51,6 +51,17 @@
 # `M0-T17`'s AC names these explicitly, and the reason is that they are the dials somebody would
 # turn to make a failing gate pass: an eval threshold, a judge's rubric, or a golden transcript
 # that defines "correct". Lowering one looks exactly like fixing a test.
+#
+# `thresholds` is a **file**, not a directory (`11` §559: "All thresholds live in one file,
+# `packages/evals/src/thresholds.ts`"). The pattern here was `/packages/evals/src/thresholds/` with
+# a trailing slash, which can never match a file of that name — so the one artifact this section
+# exists to protect would have been unowned the moment `M2` created it. Latent, because
+# `packages/evals/src/` currently holds only `index.ts`. Found by the M0 independent review.
+#
+# Both spellings are listed: the file as the spec defines it, and the directory in case the
+# thresholds ever outgrow one module. An unmatched pattern costs nothing; an unowned threshold file
+# is the dial somebody turns to make a failing gate pass.
+/packages/evals/src/thresholds.ts        @faizannraza
 /packages/evals/src/thresholds/          @faizannraza
 /packages/evals/src/judges/              @faizannraza
 /packages/evals/__golden__/              @faizannraza

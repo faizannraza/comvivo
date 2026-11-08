@@ -229,8 +229,19 @@ describe('transcription tolerance (08 §3.7.6)', { tags: ['prop'] }, () => {
   });
 });
 
-describe('the checksum catches every single-character error', () => {
-  it('refuses all 34,720 single-character substitutions across 20 keys', () => {
+describe('the checksum catches every single-character error', { tags: ['slow'] }, () => {
+  // 34,720 decodes, each one a SHA-256. It runs in ~870 ms alone and **timed out at the 5 s
+  // default** once, mid-`pnpm verify`, on a machine running several suites in parallel — about six
+  // times slower under load. That is the exact shape `11` §3.1.11 calls out: a test that is fast
+  // when it passes and flaky when the machine is busy.
+  //
+  // An explicit budget rather than fewer cases: the exhaustiveness is the point ("a sampled test
+  // would pass for a checksum with a structural blind spot"), so the right move is to say out loud
+  // that this one is slow. 30 s matches the `integration` project's budget and leaves thirty times
+  // the measured cost.
+  it('refuses all 34,720 single-character substitutions across 20 keys', {
+    timeout: 30_000,
+  }, () => {
     // `08` §3.7.6's claim, asserted exhaustively rather than sampled: every one of the 56
     // positions, every one of the 31 other characters, over 20 independent keys. A sampled test
     // would pass for a checksum with a structural blind spot — which hand-rolled ones have.

@@ -117,7 +117,7 @@ fixtures/media/{pdf,images,voice,email}/…                # multimodal and inje
 
 #### 3.1.3 Vitest configuration
 
-- `vitest.config.ts` at the root declares `test.projects`: `unit`, `integration`, `contract`, `scenario`, `bench` (Vitest 5 benchmark project) and `dashboard` (jsdom). Each package has a `vitest.config.ts` that merges `vitest.shared.ts`. Turborepo runs the per-package `test` tasks so caching works.
+- `vitest.config.ts` at the root declares `test.projects`: `unit`, `integration`, `contract`, `scenario` and `dashboard` (jsdom). **Amended 2026-11-07** (M0 independent review): there is no `bench` project — Vitest 5.0.5 ships no usable `bench` API, so benchmarks are deferred to `M1-T32` (logged at `M0-T3`) — and there are **no per-package `vitest.config.ts` files**. One root config with projects is the whole arrangement: a per-package config that merges `vitest.shared.ts` would have to restate the project each file belongs to, which is the thing the root projects already decide. Turborepo caches the root `test` task.
 - Pools: `threads` for `core` and `shared`, which are pure and also what Stryker requires. `forks` for anything that loads native modules (better-sqlite3-multiple-ciphers, sqlite-vec, onnxruntime).
 - Environment is pinned in `vitest.setup.ts` and in CI: `TZ=UTC`, `LANG=C.UTF-8`, `COMVIVO_TEST_MODE=1`, `NODE_OPTIONS=--enable-source-maps`. Unhandled rejections and unexpected `console.error` fail the test.
 - Tags (Vitest ≥4.1, enforced as strict tags) [R3]: `prop`, `db`, `slow` (timeout 30 s), `live` (retry 2, transport errors only), `chaos`, `flaky` (quarantine), `pi`, `golden`. CI filters use `--tags-filter`, for example `--tags-filter="!flaky && !live"`.
