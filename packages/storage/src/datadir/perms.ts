@@ -253,13 +253,57 @@ export function assertPermissionsUsable(audit: PermissionAudit, root: string): v
   );
 }
 
-/** The top level of the data directory, plus `keys/`. See the note on `auditPermissions`. */
+/**
+ * The top level of the data directory, plus `keys/` and `db/`. See the note on `auditPermissions`.
+ *
+ * `db/` was missing, and it is the one directory whose **contents** are the data: a
+ * world-readable `comvivo.db` is the whole store, and a world-readable `-wal` is every recent
+ * write. The walk covered the top level, so `db/` itself was checked and the three files inside it
+ * were not — boot reported clean over a readable database. Found by the M1 independent review.
+ */
 async function auditPaths(root: string): Promise<readonly string[]> {
   const layout = dataDirLayout(root);
   const paths = [root];
   for (const name of await listDirectory(root)) paths.push(join(root, name));
   for (const name of await listDirectory(layout.keys)) paths.push(join(layout.keys, name));
+  for (const name of await listDirectory(layout.db)) paths.push(join(layout.db, name));
   return paths;
+}
+
+/**
+ * The database file and its WAL sidecars, whichever of them exist.
+ *
+ * `-wal` and `-shm` appear when a connection opens in WAL mode and vanish when the last one
+ * closes, so this is a snapshot rather than a fixed list.
+ */
+export function databaseFilePaths(root: string): readonly string[] {
+  const { dbFile } = dataDirLayout(root);
+  return [dbFile, `${dbFile}-wal`, `${dbFile}-shm`];
+}
+
+/**
+ * Put the database file and its sidecars at {@link FILE_MODE}.
+ *
+ * SQLite creates all three itself, with `0644 & ~umask` — so on a default-umask host the store was
+ * world-readable the moment it was created, and `12` §3.7's `0600` was a line in a spec with no
+ * code behind it. `grep chmod` across `db/` found nothing. Found by the M1 independent review.
+ *
+ * Called after every open rather than only at creation, because the `-wal` and `-shm` files are
+ * recreated each time a connection opens and get the same default mode again.
+ */
+export async function secureDatabaseFiles(root: string): Promise<readonly string[]> {
+  const secured: string[] = [];
+  for (const path of databaseFilePaths(root)) {
+    try {
+      await chmod(path, FILE_MODE);
+      secured.push(path);
+    } catch {
+      // Not there — the sidecars only exist while a connection is open, and on a fresh install the
+      // database itself does not exist until the first write. A missing file is not a failure to
+      // secure; an unreadable one shows up in `auditPermissions`, which is the check with teeth.
+    }
+  }
+  return secured;
 }
 
 async function listDirectory(path: string): Promise<readonly string[]> {

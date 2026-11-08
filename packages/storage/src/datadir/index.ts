@@ -70,10 +70,12 @@ export {
   type AuditOptions,
   assertPermissionsUsable,
   auditPermissions,
+  databaseFilePaths,
   isGroupOrWorldAccessible,
   isGroupOrWorldReadable,
   isGroupOrWorldWritable,
   type PermissionAudit,
   type PermissionFinding,
+  secureDatabaseFiles,
   takeOwnership,
 } from './perms.js';

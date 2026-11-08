@@ -76,6 +76,12 @@ export {
   ValidationError,
 } from './errors.js';
 // --- Ids, time and canonical JSON (M1-T3) ------------------------------------------------------
+export {
+  EXIT_CODES,
+  type ExitCode,
+  exitCodeFor,
+  exitCodeForStorageCode,
+} from './exit-codes.js';
 export { SystemRng, TypeIdGenerator } from './id-generator.js';
 export {
   type AttachmentId,

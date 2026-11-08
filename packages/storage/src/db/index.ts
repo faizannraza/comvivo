@@ -39,6 +39,11 @@ export {
   probeDatabase,
 } from './init.js';
 export {
+  type LockedDatabase,
+  type LockedDatabaseOptions,
+  openLockedDatabase,
+} from './locked.js';
+export {
   assertVersions,
   type Cipher,
   type ConnectionRole,
