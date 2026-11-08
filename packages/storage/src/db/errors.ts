@@ -90,10 +90,15 @@ const DESCRIPTIONS: Partial<
       'almost certainly fine — do not restore over it until you have ruled the key out.',
   },
   STORAGE_CORRUPT: {
-    message: 'the database file is damaged',
+    message: 'the database file could not be read as a database',
     hint:
-      'The database file is damaged. Restore the most recent backup, and keep the damaged file: ' +
-      'it is often still partly readable and is the only copy of anything the backup missed.',
+      'Two things look identical here, and the cheap one is far more likely. **If this install ' +
+      'uses encryption**, an encrypted database opened with no key produces exactly this error — ' +
+      'check that `privacy.encryptAtRest` is still true and that the key file or key store is ' +
+      'reachable, and do not restore anything until you have. Only if the key is definitely ' +
+      'right is the file damaged: then restore the most recent backup, and keep the damaged file, ' +
+      'because it is often still partly readable and is the only copy of anything the backup ' +
+      'missed.',
   },
   STORAGE_BUSY: {
     message: 'the database was locked by another connection for longer than the timeout',

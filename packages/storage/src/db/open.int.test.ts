@@ -162,9 +162,20 @@ describe('the key (02 §3.6.2, 08 §3.7.9)', { tags: ['db', 'slow'] }, () => {
     });
   });
 
-  it('reports a missing key against an encrypted database as a wrong key, not corruption', async () => {
-    // A host who turned `encryptAtRest` off against an existing encrypted database. The database is
-    // fine; the configuration is not — and "corrupt" would send them to a restore.
+  it('cannot tell an encrypted database from a damaged one, and says so in the hint', async () => {
+    // The name was "as a wrong key, **not corruption**" while the assertion accepted
+    // `STORAGE_CORRUPT` — it accepted exactly the thing the name forbade. Found by the M1
+    // independent review.
+    //
+    // I tried to make the name true by probing for SQLite's plaintext header and mapping a
+    // headerless no-key open to `STORAGE_KEY_MISSING`, and **reverted it**: a text file is
+    // headerless too, and SQLCipher output is indistinguishable from random bytes by design —
+    // that is the point of it. The change would have told a host with a genuinely unreadable file
+    // to go check their config. The bytes cannot answer this question, and a heuristic deciding
+    // between "check your config" and "restore a backup" is the wrong place for a guess.
+    //
+    // So the code stays one code and the **hint** carries the nuance: it names the cheap, likely
+    // cause first and tells them not to restore until they have ruled it out.
     await withDataDir(async (root) => {
       const path = join(root, 'secret.db');
       const first = initDatabase({ path, key: KEY() });
@@ -178,8 +189,13 @@ describe('the key (02 §3.6.2, 08 §3.7.9)', { tags: ['db', 'slow'] }, () => {
         // Without a key there is no `encrypted` context, so this is `STORAGE_CORRUPT` by the
         // documented rule — and the hint still tells them to keep the file.
         const error = caught as StorageError;
-        expect(['STORAGE_CORRUPT', 'STORAGE_KEY_INVALID']).toContain(error.storageCode);
-        expect(error.hint).toBeDefined();
+        expect(error.storageCode).toBe('STORAGE_CORRUPT');
+        // The hint has to lead with encryption, because that is the likely cause and the other
+        // remedy is destructive. Asserted on the wording, not merely that a hint exists.
+        expect(error.hint).toContain('encryptAtRest');
+        expect(error.hint).toContain('do not restore anything until you have');
+        // And it still tells them to keep the file if it really is damaged.
+        expect(error.hint).toContain('keep the damaged file');
       }
     });
   });
