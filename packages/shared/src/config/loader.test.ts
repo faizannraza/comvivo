@@ -50,6 +50,52 @@ describe('defaultConfig', () => {
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(loaded.value.config).toEqual(defaultConfig());
   });
+
+  it('defaults to the safe side of every choice a host would notice', () => {
+    // The assertion above is **circular**: `defaultConfig()` is `configSchema.parse({})` and so is
+    // the loader's own path, so both sides are the same expression and the equality can never
+    // fail. It is still worth keeping — it says the loader does not post-process a default away —
+    // but only once some defaults are pinned independently. Found by the M1 independent review.
+    //
+    // These are the ones where a silent flip is a privacy or safety change rather than a
+    // preference: encryption on, content logging off, retention bounded, nothing reaching a
+    // private network, and the dashboard not listening wide open.
+    const config = defaultConfig();
+    expect(config.privacy.encryptAtRest).toBe(true);
+    expect(config.logging.debugContent).toBe(false);
+    expect(config.logging.level).toBe('info');
+    expect(config.privacy.messageRetentionDays).toBe(90);
+    expect(config.privacy.maxMessageRetentionDays).toBe(365);
+    expect(config.privacy.logRetentionDays).toBe(14);
+    expect(config.privacy.localOnly).toBe(false);
+    expect(config.logging.file.enabled).toBe(false);
+
+    // The twenty top-level sections, pinned: a section added without a default would otherwise
+    // appear here with whatever zod inferred, and a section removed would take its defaults with
+    // it unnoticed.
+    expect(Object.keys(config)).toEqual([
+      'instance',
+      'models',
+      'embeddings',
+      'transcription',
+      'channels',
+      'email',
+      'dashboard',
+      'ics',
+      'privacy',
+      'traces',
+      'network',
+      'outbound',
+      'budgets',
+      'backups',
+      'security',
+      'plugins',
+      'mcp',
+      'logging',
+      'observability',
+      'updates',
+    ]);
+  });
 });
 
 describe('an empty instance', () => {

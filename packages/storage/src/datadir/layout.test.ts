@@ -63,11 +63,29 @@ describe('the layout is a pure function of the root', () => {
   });
 
   it('lists the key files the audit covers', () => {
-    expect(KEY_FILES).toContain('master.key');
-    expect(KEY_FILES).toContain('keyring.json');
-    expect(KEY_FILES).toContain('keyring.json.prev');
-    expect(keyFilePaths('/data')).toContain('/data/keys/master.key');
-    expect(keyFilePaths('/data')).toHaveLength(KEY_FILES.length);
+    // Verbatim, and the paths written out. `toHaveLength(KEY_FILES.length)` was the assertion and
+    // `keyFilePaths` **is** `KEY_FILES.map(…)`, so both sides were the same array — the length
+    // could never disagree. Three of six names were spot-checked and the other three were free to
+    // change. Found by the M1 independent review.
+    //
+    // These are the files `auditPermissions` refuses the boot over (`08` §3.7.3), so a name that
+    // drifts out of this list is key material that stops being permission-checked, silently.
+    expect([...KEY_FILES]).toEqual([
+      'master.key',
+      'keyring.json',
+      'keyring.json.prev',
+      'vault.enc',
+      'secrets.enc',
+      'control.token',
+    ]);
+    expect(keyFilePaths('/data')).toEqual([
+      '/data/keys/master.key',
+      '/data/keys/keyring.json',
+      '/data/keys/keyring.json.prev',
+      '/data/keys/vault.enc',
+      '/data/keys/secrets.enc',
+      '/data/keys/control.token',
+    ]);
   });
 
   it('lists parents before their children, which createLayout relies on', () => {
