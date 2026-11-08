@@ -39,10 +39,28 @@ describe('EntityRelation', () => {
   });
 
   it('covers the relation kinds 04 §3.2.3 lists, including pet_of', () => {
-    expect(RelationKindSchema.options).toContain('pet_of');
-    expect(RelationKindSchema.options).toContain('guardian');
-    expect(RelationKindSchema.options).toContain('other');
-    expect(RelationKindSchema.options).toHaveLength(17);
+    // Verbatim. Three named plus `toHaveLength(17)` left fourteen free to be renamed, and a
+    // relation kind is stored on an entity row — so a rename makes existing relations unparseable
+    // rather than merely differently spelled.
+    expect(RelationKindSchema.options).toEqual([
+      'parent',
+      'child',
+      'sibling',
+      'partner',
+      'grandparent',
+      'grandchild',
+      'guardian',
+      'relative',
+      'friend',
+      'roommate',
+      'colleague',
+      'teacher',
+      'coach',
+      'doctor',
+      'neighbor',
+      'pet_of',
+      'other',
+    ]);
   });
 
   it('refuses a relation kind outside the list', () => {

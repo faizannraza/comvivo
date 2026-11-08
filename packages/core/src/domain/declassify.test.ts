@@ -28,8 +28,13 @@ describe('individual approvers', () => {
   });
 
   it('accepts the maximum, one owner plus 64 co-owners', () => {
+    // The literal first. Both this test and the one below are parameterised by
+    // `DECLASS_APPROVERS_MAX`, so the constant could move to 3 and both would stay green with
+    // `03` §3.4.2's 65 silently gone — and no other test in the repository mentions it. Found by
+    // the M1 independent review. The name says 65; now so does an assertion.
+    expect(DECLASS_APPROVERS_MAX).toBe(65);
     const approvers = Array.from({ length: DECLASS_APPROVERS_MAX }, (_, i) => memberId(i));
-    expect(DeclassApproverSchema.parse(approvers)).toHaveLength(DECLASS_APPROVERS_MAX);
+    expect(DeclassApproverSchema.parse(approvers)).toHaveLength(65);
   });
 
   it('refuses one more than the maximum', () => {

@@ -261,7 +261,7 @@ jobs:
         with:
           node-version: ${{ steps.floor.outputs.floor }}
 
-      - name: Tests on the supported Node floor
+      - name: Check the floor is what is running
         env:
           FLOOR: ${{ steps.floor.outputs.floor }}
         run: |
@@ -276,10 +276,24 @@ jobs:
               "package.json changed." >&2
             exit 1
           fi
-          pnpm exec vitest run --project unit --project integration --project contract
 
+      # **Before** the tests, which is a change and the reason is the floor pin itself.
+      #
+      # Pinning this leg to the exact floor (it previously resolved to the newest 24.x) made four
+      # `worker-connection.int.test.ts` cases fail on 24.11 with `Cannot find module
+      # …/@comvivo/shared/dist/index.js`: `tsx`'s module-customization hooks do not reach inside a
+      # `new Worker()` there, so the worker resolved the package through its `exports` map to a
+      # `dist/` the leg had not built. The same test passes dist-free on Node 26 and on 24.22.
+      #
+      # Building first is the **more faithful** check, not a workaround: a host runs built
+      # JavaScript, and `02` D22's worker read-connection claim is about the shipped artefact.
+      # Running `tsx` inside a worker is a test convenience, and it is the convenience — not the
+      # product — that needs a newer Node. So `engines.node >= 24.11.0` stays an honest promise.
       - name: Build on the supported Node floor
         run: pnpm run build
+
+      - name: Tests on the supported Node floor
+        run: pnpm exec vitest run --project unit --project integration --project contract
 
   changeset:
     name: changeset

@@ -12,6 +12,7 @@
  * wrong commit and the file list is wrong; a missed label means the documented waiver silently
  * does nothing.
  */
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -145,17 +146,45 @@ describe('changesets', () => {
 });
 
 describe('changedFiles', () => {
+  /** A throwaway repository with two commits, so the diff has something real to read. */
+  function twoCommitRepo(): string {
+    const root = tempRoot();
+    const git = (...args: string[]): void => {
+      execFileSync('git', args, { cwd: root, stdio: 'pipe' });
+    };
+    git('init', '-q', '-b', 'main');
+    git('config', 'user.email', 'test@example.invalid');
+    git('config', 'user.name', 'Test');
+    git('config', 'commit.gpgsign', 'false');
+    writeFileSync(join(root, 'first.txt'), 'one');
+    git('add', '-A');
+    git('commit', '-qm', 'first');
+    writeFileSync(join(root, 'second.txt'), 'two');
+    mkdirSync(join(root, 'nested'));
+    writeFileSync(join(root, 'nested', 'third.txt'), 'three');
+    git('add', '-A');
+    git('commit', '-qm', 'second');
+    return root;
+  }
+
   it('reports the files a range touched', () => {
-    // Against this repository, which is a real git checkout — the one input that cannot be faked
-    // without reimplementing `git diff`.
-    const files = changedFiles('HEAD~1');
-    expect(files.length).toBeGreaterThan(0);
-    expect(files.every((path) => path.length > 0)).toBe(true);
+    // A purpose-built repository rather than this one. The first version diffed `HEAD~1` of the
+    // checkout and failed in CI, because `actions/checkout` makes a **shallow** clone and `HEAD~1`
+    // does not exist there — a test that depended on how deep the clone happened to be. Found by
+    // CI on a tree where `pnpm verify` was green.
+    const root = twoCommitRepo();
+    const files = changedFiles('HEAD~1', root).toSorted();
+    expect(files).toEqual(['nested/third.txt', 'second.txt']);
     // No empty entries: the trailing newline in `git diff` output becomes one if not filtered.
     expect(files).not.toContain('');
   });
 
   it('reports nothing for a range with no changes', () => {
-    expect(changedFiles('HEAD')).toEqual([]);
+    expect(changedFiles('HEAD', twoCommitRepo())).toEqual([]);
+  });
+
+  it('uses the repository root by default', () => {
+    // Non-vacuity for the default argument: every case above passes an explicit root.
+    expect(Array.isArray(changedFiles('HEAD'))).toBe(true);
   });
 });

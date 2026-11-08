@@ -23,7 +23,39 @@ describe('policy reasons (03 §1207)', () => {
   it('is a closed enum, so a stored reason is a token and not a sentence', () => {
     // `02` §3.3.9: audit details hold "ids/enums only, NEVER content". The user-facing sentence is
     // `DENY_COPY_EN`'s job.
-    expect(PolicyReasonSchema.options).toHaveLength(26);
+    // The whole list, verbatim. `toHaveLength(26)` with four tokens named by hand was the
+    // assertion, and these tokens are written into the hash-chained, append-only
+    // `audit_events.decision` column — so renaming twenty-two of them would have kept the suite
+    // green while making every historical audit row refer to a reason that no longer exists, and
+    // the rows cannot be migrated. Found by the M1 independent review.
+    expect(PolicyReasonSchema.options).toEqual([
+      'wrong_group',
+      'not_a_member',
+      'member_inactive',
+      'host_not_group_principal',
+      'capability_missing',
+      'floor_violation',
+      'last_admin',
+      'system_not_preauthorized',
+      'proposal_not_passed',
+      'deferred_intent_revoked',
+      'flow_violation',
+      'declassification_required',
+      'cross_group',
+      'untrusted_context',
+      'untrusted_context_high_risk',
+      'high_risk',
+      'guardian_approval_required',
+      'claimed_authorization',
+      'owner_approval_required',
+      'role_precedence',
+      'contested_vote',
+      'contested_consensus',
+      'target_missing',
+      'target_stale',
+      'rate_limited',
+      'plugin_not_approved',
+    ]);
     expect(PolicyReasonSchema.safeParse('capability_missing').success).toBe(true);
     expect(PolicyReasonSchema.safeParse('because the model said so').success).toBe(false);
   });
@@ -100,10 +132,25 @@ describe('proposals (03 §3.3.6)', () => {
 
 describe('private constraints (03 §3.5)', () => {
   it('lists 03 §3.5.4s thirteen catalog kinds', () => {
-    expect(CONSTRAINT_KINDS_V1).toHaveLength(13);
-    for (const kind of ['availability.busy', 'awareness', 'secrecy.surprise', 'topic.avoid']) {
-      expect(CONSTRAINT_KINDS_V1 as readonly string[], kind).toContain(kind);
-    }
+    // Verbatim, not a count plus four spot-checks. This is a **versioned closed catalog** — the
+    // `_V1` is the promise — so a kind renamed without a version bump silently invalidates every
+    // stored constraint of that kind, and a member's "do not schedule me" stops applying with no
+    // error anywhere.
+    expect(CONSTRAINT_KINDS_V1).toEqual([
+      'availability.busy',
+      'schedule.do_not_schedule',
+      'tasks.do_not_assign',
+      'capacity.reduced',
+      'needs.dietary',
+      'needs.accessibility',
+      'preference.flag',
+      'budget.cap',
+      'location.granularity',
+      'awareness',
+      'secrecy.surprise',
+      'content.age_appropriate',
+      'topic.avoid',
+    ]);
   });
 
   it('keeps paused separate from every kind being never', () => {

@@ -43,6 +43,11 @@ describe('audit payloads (02 §3.3.9: ids and enums, never content)', () => {
       count: 3,
       ok: true,
     });
+    // Boundary **and** one past it. Only 121 was tried, so the cap could have tightened to any
+    // value and nothing would have noticed — the test would still have refused 121 characters and
+    // still have been named for 120. Found by the M1 independent review; `rich-text.test.ts` does
+    // boundary-and-one-past throughout and is the model.
+    expect(AuditDetailsSchema.parse({ note: 'x'.repeat(120) })).toEqual({ note: 'x'.repeat(120) });
     expect(AuditDetailsSchema.safeParse({ note: 'x'.repeat(121) }).success).toBe(false);
   });
 
@@ -79,10 +84,12 @@ describe('turn payloads', () => {
   });
 
   it('caps effect summary params at twenty keys', () => {
-    const many = Object.fromEntries(
-      Array.from({ length: 21 }, (_, index) => [`k${String(index)}`, index]),
-    );
-    expect(EffectSummaryParamsSchema.safeParse(many).success).toBe(false);
+    const keys = (count: number): Record<string, number> =>
+      Object.fromEntries(Array.from({ length: count }, (_, index) => [`k${String(index)}`, index]));
+    // Twenty is accepted and twenty-one is not. Only 21 was tried, so the cap could have tightened
+    // to one key undetected.
+    expect(Object.keys(EffectSummaryParamsSchema.parse(keys(20)))).toHaveLength(20);
+    expect(EffectSummaryParamsSchema.safeParse(keys(21)).success).toBe(false);
     expect(EffectSummaryParamsSchema.parse({ title: 'Soccer practice' })).toEqual({
       title: 'Soccer practice',
     });
