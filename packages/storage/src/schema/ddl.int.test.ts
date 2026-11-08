@@ -220,6 +220,17 @@ describe('the generated DDL is valid SQLite', () => {
 });
 
 describe('CHECK constraints', () => {
+  it('found boolean columns to check, so the cases below are not empty', () => {
+    // `boolColumns` is derived from the schema by column type, and the comment below says that
+    // derivation is "what makes a new `bool` column without a CHECK fail here" — which is only
+    // true while the list is non-empty. `it.each([])` runs zero cases and passes, so a change to
+    // the filter would turn the whole block off silently. Found by the M1 independent review.
+    expect(boolColumns.length).toBeGreaterThan(20);
+    // Each entry carries the label the case title interpolates, so a missing one would read as
+    // `guards undefined` — the mistake `M1-T13` already made once.
+    expect(boolColumns.every((entry) => entry.label.includes('.'))).toBe(true);
+  });
+
   it.each(boolColumns)(
     'guards $label against a value that is neither 0 nor 1',
     ({ table, column }) => {

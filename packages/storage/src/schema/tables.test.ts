@@ -402,6 +402,14 @@ describe('every declared foreign key resolves', () => {
    * and it is also why a thunk naming the wrong column is invisible until the first query that
    * crosses it. `reference()` forces every one at once.
    */
+  it('has tables to check, so the cases below are not an empty list', () => {
+    // `it.each([])` runs zero cases and passes. `tables` is **computed** — filtered out of the
+    // schema barrel by `is(value, SQLiteTable)` — so a change to that predicate, or a barrel that
+    // stopped re-exporting, would empty it and every per-table assertion in this file would
+    // silently stop running. Found by the M1 independent review.
+    expect(tables).toHaveLength(78);
+  });
+
   it.each(tables.map((table) => ({ name: getTableName(table), table })))('$name', ({ table }) => {
     const keys = getTableConfig(table).foreignKeys;
     for (const key of keys) {
