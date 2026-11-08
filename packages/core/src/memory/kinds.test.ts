@@ -69,7 +69,14 @@ describe('the six kinds', () => {
       fulfillment: 'open' as const,
       taskId: TASK_ID,
     };
-    expect(MemoryContentSchema.parse({ ...base, who: [MEMBER_ID] })).toBeDefined();
+    // `toBeDefined()` was the whole assertion, which any successful parse satisfies — so nothing
+    // checked that `who` survived or that the rest of the payload was not quietly reshaped. A zod
+    // object strips unknown keys silently, which is exactly the kind of change this would have
+    // missed. Found by the M1 independent review.
+    expect(MemoryContentSchema.parse({ ...base, who: [MEMBER_ID] })).toEqual({
+      ...base,
+      who: [MEMBER_ID],
+    });
     // A commitment nobody made is not a commitment — it is the thing proactivity would then chase.
     expect(MemoryContentSchema.safeParse({ ...base, who: [] }).success).toBe(false);
   });
@@ -83,7 +90,7 @@ describe('the six kinds', () => {
       derivedFrom: [MEMORY_ID],
       sections: [{ heading: 'Trip', bullets: [{ text: 'Van booked', refs }] }],
     });
-    expect(MemoryContentSchema.parse(digest([MEMORY_ID]))).toBeDefined();
+    expect(MemoryContentSchema.parse(digest([MEMORY_ID]))).toEqual(digest([MEMORY_ID]));
     // An unattributed bullet in a digest is a claim with no provenance, which is what `00` §6.1's
     // provenance promise exists to prevent.
     expect(MemoryContentSchema.safeParse(digest([])).success).toBe(false);

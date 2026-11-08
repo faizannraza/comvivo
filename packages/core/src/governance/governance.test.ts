@@ -120,6 +120,14 @@ describe('proposals (03 §3.3.6)', () => {
     expect(BallotRefSchema.parse({ conversationId: CONVERSATION })).toEqual({
       conversationId: CONVERSATION,
     });
+    // The "not its results" half, which was only in the name. `BallotRefSchema` is a plain
+    // `z.object`, so a tally field is **silently stripped** rather than refused — and that is the
+    // behaviour worth pinning: a caller that put results here would see them vanish, not error.
+    // `coordination.test.ts` and `runtime.test.ts` both assert the strip; this did not. Found by
+    // the M1 independent review.
+    expect(
+      BallotRefSchema.parse({ conversationId: CONVERSATION, tally: { yes: 3, no: 1 } }),
+    ).toEqual({ conversationId: CONVERSATION });
   });
 
   it('lets the system adopt a constitution, as well as members', () => {
@@ -184,6 +192,15 @@ describe('private constraints (03 §3.5)', () => {
       approvalTtlHours: 72,
       paused: false,
     };
+    // Both boundaries accepted, both one-past refused. Only 337 and 0 were tried, so the upper
+    // bound could have been lowered to anything ≥ 1 without failing — and the test is named for
+    // two weeks. Found by the M1 independent review.
+    expect(PrivateConstraintPolicySchema.parse({ ...base, approvalTtlHours: 336 })).toMatchObject({
+      approvalTtlHours: 336,
+    });
+    expect(PrivateConstraintPolicySchema.parse({ ...base, approvalTtlHours: 1 })).toMatchObject({
+      approvalTtlHours: 1,
+    });
     expect(
       PrivateConstraintPolicySchema.safeParse({ ...base, approvalTtlHours: 337 }).success,
     ).toBe(false);
@@ -193,15 +210,35 @@ describe('private constraints (03 §3.5)', () => {
   });
 
   it('refuses a kind outside the catalog', () => {
+    // The value has to be **complete and valid**, or the parse fails on the value rather than the
+    // key and the test proves nothing about the catalog. The previous fixture was
+    // `{ mode: 'ask' }`, missing `maxSourceSensitivity`, `defaultAttribution` and `defaultReason`
+    // — so loosening `kinds` from `z.partialRecord(ConstraintKindSchema, …)` to
+    // `z.record(z.string(), …)` would have left it green. Found by the M1 independent review.
+    const value = {
+      mode: 'ask',
+      maxSourceSensitivity: 'normal',
+      defaultAttribution: 'named',
+      defaultReason: 'none',
+    } as const;
+    const base = {
+      memberId: MEMBER,
+      version: 1,
+      allowStandingForSensitive: false,
+      approvalTtlHours: 72,
+      paused: false,
+    };
+
+    // The same value under a **known** key is accepted, which is what makes the refusal below
+    // about the key.
     expect(
       PrivateConstraintPolicySchema.safeParse({
-        memberId: MEMBER,
-        version: 1,
-        kinds: { 'mood.grumpy': { mode: 'ask' } },
-        allowStandingForSensitive: false,
-        approvalTtlHours: 72,
-        paused: false,
+        ...base,
+        kinds: { 'availability.busy': value },
       }).success,
+    ).toBe(true);
+    expect(
+      PrivateConstraintPolicySchema.safeParse({ ...base, kinds: { 'mood.grumpy': value } }).success,
     ).toBe(false);
   });
 

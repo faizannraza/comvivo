@@ -266,10 +266,22 @@ describe('plans (07 §3.7)', () => {
   });
 
   it('offers a step the same two due shapes a task has', () => {
+    // **Both** arms. The name says two shapes and only `by_day` was exercised — the `at` arm of
+    // `StepDueSchema` was tested nowhere in the repository, so a plan step due at an instant was
+    // an untested path through a discriminated union. Found by the M1 independent review.
+    expect(StepDueSchema.parse({ kind: 'at', zdt: '2026-11-17T09:00:00[Europe/London]' })).toEqual({
+      kind: 'at',
+      zdt: '2026-11-17T09:00:00[Europe/London]',
+    });
     expect(
       StepDueSchema.safeParse({ kind: 'by_day', date: '2026-11-17', zone: 'UTC' }).success,
     ).toBe(true);
     expect(StepDueSchema.safeParse({ kind: 'none' }).success).toBe(false);
+    // The discriminant decides which shape is required: `by_day`'s fields are not accepted under
+    // `at`, which is the property a union buys over a bag of optional fields.
+    expect(StepDueSchema.safeParse({ kind: 'at', date: '2026-11-17', zone: 'UTC' }).success).toBe(
+      false,
+    );
   });
 });
 

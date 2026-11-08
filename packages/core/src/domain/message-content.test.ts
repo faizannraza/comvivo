@@ -1,7 +1,9 @@
 /**
  * `ForwardInfoSchema` and `AttachmentRefSchema` (`06` §1327, §1351; `02` §3.3.9).
  */
+import { capped } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
   ATTACHMENT_REF_MAX_BYTES,
   AttachmentRefSchema,
@@ -34,10 +36,34 @@ describe('ForwardInfo', () => {
     expect(ForwardInfoSchema.safeParse({ originalSentAt: 'a'.repeat(65) }).success).toBe(false);
   });
 
-  it('enforces the 1 KiB column cap', () => {
+  it('keeps the 1 KiB column cap unreachable, by bounding the fields instead', () => {
+    // The old name was "enforces the 1 KiB column cap" and the body asserted that an **under**-cap
+    // value parses, which the cap plays no part in. No over-cap case was tried, and none is
+    // possible: `fromName` is `.max(256)` and `originalSentAt` is `.max(64)`, so the largest value
+    // this schema admits serialises to well under 1024 bytes. Found by the M1 independent review.
+    //
+    // So `capped()` here is defence in depth for a JSON column whose shape may grow, and the
+    // honest claim is the arithmetic: the field bounds are what hold the column under its cap.
+    // This test fails if a field is widened past the point where that stops being true — which is
+    // when the cap would start doing the work and would need its own over-cap case.
     expect(FORWARD_INFO_MAX_BYTES).toBe(1024);
-    const value = { fromName: 'a'.repeat(250), originalSentAt: 'b'.repeat(64) };
-    expect(ForwardInfoSchema.safeParse(value).success).toBe(true);
+    const largest = { fromName: 'a'.repeat(256), originalSentAt: 'b'.repeat(64) };
+    expect(ForwardInfoSchema.parse(largest)).toEqual(largest);
+
+    // Measured, not reasoned about: the biggest admissible value, as bytes on the wire.
+    const bytes = Buffer.byteLength(JSON.stringify(largest), 'utf8');
+    expect(bytes).toBeLessThan(FORWARD_INFO_MAX_BYTES);
+    // With room to spare, so a small addition to the shape does not silently cross the line.
+    expect(bytes).toBeLessThan(FORWARD_INFO_MAX_BYTES / 2);
+
+    // And the cap wrapper is still live on this schema rather than decorative — a value that
+    // exceeds it is refused even though the field bounds mean no parse can construct one. Proven
+    // against the wrapper directly, since the schema's own fields cannot reach the cap.
+    expect(
+      capped(z.object({ big: z.string() }), FORWARD_INFO_MAX_BYTES, 'probe').safeParse({
+        big: 'x'.repeat(FORWARD_INFO_MAX_BYTES),
+      }).success,
+    ).toBe(false);
   });
 });
 

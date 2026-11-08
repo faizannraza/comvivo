@@ -14,9 +14,23 @@
  * worker replies `{ ok, rows }` or `{ ok: false, error }`. It exits when the port closes.
  */
 import { parentPort, workerData } from 'node:worker_threads';
-import { openWorkerConnection, receiveHandshake } from '../worker-connection.ts';
 
 if (parentPort === null) throw new Error('read-worker.mjs must run as a worker');
+
+/**
+ * The module under test, resolved by the **parent** and passed in.
+ *
+ * It was a static `import … from '../worker-connection.ts'`, which makes this worker depend on
+ * `tsx`'s module-customization hooks being active inside a `new Worker()`. They are on Node 26 and
+ * on 24.22, and they are **not** on 24.11 — the declared floor — where the nested relative
+ * `./open.js` → `open.ts` rewrite does not happen and the worker dies with `Cannot find module
+ * …/src/db/open.js`. Found the moment the floor leg was pinned to the exact declared version.
+ *
+ * So the parent decides: the built module when `dist/` exists, the source when it does not. On the
+ * floor leg that means this exercises the artefact a host actually runs, which is the stronger
+ * claim anyway; elsewhere it stays a source-mode test with no build step.
+ */
+const { openWorkerConnection, receiveHandshake } = await import(workerData.modulePath);
 
 const handshake = await receiveHandshake(parentPort);
 const opened = openWorkerConnection(handshake, {
