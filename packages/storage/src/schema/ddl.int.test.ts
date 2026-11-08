@@ -500,25 +500,45 @@ describe('the index set as a whole', () => {
   };
 
   it('names every index after its table or a declared abbreviation of it', () => {
-    const offenders = withSchemaDb(ddl(), (db) =>
-      (
-        db
-          .prepare(
-            "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
-          )
-          .all() as { name: string; tbl_name: string }[]
-      ).filter((row) => {
-        const allowed = PREFIXES[row.tbl_name] ?? [`${row.tbl_name}_`];
-        return !allowed.some((prefix) => row.name.startsWith(prefix));
-      }),
-    );
+    const { offenders, checked } = withSchemaDb(ddl(), (db) => {
+      const indexes = db
+        .prepare(
+          "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND sql IS NOT NULL",
+        )
+        .all() as { name: string; tbl_name: string }[];
+      return {
+        checked: indexes.length,
+        offenders: indexes.filter((row) => {
+          const allowed = PREFIXES[row.tbl_name] ?? [`${row.tbl_name}_`];
+          return !allowed.some((prefix) => row.name.startsWith(prefix));
+        }),
+      };
+    });
     expect(offenders.map((row) => `${row.tbl_name}: ${row.name}`)).toEqual([]);
+    // Non-vacuity: a query that returned nothing would make the empty-offenders assertion pass
+    // over no indexes at all.
+    expect(checked).toBeGreaterThan(100);
   });
 
   it('rejects a name that points at the wrong table', () => {
     // The positive control. Without it, a `PREFIXES` entry loose enough to match anything would
     // make the test above pass for every possible name.
-    const allowed = PREFIXES['memory_items'] ?? [];
-    expect(allowed.some((prefix) => 'messages_conv_rid_idx'.startsWith(prefix))).toBe(false);
+    //
+    // It was `const allowed = PREFIXES['memory_items'] ?? []` followed by
+    // `expect(allowed.some(…)).toBe(false)` — and `[].some()` is **always** false, so deleting the
+    // `memory_items` entry would have made the control pass while removing the thing it controls.
+    // A positive control that cannot fail is the same defect as the test it guards. Found by the
+    // M1 independent review.
+    const allowed = PREFIXES['memory_items'];
+    expect(allowed, 'the entry this control depends on is gone').toBeDefined();
+    expect(allowed ?? []).not.toHaveLength(0);
+
+    // Discriminates in both directions: a name from another table is rejected, and one from this
+    // table is accepted. Either half alone passes for a predicate that answers the same way to
+    // everything.
+    const matches = (name: string): boolean =>
+      (allowed ?? []).some((prefix) => name.startsWith(prefix));
+    expect(matches('messages_conv_rid_idx')).toBe(false);
+    expect(matches('memory_group_kind_idx')).toBe(true);
   });
 });

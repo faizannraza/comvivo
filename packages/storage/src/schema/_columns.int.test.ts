@@ -166,14 +166,34 @@ describe('the declared storage classes (02 §3.1)', { tags: ['db', 'slow'] }, ()
   it('matches what the Drizzle column declared', async () => {
     // So the DDL above and the schema cannot drift: every column's `getSQLType()` is the type
     // SQLite reports, case-insensitively.
+    //
+    // This is the **only** tie between the hand-written `DDL` literal above and the real column
+    // types, and its filter was `if (!('name' in column)) continue` — so a column that stopped
+    // looking like a column was silently skipped rather than reported, and with every entry
+    // skipped the loop would have asserted nothing. Found by the M1 independent review.
+    //
+    // Now the columns are collected first and the **count** is pinned, so skipping is visible.
     await withTable((db) => {
       const reported = new Map(
         (db.prepare('PRAGMA table_info(rows)').all() as { name: string; type: string }[]).map(
           (column) => [column.name, column.type.toLowerCase()],
         ),
       );
-      for (const column of Object.values(rows)) {
-        if (typeof column !== 'object' || !('name' in column)) continue;
+      const declared = Object.values(rows).filter(
+        (column): column is { name: string; getSQLType: () => string } =>
+          typeof column === 'object' && column !== null && 'name' in column,
+      );
+
+      // Every column in the fixture, and every one SQLite reports — the two sets must match, which
+      // is a stronger claim than "each declared column has the right type" because it also catches
+      // a column SQLite has that the schema does not know about.
+      expect(declared.length).toBe(reported.size);
+      expect(declared.length).toBeGreaterThan(8);
+      expect(declared.map((column) => column.name).toSorted()).toEqual(
+        [...reported.keys()].toSorted(),
+      );
+
+      for (const column of declared) {
         expect(reported.get(column.name), column.name).toBe(column.getSQLType().toLowerCase());
       }
     });
