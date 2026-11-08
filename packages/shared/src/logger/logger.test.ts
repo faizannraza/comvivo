@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { BRAND } from '../brand.js';
 import { SecretString } from '../secrets/secret-string.js';
 import { contentWarningBanner, createLogger, toLoggedError } from './index.js';
+import { REDACT_PATHS } from './redact.js';
 
 interface Captured {
   readonly lines: Record<string, unknown>[];
@@ -246,7 +247,73 @@ describe('secrets', () => {
   });
 });
 
+/**
+ * `['config', 'security', '*']` with a canary becomes `{config: {security: {anySegment: canary}}}`.
+ *
+ * `*` is replaced by one concrete segment, because pino's `*` matches exactly one — so a payload
+ * built this way sits at precisely the depth the path claims to cover, which is the thing being
+ * tested.
+ */
+function nest(segments: readonly string[], canary: string): Record<string, unknown> {
+  const [head = 'x', ...rest] = segments;
+  const key = head === '*' ? 'anySegment' : head;
+  return { [key]: rest.length === 0 ? canary : nest(rest, canary) };
+}
+
 describe('redaction', () => {
+  it('removes every path it lists, so no path is dead', () => {
+    // 68 entries, two of which were proven effective. The module's own docstring says "a path that
+    // does not match is a path that does nothing", and nothing iterated the list — so a typo, a
+    // wrong `*.` prefix, or a pino version that changed its matching would have left a content or
+    // credential field flowing into the log with the suite green. Found by the M1 independent
+    // review; `config/host-only.test.ts` already had this shape ("protects at least one real leaf
+    // for every pattern, so no pattern is dead") and is the model.
+    //
+    // Each path gets a canary at the depth it claims to cover: a bare name at the root, a
+    // `*.`-prefixed one under a single wrapper segment. That distinction is the whole reason the
+    // list is doubled, and it is the most likely mistake — pino's `*` matches exactly one segment,
+    // so `*.text` does not match a root-level `text`.
+    const survivors: string[] = [];
+    for (const [index, path] of REDACT_PATHS.entries()) {
+      const canary = `REDACTION-CANARY-${String(index)}-${path.replace(/[^a-z]/gi, '')}`;
+      const { sink, out } = capture();
+      const log = createLogger({ destination: sink });
+
+      // Built from the path generically rather than by special-casing `*.`: the list holds
+      // `headers.*`, `req.headers` and `config.security.*` too, and a builder that only understood
+      // a bare name and a `*.` prefix reported eleven of them as dead when they are not. `*`
+      // becomes one concrete segment, since that is exactly what pino's `*` matches.
+      log.info('server.ready', nest(path.split('.'), canary) as never);
+
+      if (out.raw.join('\n').includes(canary)) survivors.push(path);
+    }
+    expect(
+      survivors,
+      'these redact paths did not remove a value placed at the depth they name. A path that does ' +
+        'not match is a path that does nothing.',
+    ).toEqual([]);
+  });
+
+  it('is a list of real size, so the loop above is not empty', () => {
+    // `for…of` over an empty array runs no iterations and leaves `survivors` empty, which would
+    // make the assertion above pass over nothing.
+    expect(REDACT_PATHS.length).toBe(68);
+    // Both spellings of the doubling are present, which is the property the loop relies on.
+    expect(REDACT_PATHS).toContain('text');
+    expect(REDACT_PATHS).toContain('*.text');
+  });
+
+  it('would notice a path that stopped working', () => {
+    // The control: a key that is **not** in the list survives. Without it, a logger that dropped
+    // every field would pass the loop above for the wrong reason.
+    const { sink, out } = capture();
+    createLogger({ destination: sink }).info('server.ready', {
+      notARedactedPath: 'REDACTION-CONTROL',
+    } as never);
+    expect(out.raw.join('\n')).toContain('REDACTION-CONTROL');
+    expect(REDACT_PATHS).not.toContain('notARedactedPath');
+  });
+
   it('removes a credential-shaped path that arrived as unknown', () => {
     // The type stops this at the call site; redaction is the layer for a value that was widened to
     // `unknown` somewhere and lost its type on the way in.
