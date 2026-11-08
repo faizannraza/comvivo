@@ -28,7 +28,16 @@ import { readdir, readFile, statfs } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 /** How much a filesystem is to be trusted with a SQLite database. */
-export type FsVerdict = 'ok' | 'warn' | 'unsafe';
+/**
+ * `ok` and `warn` and `unsafe` are `12` §3.7's three. `unknown` is a fourth, because the check had
+ * no way to say "I could not tell".
+ *
+ * `verdictFor` returned `ok` for an undetermined type, which is the same defect as the 9p magic
+ * bug in a different place: not knowing, reported as fine. On darwin there is no `/proc/mounts`
+ * and only two `statfs` indices are measured, so an SMB or NFS data directory — exactly the case
+ * `12` §3.7 exists for — came back `ok`. It warns now.
+ */
+export type FsVerdict = 'ok' | 'warn' | 'unsafe' | 'unknown';
 
 export interface FsCheck {
   readonly path: string;
@@ -99,9 +108,40 @@ export const MAGIC_TYPES: Readonly<Record<number, string>> = {
   1095784531: 'apfs',
 };
 
-/** The filesystem {@link MAGIC_TYPES} names for a `statfs` magic number, if it knows one. */
-export function typeFromMagic(magic: number | undefined): string | undefined {
-  return magic === undefined ? undefined : MAGIC_TYPES[magic];
+/**
+ * macOS `statfs` type indices.
+ *
+ * `MAGIC_TYPES` above is a table of Linux `linux/magic.h` constants, and applying it on darwin is a
+ * category error: macOS's `f_type` is a small **filesystem type index**, not a magic number.
+ * Measured on darwin 23.6: `/`, `/Users`, `/private/tmp` and `/System/Volumes/Data` all report
+ * `26`, and `/dev` reports `19`. Every Linux magic in the table above is greater than `0x100`, so
+ * no darwin index can collide with one — the Linux table was safe on darwin and simply never
+ * matched, which is why the gap looked like a working check.
+ *
+ * Only the two values measured on this hardware are listed. Anything else on darwin resolves to
+ * `undefined` and therefore to the `unknown` verdict, which warns — the safe direction, and
+ * strictly better than the `ok` it used to produce. Adding `smbfs` or `nfs` here needs a machine
+ * with such a mount to measure on; guessing the index would be the kind of unverified table entry
+ * that produced the 9p bug.
+ */
+const DARWIN_FS_TYPES: Readonly<Record<number, string>> = {
+  19: 'devfs',
+  26: 'apfs',
+};
+
+/**
+ * The filesystem name for a `statfs` type value on this platform, if one is known.
+ *
+ * Platform-aware because the number means different things: a Linux magic from `linux/magic.h`, or
+ * a darwin type index. Reading one table on the other platform cannot be right even when it
+ * happens to be harmless.
+ */
+export function typeFromMagic(magic: number | undefined, platform: string): string | undefined {
+  if (magic === undefined) return undefined;
+  if (platform === 'darwin') return DARWIN_FS_TYPES[magic];
+  if (platform === 'linux') return MAGIC_TYPES[magic];
+  // Some other Unix. Neither table applies, so say nothing rather than guess.
+  return undefined;
 }
 
 /** Markers that mean a sync client owns this directory (`12` §3.7). */
@@ -122,9 +162,19 @@ export interface FsProbe {
   mounts(): Promise<readonly { readonly mountPoint: string; readonly type: string }[]>;
   /** Names present in a directory. Empty when it does not exist. */
   entries(path: string): Promise<readonly string[]>;
+  /**
+   * `process.platform`, because the `statfs` number means a different thing on each.
+   *
+   * Part of the probe rather than read directly, for the same reason the clock is: `12` §3.7's
+   * whole point is to behave correctly on filesystems and platforms this machine does not have,
+   * and a test that could only exercise its own platform would verify nothing about the other.
+   */
+  readonly platform: string;
 }
 
 export const nodeFsProbe: FsProbe = {
+  platform: process.platform,
+
   async magic(path: string): Promise<number | undefined> {
     try {
       // `StatsFs.type` is already a `number` — `statfs(path, { bigint: true })` is the variant that
@@ -137,8 +187,16 @@ export const nodeFsProbe: FsProbe = {
 
   async mounts(): Promise<readonly { readonly mountPoint: string; readonly type: string }[]> {
     // `/proc/mounts` on Linux. macOS has no equivalent text file, and shelling out to `mount(8)`
-    // from a server process is not worth it — `statfs` plus the APFS/HFS magics cover the local
-    // cases there, and a macOS host on a network share still gets the FUSE or SMB magic.
+    // from a server process is not an option: `08` PSC-8 restricts `child_process` to the plugin
+    // sandbox and transcription, and widening that for a diagnostic would be exactly the kind of
+    // rule-weakening `CLAUDE.md` §2 forbids.
+    //
+    // This comment used to claim "`statfs` plus the APFS/HFS magics cover the local cases there,
+    // and a macOS host on a network share still gets the FUSE or SMB magic". **Both halves were
+    // false** — `MAGIC_TYPES` is a table of Linux constants and macOS's `f_type` is a small type
+    // index, so nothing in it could ever match on darwin. Measured and corrected: `DARWIN_FS_TYPES`
+    // covers the local cases that were measurable on real hardware, and anything else on darwin
+    // now resolves to the `unknown` verdict and warns, rather than being reported as fine.
     let text: string;
     try {
       text = await readFile('/proc/mounts', 'utf8');
@@ -185,7 +243,7 @@ export async function checkFilesystem(
   const named = await typeFromMounts(absolute, probe);
   // The mount table wins when it has an answer: it distinguishes `fuse.virtiofs` from
   // `fuse.sshfs`, which share one magic number and have opposite verdicts.
-  const type = named ?? typeFromMagic(magic);
+  const type = named ?? typeFromMagic(magic, probe.platform);
   const syncMarkers = await findSyncMarkers(absolute, probe);
 
   const verdict = verdictFor(type, syncMarkers.length > 0);
@@ -203,10 +261,15 @@ function verdictFor(type: string | undefined, hasSyncMarker: boolean): FsVerdict
   if (type !== undefined && UNSAFE_TYPES.some((unsafe) => type.startsWith(unsafe))) {
     return 'unsafe';
   }
+  // Before the `unknown` branch: a sync marker is evidence on its own, and it is the one finding
+  // that does not need the filesystem type to be conclusive.
   if (hasSyncMarker) return 'unsafe';
   if (type !== undefined && WARN_TYPES.some((warn) => type.startsWith(warn))) return 'warn';
   // An unknown FUSE filesystem: works often enough not to call unsafe, unusual enough to mention.
   if (type === 'fuse' || type?.startsWith('fuse.') === true) return 'warn';
+  // Not "fine" — "could not tell". `12` §3.7's rule is warn at boot and error in `doctor`, never
+  // refuse, so an undetermined type belongs on the warning side of that line.
+  if (type === undefined) return 'unknown';
   return 'ok';
 }
 
@@ -222,6 +285,15 @@ function reasonFor(
       'replicate a half-written write-ahead log to another machine, which corrupts the database ' +
       'on both. Move the data directory outside the synced folder and back it up with ' +
       '`backup` instead.'
+    );
+  }
+  if (verdict === 'unknown') {
+    return (
+      'the filesystem type could not be determined, so SQLite’s locking requirements could not ' +
+      'be checked. On Linux this means `/proc/mounts` was unreadable; on macOS only local ' +
+      'filesystems are recognised. If this directory is on a network share — NFS, SMB, or a ' +
+      'mounted cloud drive — move it to a local disk: those emulate file locking and corrupt a ' +
+      'database rather than returning an error. `doctor` reports this in full.'
     );
   }
   const name = type ?? 'this filesystem';

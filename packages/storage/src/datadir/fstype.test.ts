@@ -20,9 +20,15 @@ function probe(
     readonly magic?: number;
     readonly mountPoint?: string;
     readonly markersAt?: Readonly<Record<string, readonly string[]>>;
+    /**
+     * Defaults to `linux`, because the `statfs` number means a Linux magic there and a darwin type
+     * index on macOS, and most cases here are stated as magics from `linux/magic.h`.
+     */
+    readonly platform?: string;
   } = {},
 ): FsProbe {
   return {
+    platform: options.platform ?? 'linux',
     magic: () => Promise.resolve(options.magic),
     mounts: () =>
       Promise.resolve(
@@ -84,13 +90,21 @@ describe('ordinary filesystems', () => {
     expect(check.reason).toBe('');
   });
 
-  it('is happy when it cannot tell at all', async () => {
-    // Advice, not a gate. A host whose kernel does not expose `statfs` and has no `/proc/mounts`
-    // must not be blocked from starting by a diagnostic that could not run.
+  it('warns rather than passing when it cannot tell at all', async () => {
+    // This test used to assert `verdict === 'ok'` for an undetermined filesystem, which is the
+    // same defect as the 9p magic bug wearing different clothes: not knowing, reported as fine.
+    // On darwin there is no `/proc/mounts` and only two `statfs` indices are measured, so an SMB
+    // or NFS data directory — the case `12` §3.7 exists for — came back clean. Found by the M1
+    // independent review.
+    //
+    // `12` §3.7's rule is warn at boot and error in `doctor`, never refuse, so an undetermined
+    // type belongs on the warning side of that line and not the passing side.
     const check = await checkFilesystem('/data', probe());
-    expect(check.verdict).toBe('ok');
     expect(check.type).toBeUndefined();
-    expect(check.magic).toBeUndefined();
+    expect(check.verdict).toBe('unknown');
+    expect(check.reason).toContain('could not be determined');
+    // Says what to do about it, like every other reason here.
+    expect(check.reason).toContain('local disk');
   });
 });
 
@@ -129,6 +143,7 @@ describe('resolving the type', () => {
     // A data directory inside a mount inside `/`. The longest matching mount point wins, which is
     // the only reading that can ever be right.
     const nested: FsProbe = {
+      platform: 'linux',
       magic: () => Promise.resolve(undefined),
       mounts: () =>
         Promise.resolve([
@@ -145,6 +160,7 @@ describe('resolving the type', () => {
     // `/mnt/nasty` is not inside `/mnt/nas`. A naive `startsWith` would say it was, and would then
     // report an ext4 directory as unsafe.
     const nested: FsProbe = {
+      platform: 'linux',
       magic: () => Promise.resolve(undefined),
       mounts: () =>
         Promise.resolve([
@@ -255,7 +271,33 @@ describe('the real probe', { tags: ['slow'] }, () => {
   it('never throws, whatever it is pointed at', async () => {
     // Advice must not be able to stop a boot. A path that does not exist is the easy case; the
     // reason this matters is a kernel that refuses `statfs` on some mount.
+    //
+    // `unknown` rather than `ok`: `statfs` fails on a path that is not there, so the honest answer
+    // is that the filesystem could not be determined. The assertion here is about **not
+    // throwing**, so it names the whole union rather than one member — the previous version
+    // asserted `ok`, which tied this test to the bug in `verdictFor` rather than to its own
+    // subject.
     const check = await checkFilesystem('/definitely/not/a/path/at/all', nodeFsProbe);
-    expect(check.verdict).toBe('ok');
+    expect(['ok', 'warn', 'unsafe', 'unknown']).toContain(check.verdict);
+    expect(check.verdict).toBe('unknown');
+  });
+
+  it('determines the type of a local checkout on this platform', async () => {
+    // `M1-T7`'s acceptance criterion is "FS-type check on Linux **and macOS**", and on darwin it
+    // could not work at all: `MAGIC_TYPES` holds Linux `linux/magic.h` constants and macOS's
+    // `f_type` is a small type index, so nothing ever matched and every verdict came from the
+    // sync-marker check alone. Measured here instead of assumed: a repository checkout is on a
+    // local filesystem on every machine this suite runs on, so the type must resolve to a name.
+    const check = await checkFilesystem(process.cwd(), nodeFsProbe);
+    if (process.platform !== 'darwin' && process.platform !== 'linux') {
+      // Some other Unix: neither table applies and `unknown` is the correct, documented answer.
+      expect(check.verdict).toBe('unknown');
+      return;
+    }
+    expect(
+      check.type,
+      `no filesystem name for ${check.magic ?? 'an unreadable statfs'}`,
+    ).toBeTypeOf('string');
+    expect(check.verdict).not.toBe('unknown');
   });
 });
