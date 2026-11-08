@@ -32,9 +32,10 @@
  * fake clock".
  */
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, rm } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { StorageError, z } from '@comvivo/shared';
+import { writeFileAtomic } from './atomic.js';
 import { DIR_MODE, dataDirLayout, FILE_MODE } from './layout.js';
 
 /** `12` §3.7: how often the holder refreshes `heartbeatAt`. */
@@ -377,8 +378,21 @@ async function replaceLock(path: string, lock: LockFile): Promise<boolean> {
   return writeExclusive(path, lock);
 }
 
+/**
+ * Replace the lock file atomically.
+ *
+ * It was a plain `writeFile` over the live path. A reader that caught the heartbeat mid-write saw
+ * truncated JSON, `readLock` reports unparseable as **absent**, and `acquireLock` then replaces an
+ * absent lock with no liveness check — so a second process could take the lock from a live holder
+ * and both would believe they had it. That is the two-writer state **C1** forbids, reached without
+ * either process doing anything wrong. Found by the M1 independent review.
+ *
+ * `readLock`'s comment — "a lock file is not evidence of anything unless it can be read" — is a
+ * sound argument about a *corrupt* file and was being asked to cover a file that was merely
+ * *being written*. With the rename it only has to cover the case it was written for.
+ */
 async function writeLock(path: string, lock: LockFile): Promise<void> {
-  await writeFile(path, serialise(lock), { mode: FILE_MODE });
+  await writeFileAtomic(path, serialise(lock));
 }
 
 async function readLock(path: string): Promise<LockFile | undefined> {

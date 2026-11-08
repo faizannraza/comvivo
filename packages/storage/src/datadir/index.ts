@@ -16,6 +16,12 @@
  */
 
 export {
+  type AtomicWriteOptions,
+  syncDirectory,
+  syncPath,
+  writeFileAtomic,
+} from './atomic.js';
+export {
   clearFormatTemp,
   type DataDirFormat,
   type FormatState,

@@ -12,7 +12,10 @@
  * code; only the real syscall settles it.
  */
 import { spawn } from 'node:child_process';
+import { readdirSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
+import { join } from 'node:path';
+import { BRAND } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import {
   acquireLock,
@@ -21,7 +24,7 @@ import {
   readLockHolder,
   releaseLock,
 } from './lock.js';
-import { withDataDir } from './testing/data-dir.js';
+import { fakeEnvironment, withDataDir } from './testing/data-dir.js';
 
 /**
  * A PID that is definitely not running.
@@ -175,6 +178,50 @@ describe('a real lock, taken by this process', { tags: ['slow'] }, () => {
       const { stat } = await import('node:fs/promises');
       const { lockPath } = await import('./lock.js');
       expect((await stat(lockPath(root))).mode & 0o777).toBe(0o600);
+    });
+  });
+});
+
+describe('the heartbeat is atomic (12 §3.7, C1)', { tags: ['slow'] }, () => {
+  it('leaves a complete lock and no temp file', async () => {
+    // `writeLock` was a plain `writeFile` over the **live** path, so a second process reading the
+    // lock while the holder's heartbeat was part-written saw truncated JSON — and `readLock`
+    // reports unparseable as absent, after which `acquireLock` replaces it with no liveness check.
+    // Two processes would then both believe they held the lock, which is the two-writer state C1
+    // exists to prevent, reached without either doing anything wrong. Found by the M1 independent
+    // review.
+    await withDataDir(async (root) => {
+      const environment = fakeEnvironment({ pid: 4242 });
+      expect((await acquireLock(root, environment)).acquired).toBe(true);
+
+      for (let beat = 0; beat < 5; beat += 1) {
+        expect(await heartbeat(root, environment)).toBe(true);
+        // Parseable after every beat, which is what a concurrent reader depends on.
+        const held = await readLockHolder(root, environment);
+        expect(held?.pid).toBe(4242);
+      }
+
+      // Exactly the lock, with no temp file beside it. A stray temp would be harmless but means
+      // the rename did not happen.
+      const entries = readdirSync(join(root, 'run')).toSorted();
+      expect(entries).toEqual([`${BRAND.slug}.lock`]);
+    });
+  });
+
+  it('still treats a genuinely corrupt lock as absent', async () => {
+    // Unchanged behaviour, and worth pinning now that the common cause is gone. `readLock`'s own
+    // comment argues that "a lock file is not evidence of anything unless it can be read" — a
+    // sound argument about a *corrupt* file, which was being asked to cover a file that was merely
+    // *being written*. With the rename it only has to cover the case it was written for.
+    await withDataDir(async (root) => {
+      const environment = fakeEnvironment({ pid: 4243 });
+      expect((await acquireLock(root, environment)).acquired).toBe(true);
+      writeFileSync(join(root, 'run', `${BRAND.slug}.lock`), '{ half a lock');
+
+      expect(await readLockHolder(root, environment)).toBeUndefined();
+      // And a new process may take it, because there is nothing readable to respect.
+      const other = fakeEnvironment({ pid: 4244, alive: [4243, 4244] });
+      expect((await acquireLock(root, other)).acquired).toBe(true);
     });
   });
 });

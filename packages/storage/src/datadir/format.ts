@@ -19,11 +19,11 @@
  * Written atomically through `tmp/` (`12` §4.5), because a half-written `FORMAT` is indistinguishable
  * from a foreign directory and would trigger the exit-65 path on the next boot.
  */
-import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { type InstanceId, idSchema, StorageError, z } from '@comvivo/shared';
-import { DIR_MODE, dataDirLayout, FILE_MODE } from './layout.js';
+import { writeFileAtomic } from './atomic.js';
+import { dataDirLayout } from './layout.js';
 import { DATA_DIR_FORMAT, DATA_DIR_FORMAT_VERSION } from './marker.js';
 
 const lastBootSchema = z.object({
@@ -148,13 +148,12 @@ export function parseFormat(text: string, path = 'FORMAT'): DataDirFormat {
 export async function writeFormat(root: string, format: DataDirFormat): Promise<void> {
   const layout = dataDirLayout(root);
   const validated = formatSchema.parse(format);
-  const temp = join(layout.tmp, 'FORMAT.tmp');
-
-  await mkdir(layout.tmp, { recursive: true, mode: DIR_MODE });
-  await writeFile(temp, `${JSON.stringify(validated, null, 2)}\n`, { mode: FILE_MODE });
-  await syncPath(temp);
-  await rename(temp, layout.format);
-  await syncDirectory(dirname(layout.format));
+  // `tmp/FORMAT.tmp` explicitly: that path is part of this module's contract, because
+  // `clearFormatTemp` exists to remove a stale one and has to know where to look. The shared
+  // helper defaults to a temp file beside the target, which is right for the instance lock.
+  await writeFileAtomic(layout.format, `${JSON.stringify(validated, null, 2)}\n`, {
+    tempPath: join(layout.tmp, 'FORMAT.tmp'),
+  });
 }
 
 /** A fresh marker for a new install (`12` §4.5). */
@@ -213,26 +212,6 @@ async function dbDirHasData(root: string): Promise<boolean> {
   } catch {
     // No `db/` at all is the fresh case, not an error: the layout has not been created yet.
     return false;
-  }
-}
-
-async function syncPath(path: string): Promise<void> {
-  const handle = await open(path, fsConstants.O_RDONLY);
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-}
-
-async function syncDirectory(path: string): Promise<void> {
-  // Read-only: a directory opened `r+` fails with `EISDIR` on Linux, which is the bug the keyring
-  // store found the hard way and no in-memory fake would have caught.
-  const handle = await open(path, fsConstants.O_RDONLY);
-  try {
-    await handle.sync();
-  } finally {
-    await handle.close();
   }
 }
 
