@@ -14,6 +14,7 @@
  * addon wants.
  */
 import { describe, expect, it } from 'vitest';
+import { SECRETSTREAM_VECTOR, vectorChunk, vectorHeader, vectorKey } from '../testing/index.js';
 import { AAD } from './labels.js';
 import { randomBytes } from './random.js';
 import {
@@ -243,6 +244,32 @@ describe('the two implementations are wire-identical (02 D13)', () => {
       Buffer.from(await openBuffer(wrappersSecretStream, key, sealed, ad)).equals(PLAINTEXT),
     ).toBe(true);
     await expect(openBuffer(wrappersSecretStream, key, sealed)).rejects.toThrow(StreamOpenFailed);
+  });
+
+  it('opens the same frozen vector as libsodium-wrappers, byte for byte', async () => {
+    // The strongest form available, and stronger than the cross-decrypt below: two implementations
+    // agreeing with **each other** could both be wrong in the same way, and only fixed bytes rule
+    // that out. `02` D13 reserves the right to swap the implementation, so what has to hold is
+    // that the replacement reads the archives the current one wrote — which is this, not mutual
+    // agreement.
+    //
+    // The vector lives in `shared/testing/secretstream-vector.ts` and `crypto/kat.test.ts`
+    // asserts the same bytes against `libsodium-wrappers`. Added by the M1 independent review,
+    // which found that the `M1-T4` criterion's "libsodium vectors" had no vector anywhere.
+    const stream = await nativeStream;
+    const pull = stream.initPull(vectorHeader(), vectorKey());
+    for (const [index, chunk] of SECRETSTREAM_VECTOR.chunks.entries()) {
+      const opened = pull.pull(vectorChunk(index));
+      expect(Buffer.from(opened.message).toString('utf8')).toBe(chunk.plain);
+      expect(opened.tag).toBe(chunk.tag);
+    }
+  });
+
+  it('refuses the frozen vector under a different key, in the native implementation too', async () => {
+    // Non-vacuity for the test above: it would pass against an implementation that ignored the key.
+    const stream = await nativeStream;
+    const pull = stream.initPull(vectorHeader(), Buffer.alloc(STREAM_KEY_BYTES, 0x43));
+    expect(() => pull.pull(vectorChunk(0))).toThrow();
   });
 
   it('produces byte-identical ciphertext from the same key and header', async () => {

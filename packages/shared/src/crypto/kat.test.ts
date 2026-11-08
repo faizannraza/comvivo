@@ -20,6 +20,7 @@
  *    and a real weakening.
  */
 import { beforeAll, describe, expect, it } from 'vitest';
+import { SECRETSTREAM_VECTOR, vectorChunk, vectorHeader, vectorKey } from '../testing/index.js';
 import { hkdfSha256, KEY_BYTES } from './hkdf.js';
 import { sha256Hex } from './hmac.js';
 import { AAD } from './labels.js';
@@ -155,6 +156,69 @@ describe('secretstream sizes', () => {
     const push = wrappersSecretStream.initPush(key);
     expect(push.header).toHaveLength(HEADER_BYTES);
     expect(push.push(new Uint8Array(64), 'final')).toHaveLength(64 + ABYTES);
+  });
+
+  /**
+   * A known-answer vector for the secretstream construction itself.
+   *
+   * `M1-T4`'s acceptance criterion is "`sec.crypto.kat` (RFC 5869, **libsodium vectors**)", and the
+   * libsodium half was missing: this block asserted three constants and then round-tripped a value
+   * through the same implementation, which is a consistency check rather than a known answer. An
+   * implementation that got the nonce schedule, the subkey derivation or the Poly1305 tag wrong in
+   * the *same* way on both sides would have passed. Found by the M1 independent review.
+   *
+   * A **pull** vector rather than a push one, because that is the direction that can be fixed:
+   * `crypto_secretstream_xchacha20poly1305_init_push` generates its header randomly and libsodium
+   * exposes no way to supply one, so there is no deterministic push to pin. Pinning the pull side
+   * constrains everything that matters — the header-to-subkey derivation, the sequential nonce
+   * schedule, the per-chunk tag byte and the Poly1305 authenticator — because all of them have to
+   * be reproduced exactly to recover the plaintext.
+   *
+   * Generated once against `libsodium-wrappers` and frozen. It is a vector in the useful sense: if
+   * libsodium's construction changes, or if `02` D13 swaps the implementation and the replacement
+   * disagrees about any of those details, this fails rather than quietly producing a format that
+   * cannot open an existing `.vbak`.
+   */
+  it('opens a frozen libsodium secretstream vector', () => {
+    const pull = wrappersSecretStream.initPull(vectorHeader(), vectorKey());
+    for (const [index, chunk] of SECRETSTREAM_VECTOR.chunks.entries()) {
+      const opened = pull.pull(vectorChunk(index));
+      expect(Buffer.from(opened.message).toString('utf8')).toBe(chunk.plain);
+      // The tag is carried inside the authenticated chunk, so recovering it is part of the claim:
+      // `final` is what tells a reader the stream ended rather than was truncated.
+      expect(opened.tag).toBe(chunk.tag);
+    }
+  });
+
+  it('refuses the vector under a different key', () => {
+    // Non-vacuity in the direction that matters: the test above would pass against an
+    // implementation that ignored the key entirely and returned the plaintext from somewhere else.
+    const wrong = Buffer.alloc(32, 0x43);
+    const pull = wrappersSecretStream.initPull(vectorHeader(), wrong);
+    expect(() => pull.pull(vectorChunk(0))).toThrow();
+  });
+
+  it('refuses the vector under a different header', () => {
+    // The header is not a nonce the reader can choose: it seeds the subkey, so a changed header
+    // produces a different keystream and the Poly1305 tag fails.
+    const header = Buffer.from(vectorHeader());
+    header[0] = (header[0] ?? 0) ^ 0x01;
+    const pull = wrappersSecretStream.initPull(header, vectorKey());
+    expect(() => pull.pull(vectorChunk(0))).toThrow();
+  });
+
+  it('refuses the chunks out of order, because the nonce schedule is sequential', () => {
+    // This is what makes truncation and reordering detectable at all (`08` §3.7.10). A stream
+    // whose chunks were independently decryptable would let an attacker drop or swap messages.
+    const pull = wrappersSecretStream.initPull(vectorHeader(), vectorKey());
+    expect(() => pull.pull(vectorChunk(1))).toThrow();
+  });
+
+  it('refuses a single flipped bit in the ciphertext', () => {
+    const pull = wrappersSecretStream.initPull(vectorHeader(), vectorKey());
+    const tampered = Buffer.from(vectorChunk(0));
+    tampered[5] = (tampered[5] ?? 0) ^ 0x01;
+    expect(() => pull.pull(tampered)).toThrow();
   });
 
   /**
