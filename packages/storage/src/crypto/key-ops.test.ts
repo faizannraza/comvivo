@@ -1190,6 +1190,9 @@ describe('rotate-data (08 §3.7.7 row 2)', () => {
 
     const slot = currentGeneration(fixture.keyring).slots.find((s) => s.kind === 'passphrase');
     expect(slot?.kdf?.alg).toBe('scrypt');
+    // Both halves asserted, not merely narrowed: a fixture that stopped setting `passphrase` would
+    // make this `return` having checked only the kdf name. Found by the M1 independent review.
+    expect(fixture.passphrase, 'the fixture did not set a passphrase').toBeDefined();
     if (slot?.kdf?.alg !== 'scrypt' || fixture.passphrase === undefined) return;
     const passphraseKey = scryptKeySync(
       fixture.passphrase,

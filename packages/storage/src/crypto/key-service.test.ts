@@ -59,6 +59,10 @@ describe('unlock (08 §3.7.5 step 2)', () => {
     const generation = currentGeneration(fixture.keyring);
     const slot = generation.slots.find((candidate) => candidate.kind === 'passphrase');
     expect(slot).toBeDefined();
+    // Asserted, not merely narrowed: `fixture.passphrase` being absent would make this test
+    // `return` having checked only that a slot exists — and it is the **only** test of `08`
+    // §3.7.8 row 2, the passphrase unlock. Found by the M1 independent review.
+    expect(fixture.passphrase, 'the fixture did not set a passphrase').toBeDefined();
     if (slot === undefined || fixture.passphrase === undefined) return;
 
     const slotKey = await passphraseSlotKey(fixture.passphrase, slot);
@@ -472,6 +476,10 @@ describe('passphraseSlotKey', () => {
     const fixture = buildKeyring({ withPassphrase: true });
     const slot = currentGeneration(fixture.keyring).slots.find((s) => s.kind === 'passphrase');
     expect(slot).toBeDefined();
+    // Asserted, not merely narrowed: `fixture.passphrase` being absent would make this test
+    // `return` having checked only that a slot exists — and it is the **only** test of `08`
+    // §3.7.8 row 2, the passphrase unlock. Found by the M1 independent review.
+    expect(fixture.passphrase, 'the fixture did not set a passphrase').toBeDefined();
     if (slot === undefined || fixture.passphrase === undefined) return;
     expect(slot.kdf).toMatchObject({ alg: 'scrypt', N: FAST_SCRYPT.N });
 

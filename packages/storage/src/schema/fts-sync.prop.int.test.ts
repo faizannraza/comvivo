@@ -154,6 +154,17 @@ function ftsRowids(db: Database.Database, table: string): number[] {
 
 describe('fts.trigger-sync.property — messages', { tags: ['prop', 'db'] }, () => {
   it('keeps messages_fts equal to the indexable rows after any sequence of writes', () => {
+    // A generated sequence that happens to contain **no inserts** leaves both sides empty, and
+    // `[] === []` passes — so some fraction of the hundred iterations was asserting nothing, and a
+    // trigger that indexed nothing at all would have been caught only by the iterations that
+    // happened to insert. `applyMessageOp` skips a mutation when there is no row to mutate, which
+    // is correct behaviour and is also what makes an insert-free sequence vacuous.
+    //
+    // Two counters, checked after the run: how many iterations inserted at least one row, and how
+    // many rows reached the index in total. Found by the M1 independent review.
+    let iterationsWithRows = 0;
+    let indexedRows = 0;
+
     fc.assert(
       fc.property(fc.array(messageOp, { minLength: 1, maxLength: 24 }), (ops) => {
         withMigratedDb((db) => {
@@ -168,11 +179,19 @@ describe('fts.trigger-sync.property — messages', { tags: ['prop', 'db'] }, () 
             applyMessageOp(db, { seed, insert, rids, index }, op);
           }
 
-          expect(ftsRowids(db, 'messages_fts')).toEqual(indexableMessageRids(db));
+          const inIndex = ftsRowids(db, 'messages_fts');
+          expect(inIndex).toEqual(indexableMessageRids(db));
+          if (rids.length > 0) iterationsWithRows += 1;
+          indexedRows += inIndex.length;
         });
       }),
       fcConfig(),
     );
+
+    // The run as a whole has to have exercised the thing under test. Without these, a property
+    // whose every sequence was insert-free would be reported green.
+    expect(iterationsWithRows, 'no iteration inserted a row').toBeGreaterThan(5);
+    expect(indexedRows, 'no row ever reached messages_fts').toBeGreaterThan(5);
   });
 
   it('indexes the scope token so one group never matches another', () => {
