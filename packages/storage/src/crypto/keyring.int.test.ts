@@ -10,12 +10,14 @@
  * direction as the code — `syncDirectory` opening a directory with `r+` fails with `EISDIR` on
  * Linux, and no in-memory fake would ever notice.
  */
+
+import { randomBytes } from 'node:crypto';
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { InstanceId } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import { unlock } from './key-service.js';
-import { currentGeneration, KeyringError } from './keyring.js';
+import { currentGeneration, type Keyring, KeyringError } from './keyring.js';
 import { KEY_FILE_MODE, KeyPermissionError, KeyringStore } from './keyring-store.js';
 import { buildKeyring } from './testing/keyring-fixture.js';
 import { withKeysDir } from './testing/keys-dir.js';
@@ -259,21 +261,81 @@ describe('temp-file cleanup', { tags: ['slow'] }, () => {
   });
 });
 
-describe('a keyring written on one instance does not open on another', { tags: ['slow'] }, () => {
-  it('refuses the other instance’s master key', async () => {
+describe('the instance id binds each slot wrap (08 §3.7.2)', { tags: ['slow'] }, () => {
+  it('opens a keyring that declares its own instance id', async () => {
+    // The baseline, and the correction to what this block used to claim.
+    //
+    // It was titled "a keyring written on one instance does not open on another" and asserted that
+    // `mine.masterKey` could not open `theirs.keyring`. That passed, but **for the wrong reason**:
+    // every `buildKeyring()` mints a fresh random master key, so the two keys were simply
+    // different. Found by the M1 independent review.
+    //
+    // Giving both fixtures the same master key showed the claim itself is false: `instanceId` is
+    // part of the AAD *and* it is stored in the file, so a copied `keyring.json` carries it along
+    // and opens exactly as it did on the original host. That is correct behaviour — copying the
+    // whole file copies the declaration too — and the test was describing a protection the design
+    // does not offer, under a name that would have reassured a reviewer.
     await withKeysDir(async (keysDir) => {
-      // The binding my first AAD was missing, end to end: copying `keyring.json` between hosts must
-      // not let one open the other, even with the right master key, because the derived keys would
-      // then be shared too.
       const store = new KeyringStore(keysDir);
-      const mine = buildKeyring();
+      const masterKey = randomBytes(32);
+      const mine = buildKeyring({ masterKey });
       await store.write(mine.keyring);
 
-      const theirs = buildKeyring({ instanceId: 'inst_01jd9zzzzzzzzzzzzzzzzzzzzz' as InstanceId });
+      const theirs = buildKeyring({
+        masterKey,
+        instanceId: 'inst_01jd9zzzzzzzzzzzzzzzzzzzzz' as InstanceId,
+      });
+
       expect(() =>
-        unlock({ keyring: theirs.keyring, slotKey: Buffer.from(mine.masterKey) }),
-      ).toThrow(KeyringError);
+        unlock({ keyring: mine.keyring, slotKey: Buffer.from(masterKey) }).lock(),
+      ).not.toThrow();
+      // A whole-file copy still opens: the instance id travelled with it.
+      expect(() =>
+        unlock({ keyring: theirs.keyring, slotKey: Buffer.from(masterKey) }).lock(),
+      ).not.toThrow();
     });
+  });
+
+  it('refuses a slot spliced in from a keyring with a different instance id', () => {
+    // The property the AAD actually buys, which nothing tested. Take a *wrapped slot* from one
+    // keyring and paste it into another: the unwrap is computed against the **host** keyring's
+    // instance id, so the authenticator fails. Without the instance id in the AAD this splice
+    // would succeed, and an attacker who could edit `keyring.json` could graft a slot they hold
+    // the key for onto a keyring they do not.
+    const masterKey = randomBytes(32);
+    const mine = buildKeyring({ masterKey });
+    const theirs = buildKeyring({
+      masterKey,
+      instanceId: 'inst_01jd9zzzzzzzzzzzzzzzzzzzzz' as InstanceId,
+    });
+
+    const donor = currentGeneration(mine.keyring).slots.find((slot) => slot.kind === 'master');
+    expect(donor, 'the fixture has no master slot to splice').toBeDefined();
+
+    const spliced: Keyring = {
+      ...theirs.keyring,
+      generations: theirs.keyring.generations.map((generation) =>
+        generation.gen === theirs.keyring.current
+          ? {
+              ...generation,
+              slots: generation.slots.map((slot) =>
+                slot.kind === 'master' && donor !== undefined
+                  ? { ...slot, wrap: donor.wrap }
+                  : slot,
+              ),
+            }
+          : generation,
+      ),
+    };
+
+    // The donor wrap opens in its own keyring…
+    expect(() =>
+      unlock({ keyring: mine.keyring, slotKey: Buffer.from(masterKey) }).lock(),
+    ).not.toThrow();
+    // …and not in the other one, which is the whole point of the instance id being in the AAD.
+    expect(() => unlock({ keyring: spliced, slotKey: Buffer.from(masterKey) })).toThrow(
+      KeyringError,
+    );
   });
 
   it('has a different slot count only when a passphrase was added', () => {

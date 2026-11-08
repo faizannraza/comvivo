@@ -60,6 +60,14 @@ export interface FixtureOptions {
   readonly retiredGenerations?: readonly number[];
   /** A known recovery key, so a test can type its printed form. Random when absent. */
   readonly recoveryKey?: Buffer;
+  /**
+   * A known master key, so two fixtures can differ in **one** field.
+   *
+   * Without it every `buildKeyring()` mints a fresh random master key, which makes any
+   * cross-fixture unwrap fail for a trivial reason. The `instanceId`-in-the-AAD test was built
+   * that way and so proved nothing about the AAD. Found by the M1 independent review.
+   */
+  readonly masterKey?: Buffer;
 }
 
 /** A keyring with a master slot, a recovery slot, and optionally a passphrase slot. */
@@ -68,7 +76,8 @@ export function buildKeyring(options: FixtureOptions = {}): KeyringFixture {
   const gen = options.gen ?? 1;
 
   const rootDataKey = randomBytes(32);
-  const masterKey = randomBytes(32);
+  const masterKey =
+    options.masterKey === undefined ? randomBytes(32) : Buffer.from(options.masterKey);
   const recoveryKey = options.recoveryKey ?? randomBytes(32);
   // `08` §3.7.6: the recovery slot's key is HKDF(RK, salt=instanceId, info=…/rk-slot), not the
   // recovery key itself. Deriving it here rather than in the slot builder keeps the fixture honest
