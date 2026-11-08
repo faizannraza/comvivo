@@ -105,18 +105,39 @@ export function findInSource(relPath: string, source: string, needle: string): F
   return found;
 }
 
-// Not async: there is nothing to await. It was `async` from an earlier draft that read files
-// asynchronously, and `require-await` caught the leftover once `scripts/**` became type-aware.
-function main(): void {
-  const asJson = argv.includes('--json');
-  const files = SOURCE_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: ROOT }))
+/**
+ * Scan a tree for hard-coded codename literals.
+ *
+ * Separated from `main()` so the guard can be proven **at its own entry point**. `M0-T12`'s
+ * criterion is "fails on a planted codename literal under `packages/**` or `apps/**`", and that
+ * had been verified once by hand at the exit gate: `check.test.ts` exercised `findInSource`
+ * thoroughly and nothing ran the globbing, the exclusion list or the file reading. Those are where
+ * a guard goes quietly blind — a glob that stops matching reports a clean tree. Found by the M0
+ * independent review, which named it the same shape as the `scripts/**` lint gap.
+ *
+ * `codename` is a parameter rather than `BRAND.codename` so a test can plant a literal that is not
+ * the real brand, and therefore cannot be mistaken for a real violation by any other guard.
+ */
+export function scan(
+  root: string,
+  codename: string = BRAND.codename,
+): { readonly files: readonly string[]; readonly findings: readonly Finding[] } {
+  const files = SOURCE_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: root }))
     .map((f) => f.split('\\').join('/'))
     .filter((f) => !EXCLUDED_FILES.some((re) => re.test(f)))
     .sort();
 
   const findings = files.flatMap((f) =>
-    findInSource(f, readFileSync(`${ROOT}/${f}`, 'utf8'), BRAND.codename),
+    findInSource(f, readFileSync(`${root}/${f}`, 'utf8'), codename),
   );
+  return { files, findings };
+}
+
+// Not async: there is nothing to await. It was `async` from an earlier draft that read files
+// asynchronously, and `require-await` caught the leftover once `scripts/**` became type-aware.
+function main(): void {
+  const asJson = argv.includes('--json');
+  const { files, findings } = scan(ROOT);
 
   if (asJson) {
     stdout.write(
