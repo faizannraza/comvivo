@@ -387,15 +387,71 @@ describe('no content survives to the output, checked on the serialised line', ()
     log.content('debug.content', { text: 'CANARYCONTENT the recital is a surprise' });
 
     const serialised = out.raw.join('\n');
-    for (const canary of [
-      'CANARYCONTENT',
-      'CANARYTOKEN',
-      TELEGRAM_CANARY,
-      'recital',
-      'the recital is a surprise',
-    ]) {
+    // Only the canaries that **could** have reached the output. The content gate is closed on this
+    // logger, so `log.content()` wrote nothing at all — which made `CANARYCONTENT`, `recital` and
+    // `the recital is a surprise` unable to appear under any implementation. Three of the five
+    // canaries in a test named "no content survives to the output" were therefore asserting
+    // nothing, and the two that mattered were the secret ones. Found by the M1 independent review.
+    //
+    // The content half is the test below, with the gate **open**, which is the only arrangement
+    // where content exists to leak.
+    for (const canary of ['CANARYTOKEN', TELEGRAM_CANARY]) {
       expect(serialised, `${canary} reached the log`).not.toContain(canary);
     }
+    // And the content call really did write nothing, so the omission above is the gate working
+    // rather than the canaries being mis-spelled.
+    expect(out.lines.some((line) => line['content'] === true)).toBe(false);
+  });
+
+  it('keeps content off every line above debug, with the gate open', () => {
+    // `CLAUDE.md` §2: "Logs never contain message or memory content above `debug`." With the gate
+    // **open** the content exists, so this is the arrangement where a leak is possible — and the
+    // claim is about *which lines* carry it, not whether it is written at all.
+    const { sink, out } = capture();
+    const log = createLogger({
+      level: 'trace',
+      destination: sink,
+      debugContent: true,
+      instanceId: 'inst_01j8',
+    });
+    const child = log.child({ component: 'engine.turn', groupId: 'grp_01j8' });
+
+    const CONTENT = 'CANARYCONTENT the recital is a surprise';
+    log.content('debug.content', { text: CONTENT });
+    // Ordinary lines at every level above debug, interleaved, each carrying the kind of payload a
+    // turn produces.
+    child.info('server.ready', { turnId: 'turn_01j8', durationMs: 1240 });
+    child.warn('config.host_only_rejected', { detail: { path: 'network.egress.allowPrivate' } });
+    child.error('config.invalid', { err: toLoggedError(new Error('upstream refused')) });
+    log.content('debug.content', { text: CONTENT });
+
+    // The content is present — otherwise everything below passes vacuously, which is exactly how
+    // the previous version of this test went wrong.
+    expect(out.raw.join('\n'), 'the gate is open, so content must be in the output').toContain(
+      'CANARYCONTENT',
+    );
+
+    const above = out.lines.filter(
+      (line) => line['level'] !== 'debug' && line['level'] !== 'trace',
+    );
+    expect(above.length, 'no lines above debug to check').toBeGreaterThan(2);
+    for (const line of above) {
+      const serialised = JSON.stringify(line);
+      for (const canary of ['CANARYCONTENT', 'recital', 'the recital is a surprise']) {
+        expect(serialised, `${canary} reached a ${String(line['level'])} line`).not.toContain(
+          canary,
+        );
+      }
+    }
+    // Every line that does carry it is marked, so a reader can filter content out by one field.
+    for (const line of out.lines) {
+      if (JSON.stringify(line).includes('CANARYCONTENT')) {
+        expect(line['content']).toBe(true);
+        expect(line['level']).toBe('debug');
+      }
+    }
+    // And none of it reached the ring buffer, which `doctor --bundle` pastes into issues.
+    expect(JSON.stringify(log.ringBuffer.toArray())).not.toContain('CANARYCONTENT');
   });
 });
 
