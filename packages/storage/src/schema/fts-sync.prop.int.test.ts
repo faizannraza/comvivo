@@ -16,11 +16,21 @@
  * trigger SQL.
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { fcConfig } from '@comvivo/shared/testing';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { ENTITY_FTS_SOURCES } from './search.sql.js';
+
+/** The committed guards migration, which is what a host actually runs. */
+const MIGRATION_PATH_ABS = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  '../../migrations/0001_search_and_guards.sql',
+);
+
 import { type SeededGroup, seedGroup, withMigratedDb } from './testing/migrated-db.js';
 
 /** What a test may do to a message. */
@@ -269,20 +279,63 @@ describe('fts.trigger-sync.property — entities', { tags: ['prop', 'db'] }, () 
     // `rowid = rid * 8 + typeCode` is what lets six tables share one index. If two type codes
     // collided, one table's rows would silently overwrite another's — so the arithmetic is the
     // thing to test, across the full range of rids the tables will ever reach.
+    // `expect(previous ?? source.table).toBe(source.table)` was the assertion, which reduces to
+    // `expect(x).toBe(x)` whenever `previous` is `undefined` — and that is the overwhelming
+    // majority of iterations, because a collision is the thing being looked for and there are
+    // none. So the property was asserting an identity almost every time it ran. Found by the M1
+    // independent review.
+    //
+    // Collisions are collected and the **list** is asserted empty, which is a statement about the
+    // finding rather than about a value equalling itself, and it names both tables when it fails.
+    let checked = 0;
     fc.assert(
       fc.property(fc.array(fc.nat({ max: 1_000_000 }), { minLength: 2, maxLength: 20 }), (rids) => {
         const seen = new Map<number, string>();
-        for (const rid of rids) {
+        const collisions: string[] = [];
+        for (const rid of [...new Set(rids)]) {
           for (const source of ENTITY_FTS_SOURCES) {
             const rowid = rid * 8 + source.typeCode;
             const previous = seen.get(rowid);
-            expect(previous ?? source.table).toBe(source.table);
+            if (previous !== undefined && previous !== source.table) {
+              collisions.push(`rowid ${String(rowid)}: ${previous} and ${source.table}`);
+            }
             seen.set(rowid, source.table);
+            checked += 1;
           }
         }
+        expect(collisions, 'two tables share a rowid in entity_fts').toEqual([]);
+        // Every (rid, source) pair produced a distinct rowid, which is the same claim stated as a
+        // count — and unlike the loop above it fails if the formula starts mapping two pairs onto
+        // one rowid even when they belong to the same table.
+        expect(seen.size).toBe(new Set(rids).size * ENTITY_FTS_SOURCES.length);
       }),
       fcConfig(),
     );
+    // Non-vacuity: a generator that produced nothing, or an empty `ENTITY_FTS_SOURCES`, would make
+    // every assertion above pass over zero pairs.
+    expect(checked).toBeGreaterThan(100);
+    expect(ENTITY_FTS_SOURCES).toHaveLength(6);
+  });
+
+  it('uses the same multiplier the shipped triggers use', () => {
+    // The loop above re-implements `rid * 8 + typeCode` in the test, so a trigger using a
+    // different multiplier would be invisible to it — the arithmetic would be proven
+    // collision-free and have nothing to do with what the database does.
+    //
+    // Read from the committed migration, which is what a host runs. Textual rather than
+    // behavioural because the behavioural half needs a row in each of the six coordination tables;
+    // `indexes and removes an event through its triggers` below does that for one of them.
+    const sql = readFileSync(MIGRATION_PATH_ABS, 'utf8');
+    for (const source of ENTITY_FTS_SOURCES) {
+      expect(sql, `${source.table} does not use rid * 8 in entity_fts`).toContain(
+        `NEW.rid * 8 + ${String(source.typeCode)}`,
+      );
+    }
+    // The type codes are distinct and contiguous from 1, which is what keeps them inside the
+    // multiplier: an eighth source would need the multiplier to grow.
+    expect(ENTITY_FTS_SOURCES.map((source) => source.typeCode).toSorted()).toEqual([
+      1, 2, 3, 4, 5, 6,
+    ]);
   });
 
   it('indexes and removes an event through its triggers', () => {
