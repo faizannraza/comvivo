@@ -11,6 +11,17 @@ name: ci
 
 on:
   pull_request:
+    # `labeled`/`unlabeled` are **not** among the defaults (`opened`, `synchronize`, `reopened`),
+    # and without them the `no-changeset` waiver the `changeset` job documents could not work:
+    # `scripts/release/changeset-required.ts` reads labels from `GITHUB_EVENT_PATH`, which is
+    # immutable for a run and replayed verbatim on a re-run. So adding the label to a failing PR
+    # neither re-triggered `ci` nor was seen by re-running the job, and the escape hatch promised
+    # at `.github/PULL_REQUEST_TEMPLATE.md` in practice required pushing a new commit. Found by the
+    # M0 independent review.
+    #
+    # `unlabeled` is here for the same reason in reverse: removing the waiver must put the check
+    # back, or a label added once would exempt every later push on that PR.
+    types: [opened, synchronize, reopened, labeled, unlabeled]
   merge_group:
   push:
     branches: [main]
@@ -230,12 +241,42 @@ jobs:
       # Node 24 is the supported floor (`01` §14 A1): native modules build there, so a host on the
       # previous LTS is not stranded. No coverage — this leg is about whether it runs, and the
       # thresholds are the Node 26 job's business.
+      #
+      # The **exact** floor, read from `package.json`. This passed `node-version: "24"`, which
+      # `setup-node` resolves to the newest 24.x — measured as `v24.22.2` on a real run. So the
+      # declared floor was never exercised, and a regression needing ≥ 24.12 would have been green
+      # here and broken on a host actually running 24.11. Found by the M0 independent review.
+      #
+      # `engines.node` is the single source of truth, so raising the floor is one edit and this leg
+      # follows it. `node` is preinstalled on the runner, before `setup-node` replaces it.
+      - id: floor
+        name: Read the supported Node floor from package.json
+        run: |
+          set -euo pipefail
+          floor="$(node -p "require('./package.json').engines.node.replace(/[^0-9.]/g, '')")"
+          echo "floor=${floor}" >> "$GITHUB_OUTPUT"
+          echo "engines.node declares >= ${floor}"
+
       - uses: ./.github/actions/setup
         with:
-          node-version: "24"
+          node-version: ${{ steps.floor.outputs.floor }}
 
       - name: Tests on the supported Node floor
-        run: pnpm exec vitest run --project unit --project integration --project contract
+        env:
+          FLOOR: ${{ steps.floor.outputs.floor }}
+        run: |
+          set -euo pipefail
+          # Non-vacuous: if `setup-node` ever resolves something other than the declared floor, this
+          # leg stops being about the floor, and the failure should say so rather than passing.
+          running="$(node --version)"
+          echo "running ${running}, floor v${FLOOR}"
+          if [ "${running}" != "v${FLOOR}" ]; then
+            echo "::error::this leg must run exactly v${FLOOR}, the floor engines.node declares," \
+              "but it is running ${running}. Either setup-node resolved something else or" \
+              "package.json changed." >&2
+            exit 1
+          fi
+          pnpm exec vitest run --project unit --project integration --project contract
 
       - name: Build on the supported Node floor
         run: pnpm run build
