@@ -57,6 +57,7 @@ export {
 export {
   type AcquireResult,
   acquireLock,
+  aliveDespite,
   HEARTBEAT_INTERVAL_MS,
   HEARTBEAT_STALE_MS,
   heartbeat,

@@ -123,14 +123,28 @@ export async function nodeLockEnvironment(version: string): Promise<LockEnvironm
         process.kill(pid, 0);
         return true;
       } catch (error) {
-        // Only `ESRCH` ("no such process") is evidence of death. `EPERM` means the process exists
-        // but belongs to another user — alive, and certainly not ours to take over. Anything else
-        // is unexpected, and the default has to be "alive": refusing to start is an inconvenience
-        // a host can fix, and two writers is data loss they cannot.
-        return (error as NodeJS.ErrnoException).code !== 'ESRCH';
+        return aliveDespite(error);
       }
     },
   };
+}
+
+/**
+ * Does this `process.kill` failure mean the process is **alive**?
+ *
+ * Only `ESRCH` ("no such process") is evidence of death. `EPERM` means the process exists but
+ * belongs to another user — alive, and certainly not ours to take over. Anything else is
+ * unexpected, and the default has to be "alive": refusing to start is an inconvenience a host can
+ * fix, and two writers is data loss they cannot.
+ *
+ * Extracted so the decision is testable without the operating system. The test that covered
+ * `EPERM` did it by signalling pid 1 as a non-root user and **returned early when running as
+ * root** — a bare `return` with no assertion before it, in a container, which is where CI is
+ * heading. A test named for "the one wrong answer that loses data" silently asserting nothing is
+ * the worst version of that. Found by the M1 independent review.
+ */
+export function aliveDespite(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code !== 'ESRCH';
 }
 
 /**

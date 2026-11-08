@@ -19,6 +19,7 @@ import { BRAND } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import {
   acquireLock,
+  aliveDespite,
   heartbeat,
   nodeLockEnvironment,
   readLockHolder,
@@ -82,12 +83,33 @@ describe('the real environment', { tags: ['slow'] }, () => {
   it('treats a process it may not signal as alive', async () => {
     // `process.kill(1, 0)` raises `EPERM` for a non-root user: pid 1 exists and is not ours to
     // touch. Reading that as "dead" would be the one wrong answer that loses data — a takeover
-    // from a live holder — so the implementation treats everything but `ESRCH` as alive. Skipped
-    // when running as root, where signalling pid 1 is permitted and the probe returns true for a
-    // different reason.
-    if (process.getuid?.() === 0) return;
+    // from a live holder — so the implementation treats everything but `ESRCH` as alive.
+    //
+    // This used to `return` early when running as root, with **no assertion before it**, so in a
+    // container the test said nothing at all. The gate was also unnecessary: pid 1 is alive either
+    // way, and as root the call simply succeeds instead of raising `EPERM`. The branch-specific
+    // coverage moved to `aliveDespite`, below, where it needs no privileges at all. Found by the
+    // M1 independent review.
     const environment = await nodeLockEnvironment('0.0.0');
     expect(environment.isAlive(1)).toBe(true);
+  });
+
+  it('classifies every failure the way C1 requires, without needing a real process', () => {
+    // The decision itself, exhaustively and deterministically. Only `ESRCH` is death; everything
+    // else — including an error with no `code` at all, and a thrown non-error — is "alive",
+    // because the default has to be the conservative one: refusing to start is an inconvenience a
+    // host can fix, and two writers is data loss they cannot.
+    expect(aliveDespite(Object.assign(new Error('gone'), { code: 'ESRCH' }))).toBe(false);
+    for (const code of ['EPERM', 'EINVAL', 'EACCES', 'ENOSYS', '', 'esrch']) {
+      expect(aliveDespite(Object.assign(new Error('x'), { code })), code).toBe(true);
+    }
+    expect(aliveDespite(new Error('no code at all'))).toBe(true);
+    expect(aliveDespite(undefined)).toBe(true);
+    expect(aliveDespite(null)).toBe(true);
+    expect(aliveDespite('a string')).toBe(true);
+    // Lower-case `esrch` is **not** `ESRCH`: Node's codes are upper-case, and a case-insensitive
+    // match here would read a nonsense error as death.
+    expect(aliveDespite(Object.assign(new Error('x'), { code: 'esrch' }))).toBe(true);
   });
 
   it('treats a nonsensical pid as alive rather than dead', async () => {
