@@ -1,0 +1,106 @@
+/**
+ * The repository set, and where it is built (`02` §3.7.1).
+ *
+ * `ReadScope` and `UnitOfWork` carry every reader and writer, so `SqliteStore` has to hold them —
+ * but `db/tx.ts` is the transaction primitive, and a primitive that imports every repository would
+ * be the composition root as well. So this module owns construction and `tx.ts` imports only the
+ * `Repositories` **type**: one direction of dependency, and the wiring is a function a test can
+ * call with a bare database.
+ *
+ * Each class implements both halves of its aggregate — `SqliteGroupRepository` is the `GroupReader`
+ * and the `GroupRepository` — because the two share prepared statements and a reader that could not
+ * see a write made earlier in the same transaction would be a different kind of bug. The *types*
+ * stay split, so a read transaction still cannot reach a writer.
+ */
+import type Database from 'better-sqlite3-multiple-ciphers';
+import type { Db } from '../db/drizzle.js';
+import { LabelStore } from '../ifc/label-store.js';
+import { SqliteConversationRepository } from './conversations.js';
+import { SqliteGroupRepository } from './groups.js';
+import { SqliteMemberRepository } from './members.js';
+import { SqliteMessageRepository } from './messages.js';
+import { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
+import { SqliteSettingsRepository } from './settings.js';
+import { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';
+
+/**
+ * Every repository, built once per connection.
+ *
+ * Once per **connection** rather than per transaction, because `02` §3.7.2 prepares statements per
+ * repository instance and a per-transaction instance would re-prepare each one on every message.
+ * The instances hold no transaction state — the `TxToken` parameter is what ties a call to a
+ * transaction — so sharing them across transactions is safe by construction.
+ */
+export interface Repositories {
+  readonly groups: SqliteGroupRepository;
+  readonly persons: SqlitePersonRepository;
+  readonly identities: SqliteChannelIdentityRepository;
+  readonly members: SqliteMemberRepository;
+  readonly conversations: SqliteConversationRepository;
+  readonly messages: SqliteMessageRepository;
+  readonly settings: SqliteSettingsRepository;
+  /**
+   * The label store, which is not a repository in `02` §3.7.1's sense.
+   *
+   * `UnitOfWork` names it `labelsW`, and it is here because the message repository interns through
+   * it: `02` §3.2 makes it the only way a `label_id` comes into being, so it has to be the same
+   * instance the rest of the system uses — its caches are per-instance, and a second one would
+   * miss every entry the first filled.
+   */
+  readonly labels: LabelStore;
+  /**
+   * The unfiltered message reads (`02` §3.7.1, `01` §14 A11).
+   *
+   * Here and **not** on `ReadScope`: putting it there would hand an unfiltered reader to every
+   * holder of a read transaction, which is the opposite of restricting it. `02` §3.7.1's
+   * `ReadScope` list does not include one. The restricted callers — the tool executor, which has
+   * already applied the requester's authority, and the retention sweep — receive this instance
+   * directly at the composition root, so the dependency-cruiser rule still sees their import.
+   */
+  readonly messagesUnfiltered: SqliteMessageReaderUnfiltered;
+}
+
+export interface RepositoriesOptions {
+  readonly db: Db;
+  /**
+   * The same connection `db` wraps.
+   *
+   * `LabelStore` holds the raw handle rather than the Drizzle one: its canonical key is its own
+   * format and it reads back nothing but integers, so none of the column mappers that make Drizzle
+   * the validated boundary apply to it. Passed separately rather than unwrapped from `db`, because
+   * reaching into Drizzle's internals for the connection it was built from is exactly the kind of
+   * coupling that breaks on a minor upgrade.
+   */
+  readonly connection: Database.Database;
+}
+
+/**
+ * Build the repository set.
+ *
+ * The order is the dependency order and is worth reading as such: `groups` first because `members`
+ * needs its epoch bump, `labels` before `messages` because every message interns one.
+ */
+export function makeRepositories(options: RepositoriesOptions): Repositories {
+  const { db, connection } = options;
+  const groups = new SqliteGroupRepository(db);
+  const labels = new LabelStore(connection);
+  return {
+    groups,
+    persons: new SqlitePersonRepository(db),
+    identities: new SqliteChannelIdentityRepository(db),
+    members: new SqliteMemberRepository(db, groups),
+    conversations: new SqliteConversationRepository(db),
+    messages: new SqliteMessageRepository(db, labels),
+    settings: new SqliteSettingsRepository(db),
+    labels,
+    messagesUnfiltered: new SqliteMessageReaderUnfiltered(db),
+  };
+}
+
+export { SqliteConversationRepository } from './conversations.js';
+export { SqliteGroupRepository } from './groups.js';
+export { SqliteMemberRepository } from './members.js';
+export { dedupeKey, SqliteMessageRepository } from './messages.js';
+export { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
+export { SqliteSettingsRepository } from './settings.js';
+export { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';

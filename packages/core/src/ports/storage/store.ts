@@ -35,39 +35,23 @@
  * The alternative — repositories holding a connection and starting their own transactions — is how
  * a single logical change ends up as four commits, three of which can be interrupted.
  */
-import type { Temporal } from 'temporal-polyfill';
-
-/**
- * `never` for anything promise-like, so an `async` callback is a compile error.
- *
- * `PromiseLike` rather than `Promise`: a thenable from another library, or a `Promise` from a
- * different realm, is just as fatal here and does not pass an `instanceof Promise` check either.
- */
-export type NotPromise<T> = T extends PromiseLike<unknown> ? never : T;
-
-/** What a caller is doing, for slow-transaction logs. Never parameters, never content. */
-export interface TxMeta {
-  /** A short, stable name — `turn.commit`, `outbox.claim`. Appears in logs and metrics. */
-  readonly op: string;
-}
-
-/**
- * Every write returns a discriminated union, never a bare value or a thrown domain error
- * (`02` §3.7.1).
- *
- * The distinction that matters is between **expected** outcomes and **infrastructure failures**.
- * A version conflict, a missing row and a duplicate are all things the caller has to decide about,
- * so they are values. A full disk is not, so it throws `StorageError`. Collapsing the two — by
- * throwing on conflict, or by returning `undefined` for both "not found" and "disk error" — is how
- * a retry loop ends up retrying a full disk forever.
- */
-export type WriteResult<T> =
-  | { readonly kind: 'ok'; readonly value: T }
-  /** Optimistic concurrency: `expectVersion` did not match. The caller re-reads and decides. */
-  | { readonly kind: 'conflict' }
-  | { readonly kind: 'not_found' }
-  /** An idempotency or dedupe index already had this. `02` §4.3: returned, never thrown. */
-  | { readonly kind: 'duplicate'; readonly existingId: string };
+import type { LabelId } from '@comvivo/shared';
+import type { Label } from '../../ifc/eligible.js';
+import type {
+  ChannelIdentityReader,
+  ChannelIdentityRepository,
+  ConversationReader,
+  ConversationRepository,
+  GroupReader,
+  GroupRepository,
+  MemberReader,
+  MemberRepository,
+  PersonReader,
+  PersonRepository,
+} from './repos/membership.js';
+import type { MessageReader, MessageRepository } from './repos/messages.js';
+import type { SettingsReader, SettingsRepository } from './repos/settings.js';
+import type { NotPromise, TxClock, TxMeta, TxToken } from './uow.js';
 
 /**
  * A consistent read scope: `BEGIN DEFERRED` … `COMMIT`.
@@ -87,14 +71,16 @@ export type WriteResult<T> =
  * parameter that accepts a number is not a type. Giving the interface the member it should have had
  * was the fix; suppressing the rule would have kept the hole.
  */
-export interface ReadScope {
-  /**
-   * The clock, read once and stable for the whole transaction.
-   *
-   * One reading, so every row a logical change writes carries the same instant and every query in
-   * one read agrees about the present.
-   */
-  readonly now: Temporal.Instant;
+export interface ReadScope extends TxClock {
+  /* --- Readers, added by the milestone that creates each aggregate (`M1-T17` onward) --------- */
+
+  readonly groups: GroupReader;
+  readonly persons: PersonReader;
+  readonly identities: ChannelIdentityReader;
+  readonly members: MemberReader;
+  readonly conversations: ConversationReader;
+  readonly messages: MessageReader;
+  readonly settings: SettingsReader;
 }
 
 /**
@@ -105,29 +91,37 @@ export interface ReadScope {
  * *upgrade* its lock and get `SQLITE_BUSY` — against a CLI command or a backup holding a read.
  * Taking the write lock up front turns that into waiting instead of failing.
  */
-export interface UnitOfWork extends ReadScope {
+export interface UnitOfWork extends ReadScope, TxToken {
+  /* --- Writers. `02` §3.7.1 suffixes them `W` where a reader has the same name ---------------- */
+
+  readonly groupsW: GroupRepository;
+  readonly personsW: PersonRepository;
+  readonly identitiesW: ChannelIdentityRepository;
+  readonly membersW: MemberRepository;
+  readonly conversationsW: ConversationRepository;
+  readonly messagesW: MessageRepository;
+  readonly settingsW: SettingsRepository;
   /**
-   * Run `cb` **after** the commit succeeds, synchronously, in registration order.
+   * The label store (`02` §3.2, §3.7.1's `labelsW`).
    *
-   * For the effects that must not happen unless the transaction did: enqueueing work, waking the
-   * outbox, emitting a metric. Doing them inside the transaction means they happen for a
-   * transaction that then rolls back — which for the outbox is invariant I6 (exactly-once intent)
-   * failing in the direction that sends a message twice.
-   *
-   * Errors are logged and never thrown: the transaction has already committed, so there is nothing
-   * to undo, and letting a hook's failure propagate would report a successful write as a failure
-   * and invite the caller to retry it.
+   * Not a repository in the `WriteResult` sense: interning cannot conflict, cannot be a duplicate
+   * (that *is* its job) and cannot be not-found, so it returns an id directly. `02` §3.7.1 lists it
+   * on the unit of work beside the repositories, and the type is structural so `core` does not
+   * depend on the storage implementation — it names only what it calls.
    */
-  afterCommit(cb: () => void): void;
+  readonly labelsW: LabelInterner;
 }
 
 /**
- * The token repositories take, making "this needs a transaction" visible in the signature.
+ * What `UnitOfWork.labelsW` must provide (`02` §3.2).
  *
- * It *is* the `UnitOfWork`. A distinct branded type would be stronger but would mean every
- * repository signature carrying two parameters that are always the same object.
+ * A one-method interface rather than a dependency on `@comvivo/storage`'s `LabelStore`, for the
+ * same reason `computeEligible` takes a `ReadEligibility` rather than the whole `InformationFlow`:
+ * `core` is the inner layer and must name what it needs, not import what provides it.
  */
-export type TxToken = UnitOfWork;
+export interface LabelInterner {
+  intern(uow: TxToken, label: Label): LabelId;
+}
 
 /**
  * The only way into a transaction (`02` §3.7.1).

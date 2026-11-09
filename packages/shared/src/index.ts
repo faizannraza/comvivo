@@ -218,6 +218,12 @@ export {
 export { isSecretString, REDACTED, SecretString, secret } from './secrets/index.js';
 export { SystemClock, SystemTimers, systemClock } from './time/clock.js';
 export {
+  instantSchema,
+  isStorableInstant,
+  MAX_INSTANT_EPOCH_MS,
+  parseInstant,
+} from './time/instant.js';
+export {
   isCanonicalTimeZoneId,
   isTimeZoneId,
   parseTimeZoneId,

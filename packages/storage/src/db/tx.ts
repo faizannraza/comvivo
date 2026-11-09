@@ -26,7 +26,28 @@ import { performance } from 'node:perf_hooks';
 import type { NotPromise, ReadScope, Store, TxMeta, UnitOfWork } from '@comvivo/core';
 import { type Clock, type Logger, StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
+import { makeRepositories, type Repositories } from '../repos/index.js';
+import { makeDb } from './drizzle.js';
 import { isSqliteError, mapSqliteError } from './errors.js';
+
+/**
+ * The reader half of a repository set, as `ReadScope` names them.
+ *
+ * Spelled out rather than spread wholesale, so a `read` transaction cannot reach a writer by
+ * accident: the object `read` hands out has exactly the seven reader properties, and TypeScript's
+ * structural typing would otherwise let the writer methods through on the same instances.
+ */
+function readersOf(repos: Repositories): Omit<ReadScope, 'now'> {
+  return {
+    groups: repos.groups,
+    persons: repos.persons,
+    identities: repos.identities,
+    members: repos.members,
+    conversations: repos.conversations,
+    messages: repos.messages,
+    settings: repos.settings,
+  };
+}
 
 /** `02` §3.7.2: `storage.slowTxMs`, default 50. */
 export const DEFAULT_SLOW_TX_MS = 50;
@@ -38,6 +59,15 @@ export interface SqliteStoreOptions {
   readonly logger: Logger;
   /** `storage.slowTxMs`. A transaction over this logs `storage.slow_tx`. */
   readonly slowTxMs?: number;
+  /**
+   * The repository set, if one is already built.
+   *
+   * Omitted in production: the store builds its own from `db`, which is the only way to guarantee
+   * that the repositories and the transaction wrapper share a connection. Supplied by tests that
+   * need to observe a repository directly, and by `02` D22's read-only worker, which has a
+   * narrower set.
+   */
+  readonly repositories?: Repositories;
 }
 
 /**
@@ -60,6 +90,7 @@ export class SqliteStore implements Store {
   readonly #clock: Clock;
   readonly #logger: Logger;
   readonly #slowTxMs: number;
+  readonly #repositories: Repositories;
 
   /** Write nesting depth. 0 means the next `write` is the outermost one. */
   #depth = 0;
@@ -73,6 +104,12 @@ export class SqliteStore implements Store {
     this.#clock = options.clock;
     this.#logger = options.logger;
     this.#slowTxMs = options.slowTxMs ?? DEFAULT_SLOW_TX_MS;
+    // Built here rather than taken as an option, so there is exactly one repository set per store
+    // and a caller cannot hand in one built against a different connection. `makeRepositories` is
+    // still exported, because a test that wants a repository without a transaction wrapper is a
+    // reasonable thing to want.
+    this.#repositories =
+      options.repositories ?? makeRepositories({ db: makeDb(options.db), connection: options.db });
   }
 
   write<T>(fn: (uow: UnitOfWork) => NotPromise<T>, meta?: TxMeta): T {
@@ -231,16 +268,26 @@ export class SqliteStore implements Store {
    */
   #unitOfWork(): UnitOfWork {
     const hooks = this.#hooks;
+    const repos = this.#repositories;
     return {
+      ...readersOf(repos),
       now: this.#clock.now(),
       afterCommit(cb: () => void): void {
         hooks.push(cb);
       },
+      groupsW: repos.groups,
+      personsW: repos.persons,
+      identitiesW: repos.identities,
+      membersW: repos.members,
+      conversationsW: repos.conversations,
+      messagesW: repos.messages,
+      settingsW: repos.settings,
+      labelsW: repos.labels,
     };
   }
 
   #readScope(): ReadScope {
-    return { now: this.#clock.now() };
+    return { ...readersOf(this.#repositories), now: this.#clock.now() };
   }
 
   /**

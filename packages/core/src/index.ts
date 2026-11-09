@@ -122,6 +122,53 @@ export {
   type GroupArchetype,
   groupArchetypeSchema,
 } from './domain/group.js';
+// --- Governance and runtime domain (`03`, `05`; the schemas `02` §3.3.6–§3.3.8's columns hold) --
+// --- Domain: membership and messages (`02` §3.3.1, §3.3.3; M1-T17) ------------------------------
+export {
+  AGE_BANDS,
+  type AgeBand,
+  ageBandMatchesRole,
+  type ChannelIdentity,
+  CONSENTS,
+  CONVERSATION_KINDS,
+  type Consent,
+  type Conversation,
+  type ConversationKind,
+  conversationShapeError,
+  DISPLAY_NAME_SOURCES,
+  type DisplayNameSource,
+  defaultAgeBand,
+  FORMER_MEMBER_NAME,
+  GROUP_STATUSES,
+  type Group,
+  type GroupStatus,
+  HISTORY_VISIBILITIES,
+  type HistoryVisibility,
+  MEMBER_ROLES,
+  MEMBER_STATUSES,
+  type Member,
+  type MemberRole,
+  type MemberStatus,
+  type NewChannelIdentity,
+  type NewConversation,
+  type NewGroup,
+  type NewMember,
+  type NewPerson,
+  newChannelIdentitySchema,
+  newGroupSchema,
+  newPersonSchema,
+  type Person,
+  resolveLocale,
+  resolveTimeZone,
+} from './domain/membership.js';
+export {
+  isTombstoned,
+  MESSAGE_KINDS,
+  type Message,
+  type MessageKind,
+  type MessageRid,
+  type NewMessage,
+} from './domain/message.js';
 export {
   ATTACHMENT_REF_MAX_BYTES,
   type AttachmentRef,
@@ -183,7 +230,6 @@ export {
   type ProposalRule,
   ProposalRuleSchema,
 } from './governance/proposals.js';
-// --- Governance and runtime domain (`03`, `05`; the schemas `02` §3.3.6–§3.3.8's columns hold) --
 export {
   type Audience,
   audienceKey,
@@ -227,16 +273,56 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+// --- Ports: repositories (M1-T17) ---------------------------------------------------------------
+export type {
+  ChannelIdentityReader,
+  ChannelIdentityRepository,
+  ConversationReader,
+  ConversationRepository,
+  GroupPatch,
+  GroupReader,
+  GroupRepository,
+  MemberReader,
+  MemberRepository,
+  PersonReader,
+  PersonRepository,
+} from './ports/storage/repos/membership.js';
+export type {
+  MessageReader,
+  MessageRepository,
+  MessageWindow,
+} from './ports/storage/repos/messages.js';
+export {
+  INSTANCE_SCOPE,
+  isPersistableSettingKey,
+  type Setting,
+  type SettingScope,
+  type SettingsReader,
+  type SettingsRepository,
+  settingScope,
+  unpersistableSettingReason,
+} from './ports/storage/repos/settings.js';
 // --- Ports: storage (M1-T9) ---------------------------------------------------------------------
 export type {
-  NotPromise,
+  LabelInterner,
   ReadScope,
   Store,
+  UnitOfWork,
+} from './ports/storage/store.js';
+export type {
+  NotPromise,
+  TxClock,
   TxMeta,
   TxToken,
-  UnitOfWork,
   WriteResult,
-} from './ports/storage/store.js';
+} from './ports/storage/uow.js';
+export {
+  duplicate,
+  expectWritten,
+  notFound,
+  writeConflict,
+  writeOk,
+} from './ports/storage/write-result.js';
 export {
   type AuditDecision,
   AuditDecisionSchema,
