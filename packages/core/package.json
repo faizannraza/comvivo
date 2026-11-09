@@ -19,6 +19,10 @@
       "types": "./dist/ports/storage/unfiltered.d.ts",
       "default": "./dist/ports/storage/unfiltered.js"
     },
+    "./memory-search": {
+      "types": "./dist/ports/memory-search/index.d.ts",
+      "default": "./dist/ports/memory-search/index.js"
+    },
     "./testing": {
       "types": "./dist/testing/index.d.ts",
       "default": "./dist/testing/index.js"

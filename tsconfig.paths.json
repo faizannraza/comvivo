@@ -50,6 +50,7 @@
       "@comvivo/core": ["./packages/core/src/index.ts"],
       "@comvivo/core/testing": ["./packages/core/src/testing/index.ts"],
       "@comvivo/core/unfiltered": ["./packages/core/src/ports/storage/unfiltered.ts"],
+      "@comvivo/core/memory-search": ["./packages/core/src/ports/memory-search/index.ts"],
       "@comvivo/dashboard": ["./apps/dashboard/src/index.ts"],
       "@comvivo/engine": ["./packages/engine/src/index.ts"],
       "@comvivo/engine/testing": ["./packages/engine/src/testing/index.ts"],

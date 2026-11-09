@@ -89,8 +89,17 @@ const CHILD_PROCESS_ALLOWED =
 /**
  * The only callers allowed to reach memory **search** (`01` §14 A11, amending §4). Both must apply
  * the eligible-label filter, so widening this list silently widens who can read whose memories.
+ *
+ * `^packages/storage/src/search/` is the third entry and is **not** a widening of that: it is the
+ * directory that *implements* the port, and an implementation has to import the interface it
+ * implements. Measured at `M1-T18`, where the rule refused exactly that import. The sibling
+ * `UNFILTERED_CALLERS` below already carries `^packages/storage/src/` for the same reason, so this
+ * closes a gap between two rules of the same shape rather than opening one — and it is kept to the
+ * `search/` subtree, which is tighter than that precedent. Nothing above storage gains access:
+ * a module that wants to search still cannot import the port.
  */
-const MEMORY_SEARCH_CALLERS = '^packages/engine/src/(context|readmodels)/';
+const MEMORY_SEARCH_CALLERS =
+  '(^packages/engine/src/(context|readmodels)/|^packages/storage/src/search/)';
 const MEMORY_SEARCH_PORT = '^packages/core/src/ports/memory-search';
 
 /**
