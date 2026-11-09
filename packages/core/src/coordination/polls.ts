@@ -68,3 +68,83 @@ export const PlatformPollRefSchema = z.object({
 });
 
 export type PlatformPollRef = z.infer<typeof PlatformPollRefSchema>;
+
+/* ──────────────────────────── The poll aggregate (`02` §3.3.5) ──────────────────────────── */
+
+/** `02` §3.3.5's `polls.purpose`: what the answer is for (`07`, `03`). */
+export const POLL_PURPOSES = ['opinion', 'decision', 'proposal'] as const;
+export type PollPurpose = (typeof POLL_PURPOSES)[number];
+
+/** `02` §3.3.5's `polls.mode`: how `06` renders it on the channel. */
+export const POLL_MODES = ['native', 'buttons', 'numbered', 'dm_ballot'] as const;
+export type PollMode = (typeof POLL_MODES)[number];
+
+export const POLL_STATUSES = ['open', 'closed', 'cancelled'] as const;
+export type PollStatus = (typeof POLL_STATUSES)[number];
+
+/** `02` §3.3.5's `polls.results_visibility`. `after_close` is what makes a secret ballot secret. */
+export const RESULTS_VISIBILITIES = ['live', 'after_close'] as const;
+export type ResultsVisibility = (typeof RESULTS_VISIBILITIES)[number];
+
+/** A poll (`02` §3.3.5; semantics in `07`, decision rules in `03`). */
+export interface Poll {
+  readonly rid: number;
+  readonly id: PollId;
+  readonly groupId: GroupId;
+  readonly conversationId: ConversationId;
+  readonly purpose: PollPurpose;
+  readonly proposalId: ProposalId | undefined;
+  readonly question: string;
+  readonly options: PollOptions;
+  readonly allowMultiple: boolean;
+  readonly rule: string;
+  readonly quorum: PollQuorum;
+  /** Who may vote. Empty means every active member (`07`). */
+  readonly eligibleMemberIds: readonly MemberId[];
+  readonly anonymous: boolean;
+  readonly resultsVisibility: ResultsVisibility;
+  readonly mode: PollMode;
+  readonly deadlineAt: Temporal.Instant | undefined;
+  readonly status: PollStatus;
+  readonly outcome: PollOutcome | undefined;
+  readonly platformPollRef: PlatformPollRef | undefined;
+  readonly decisionId: DecisionId | undefined;
+  readonly planStepId: PlanStepId | undefined;
+  readonly labelId: LabelId;
+  readonly createdByMemberId: MemberId | undefined;
+  readonly createdAt: Temporal.Instant;
+  readonly closedAt: Temporal.Instant | undefined;
+  readonly version: number;
+}
+
+export interface NewPoll {
+  readonly id: PollId;
+  readonly groupId: GroupId;
+  readonly conversationId: ConversationId;
+  readonly purpose: PollPurpose;
+  readonly proposalId?: ProposalId | undefined;
+  readonly question: string;
+  readonly options: PollOptions;
+  readonly allowMultiple?: boolean | undefined;
+  readonly rule: string;
+  readonly quorum: PollQuorum;
+  readonly eligibleMemberIds?: readonly MemberId[] | undefined;
+  readonly anonymous?: boolean | undefined;
+  readonly resultsVisibility?: ResultsVisibility | undefined;
+  readonly mode: PollMode;
+  readonly deadlineAt?: Temporal.Instant | undefined;
+  readonly planStepId?: PlanStepId | undefined;
+  readonly createdByMemberId?: MemberId | undefined;
+}
+
+/**
+ * Whether a poll's results may be shown to the group yet.
+ *
+ * `02` §3.3.5 gives `results_visibility` two values and this is the one place the rule lives: a
+ * `live` poll shows as it goes, and an `after_close` one shows nothing until it closes. Getting it
+ * wrong in the permissive direction turns a secret ballot into an open one *while people are still
+ * voting*, which is the case that changes the outcome rather than merely leaking it.
+ */
+export function resultsVisibleNow(poll: Pick<Poll, 'resultsVisibility' | 'status'>): boolean {
+  return poll.resultsVisibility === 'live' || poll.status !== 'open';
+}

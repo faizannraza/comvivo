@@ -37,7 +37,15 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 echo "install-vale: downloading ${archive}"
-curl --fail --silent --show-error --location --retry 3 --output "${work}/${archive}" "$url"
+# Same retry shape as `install-actionlint.sh`, and for the same measured reason: without
+# `--retry-all-errors`, curl retries connection-level failures and **not** an HTTP 5xx — so
+# `--retry 3` alone did nothing for the release-CDN 504 that killed the rename drill on
+# 2026-11-09. Fixed in both scripts together, because the next transient would have hit whichever
+# one was left.
+curl --fail --silent --show-error --location \
+  --retry 6 --retry-all-errors --retry-max-time 120 \
+  --max-time 180 \
+  --output "${work}/${archive}" "$url"
 
 actual="$(sha256sum "${work}/${archive}" | cut -d' ' -f1)"
 if [ "$actual" != "$expected" ]; then

@@ -40,7 +40,22 @@ work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
 echo "install-actionlint: downloading ${archive}"
-curl --fail --silent --show-error --location --retry 3 --output "${work}/${archive}" "$url"
+# `--retry-all-errors` is the flag that matters here. Without it curl retries only
+# connection-level failures and **not** an HTTP 5xx — so the `--retry 3` this line used to carry
+# was doing nothing at all for the failure that actually happened: the weekly rename drill died on
+# a GitHub release-CDN **504**, four attempts inside seven seconds.
+#
+# The rest is budget. curl's backoff is exponential from one second (1, 2, 4, 8, 16, 32), so six
+# attempts spread over about a minute rather than crowding into seven — which is what gives a short
+# gateway outage room to pass. `--retry-max-time` caps the total so a genuinely missing asset fails
+# in two minutes instead of hanging the job, and `--max-time` bounds a single slow transfer.
+#
+# No `--retry-delay`: setting one replaces the exponential backoff with a fixed wait, which is the
+# opposite of what a CDN outage needs.
+curl --fail --silent --show-error --location \
+  --retry 6 --retry-all-errors --retry-max-time 120 \
+  --max-time 180 \
+  --output "${work}/${archive}" "$url"
 
 actual="$(sha256sum "${work}/${archive}" | cut -d' ' -f1)"
 if [ "$actual" != "$expected" ]; then

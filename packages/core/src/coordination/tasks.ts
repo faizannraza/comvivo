@@ -1,7 +1,21 @@
 /**
  * Task, rotation and chore JSON columns (`02` §3.3.5; `07` §3.3–§3.4, `03` §3.9.3).
  */
-import { idSchema, timeZoneIdSchema, z } from '@comvivo/shared';
+import {
+  type GroupId,
+  type LabelId,
+  type MemberId,
+  type PlanId,
+  type PlanStepId,
+  type RotationId,
+  type TaskId,
+  type TimeZoneId,
+  idSchema,
+  timeZoneIdSchema,
+  z,
+} from '@comvivo/shared';
+import type { Temporal } from 'temporal-polyfill';
+import type { RecurringSchedule } from './when.js';
 
 /**
  * `rotations.task_template` (`07` §680): the task a rotation stamps out each turn.
@@ -57,3 +71,126 @@ export const RotationCursorSchema = z.object({
 });
 
 export type RotationCursor = z.infer<typeof RotationCursorSchema>;
+
+/* ──────────────────────────── The task aggregate (`02` §3.3.5) ──────────────────────────── */
+
+/** `02` §3.3.5: a `chore` recurs and is charged to `03`'s fairness ledger; a `task` is one-off. */
+export const TASK_KINDS = ['task', 'chore'] as const;
+export type TaskKind = (typeof TASK_KINDS)[number];
+
+/** `02` §3.3.5's `tasks.status`. */
+export const TASK_STATUSES = ['proposed', 'open', 'done', 'skipped', 'cancelled'] as const;
+export type TaskStatus = (typeof TASK_STATUSES)[number];
+
+/**
+ * `02` §3.3.5's `tasks.assignment_state` (`07` §3.4).
+ *
+ * How the assignee got there, which `03`'s fairness rules read: a rotation assignment is owed back
+ * if it is swapped away, and a volunteered one is not.
+ */
+export const ASSIGNMENT_STATES = [
+  'unassigned',
+  'proposed',
+  'claimed',
+  'assigned',
+  'rotation',
+] as const;
+export type AssignmentState = (typeof ASSIGNMENT_STATES)[number];
+
+/** `02` §3.3.5's `tasks.proof_policy` (`07`: a photo or a confirmation on completion). */
+export const PROOF_POLICIES = ['off', 'optional', 'required'] as const;
+export type ProofPolicy = (typeof PROOF_POLICIES)[number];
+
+/** A task or chore (`02` §3.3.5; semantics in `07`). */
+export interface Task {
+  readonly rid: number;
+  readonly id: TaskId;
+  readonly groupId: GroupId;
+  readonly kind: TaskKind;
+  readonly title: string;
+  readonly notes: string | undefined;
+  readonly category: string | undefined;
+  readonly assigneeMemberId: MemberId | undefined;
+  readonly assignmentState: AssignmentState;
+  readonly requestedByMemberId: MemberId | undefined;
+  /** `03`'s fairness ledger charges this per completion. */
+  readonly effortPoints: number;
+  readonly due: TaskDue;
+  /** `02` D3's derived instant, for Q-CTX-7's range scan. */
+  readonly dueAt: Temporal.Instant | undefined;
+  readonly dueTz: TimeZoneId | undefined;
+  readonly dueLocal: string | undefined;
+  readonly recurrence: RecurringSchedule | undefined;
+  readonly rotationId: RotationId | undefined;
+  /** One task per rotation turn, keyed so a re-run cannot double-stamp (`tasks_rotation_occurrence_uq`). */
+  readonly occurrenceKey: string | undefined;
+  readonly proofPolicy: ProofPolicy;
+  readonly status: TaskStatus;
+  readonly completedAt: Temporal.Instant | undefined;
+  readonly completedByMemberId: MemberId | undefined;
+  readonly verifiedByMemberId: MemberId | undefined;
+  readonly nudgeCount: number;
+  readonly planId: PlanId | undefined;
+  readonly planStepId: PlanStepId | undefined;
+  readonly labelId: LabelId;
+  readonly sourceRef: string | undefined;
+  readonly createdByMemberId: MemberId | undefined;
+  readonly createdAt: Temporal.Instant;
+  readonly updatedAt: Temporal.Instant;
+  readonly version: number;
+}
+
+/**
+ * What a caller supplies to create a task.
+ *
+ * `dueAt` is supplied alongside `due` for the same reason an event's `startAt` is: `02` D3 derives
+ * it, `07` owns the conversion, and the repository stores both. `nudgeCount` and the completion
+ * fields are absent because they are outcomes, not inputs.
+ */
+export interface NewTask {
+  readonly id: TaskId;
+  readonly groupId: GroupId;
+  readonly kind?: TaskKind | undefined;
+  readonly title: string;
+  readonly notes?: string | undefined;
+  readonly category?: string | undefined;
+  readonly assigneeMemberId?: MemberId | undefined;
+  readonly assignmentState?: AssignmentState | undefined;
+  readonly requestedByMemberId?: MemberId | undefined;
+  readonly effortPoints?: number | undefined;
+  readonly due: TaskDue;
+  readonly dueAt?: Temporal.Instant | undefined;
+  readonly dueTz?: TimeZoneId | undefined;
+  readonly dueLocal?: string | undefined;
+  readonly recurrence?: RecurringSchedule | undefined;
+  readonly rotationId?: RotationId | undefined;
+  readonly occurrenceKey?: string | undefined;
+  readonly proofPolicy?: ProofPolicy | undefined;
+  readonly status?: TaskStatus | undefined;
+  readonly planId?: PlanId | undefined;
+  readonly planStepId?: PlanStepId | undefined;
+  readonly sourceRef?: string | undefined;
+  readonly createdByMemberId?: MemberId | undefined;
+}
+
+/**
+ * Whether a task is still waiting on someone (`07`, Q-CTX-7).
+ *
+ * `proposed` counts as open: `07` treats a proposed chore as something the group has not settled,
+ * and leaving it out of "what is open" would make a proposal invisible until somebody accepted it
+ * — which is exactly when it needs to be visible.
+ */
+export function isOpenTask(task: Pick<Task, 'status'>): boolean {
+  return task.status === 'open' || task.status === 'proposed';
+}
+
+/**
+ * Whether completing this task should charge `03`'s fairness ledger.
+ *
+ * Only a **chore**, and only when it was actually done rather than skipped or cancelled. A
+ * one-off task is somebody doing a favour; a chore is a share of recurring work, and the ledger
+ * exists to make that share visible (`03` §3.9.3).
+ */
+export function chargesLedger(task: Pick<Task, 'kind' | 'status'>): boolean {
+  return task.kind === 'chore' && task.status === 'done';
+}

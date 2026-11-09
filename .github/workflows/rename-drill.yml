@@ -63,6 +63,7 @@ jobs:
         run: sudo scripts/ci/install-vale.sh /usr/local/bin
 
       - name: Rename everything to zzbrand
+        id: rename
         run: pnpm exec tsx scripts/brand/rename.ts --to zzbrand --display Zzbrand
 
       # The lockfile is regenerated rather than rewritten: renaming the npm scope changes every
@@ -98,21 +99,37 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # `skipped` (or empty) means the drill failed in setup, before the codemod ran at all —
+          # so the notice must not blame the codemod. See the branch below.
+          RENAME_OUTCOME: ${{ steps.rename.outcome }}
         run: |
           set -euo pipefail
           title="Rename drill failed"
-          body="The weekly rename drill failed: ${RUN_URL}
+          if [ "${RENAME_OUTCOME}" = "skipped" ] || [ -z "${RENAME_OUTCOME}" ]; then
+            # The drill never got as far as renaming anything, so nothing is known about the
+            # codemod. Saying otherwise sends the next reader to `rename-policy.ts` to look for a
+            # brand regression that is not there — which is what happened on 2026-11-09, when a
+            # GitHub release-CDN 504 while installing actionlint filed an issue blaming the
+            # codemod.
+            body="The weekly rename drill failed **before it renamed anything**: ${RUN_URL}
 
-          The codemod in \`scripts/brand/rename.ts\` no longer renames the whole tree cleanly. This
-          is not urgent today and will be the day it matters, which is the point of the drill.
+            A setup step failed, so this says nothing about the codemod. Look at the first failing
+            step in the run log. The common cause is a transient download — the toolchain installs
+            pinned binaries from third-party release pages, and a 5xx there is not a brand problem."
+          else
+            body="The weekly rename drill failed: ${RUN_URL}
 
-          Usually one of two things:
+            The codemod in \`scripts/brand/rename.ts\` no longer renames the whole tree cleanly. This
+            is not urgent today and will be the day it matters, which is the point of the drill.
 
-          - **A leftover match outside the allowlist.** The report names the file and line. Some
-            new surface holds the name — a workflow, a manifest, a vocabulary, a path. Teach the
-            codemod about it in \`scripts/brand/rename-policy.ts\`.
-          - **Verify failed after the rename.** Something depends on the name in a way the codemod
-            rewrote inconsistently. The run log has the failing check."
+            Usually one of two things:
+
+            - **A leftover match outside the allowlist.** The report names the file and line. Some
+              new surface holds the name — a workflow, a manifest, a vocabulary, a path. Teach the
+              codemod about it in \`scripts/brand/rename-policy.ts\`.
+            - **Verify failed after the rename.** Something depends on the name in a way the codemod
+              rewrote inconsistently. The run log has the failing check."
+          fi
           existing="$(gh issue list --state open --label brand --search "$title in:title" \
             --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then
