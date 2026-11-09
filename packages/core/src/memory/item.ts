@@ -200,16 +200,25 @@ export interface NewMemoryItem {
  *
  * The order of the tests is the rule, so it is worth reading as one:
  *
- *  1. **`superseded`** → `history`. Something newer answers the question now.
- *  2. **`archived`** → `history` if its validity has passed, else `archived`. `04` §3.7's
+ *  1. **`retracted`** → `history`. See the note below: the item should not be reachable at all.
+ *  2. **`superseded`** → `history`. Something newer answers the question now.
+ *  3. **`archived`** → `history` if its validity has passed, else `archived`. `04` §3.7's
  *     maintenance table distinguishes these: an item archived *because* `validTo` passed is
  *     history, and one archived for disuse is merely archived and can come back.
- *  3. **`proposed`** → `proposed`.
- *  4. Otherwise **`activeCurrent`**.
+ *  4. **`proposed`** → `proposed`.
+ *  5. Otherwise **`activeCurrent`**.
  *
- * `retracted` is not a state here at all, because a retracted item is **removed** from both
- * indexes (`04` R5) rather than filtered within them — so asking for its retrieval state is a
- * question with no useful answer, and the repository never writes one.
+ * **`retracted` is tested first, with `history`.** `04` R5 removes a retracted item from both
+ * search indexes rather than filtering it within them, so its state column "should" never be
+ * consulted — which is exactly why the honest answer matters. An earlier version fell through to
+ * `activeCurrent`, and `M1-T18` measured the consequence: the base-table reads (`recent`,
+ * `bySubjects`, `byEntities`) query `memory_items` directly with `retrieval_state <= :maxState`
+ * and no status predicate, so a retracted item at state `0` came back as **current** — a forgotten
+ * memory still answering questions, which is `04` R9's forget not forgetting.
+ *
+ * The real fix is the status predicate on those reads, and it is in place. This is the second
+ * layer: if a read ever forgets the predicate again, the worst case is that the item needs
+ * `maxState: 3` to surface instead of appearing as current.
  */
 export function retrievalStateFor(item: {
   readonly status: MemoryStatus;
@@ -217,9 +226,11 @@ export function retrievalStateFor(item: {
   readonly validTo: Temporal.Instant | undefined;
   readonly now: Temporal.Instant;
 }): RetrievalState {
+  if (item.status === 'retracted') return RETRIEVAL_STATES.history;
   if (item.status === 'superseded') return RETRIEVAL_STATES.history;
   if (item.archivedAt !== undefined) {
-    const expired = item.validTo !== undefined && Temporal.Instant.compare(item.validTo, item.now) < 0;
+    const expired =
+      item.validTo !== undefined && Temporal.Instant.compare(item.validTo, item.now) < 0;
     return expired ? RETRIEVAL_STATES.history : RETRIEVAL_STATES.archived;
   }
   if (item.status === 'proposed') return RETRIEVAL_STATES.proposed;

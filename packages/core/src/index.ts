@@ -242,6 +242,26 @@ export {
   type Sensitivity,
   StubInformationFlow,
 } from './ifc/eligible.js';
+export {
+  EMBEDDING_STATES,
+  type EmbeddingState,
+  MEMORY_KINDS,
+  MEMORY_STATUSES,
+  type MemoryItem,
+  type MemoryKind,
+  type MemorySource,
+  type MemoryStatus,
+  type MemorySubject,
+  type NewMemoryItem,
+  RETRACT_REASONS,
+  RETRIEVAL_STATES,
+  type RetractReason,
+  type RetrievalState,
+  retrievalStateFor,
+  SUBJECT_ROLES,
+  type SubjectRole,
+  subjectRefToColumn,
+} from './memory/item.js';
 // --- Memory domain (`04` §3.2.2–§3.2.4; M1-T12 needs the schemas `02` §3.3.4's columns hold) ----
 export {
   CommitmentContentSchema,
@@ -287,6 +307,10 @@ export type {
   PersonReader,
   PersonRepository,
 } from './ports/storage/repos/membership.js';
+export type {
+  MemoryReader,
+  MemoryRepository,
+} from './ports/storage/repos/memory.js';
 export type {
   MessageReader,
   MessageRepository,

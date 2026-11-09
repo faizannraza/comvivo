@@ -12,12 +12,16 @@
  * see a write made earlier in the same transaction would be a different kind of bug. The *types*
  * stay split, so a read transaction still cannot reach a writer.
  */
+import type { IdGenerator } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
+import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
+import { SqliteMemorySearch } from '../search/memory-search.js';
 import { SqliteConversationRepository } from './conversations.js';
 import { SqliteGroupRepository } from './groups.js';
 import { SqliteMemberRepository } from './members.js';
+import { SqliteMemoryRepository } from './memory.js';
 import { SqliteMessageRepository } from './messages.js';
 import { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 import { SqliteSettingsRepository } from './settings.js';
@@ -58,10 +62,24 @@ export interface Repositories {
    * directly at the composition root, so the dependency-cruiser rule still sees their import.
    */
   readonly messagesUnfiltered: SqliteMessageReaderUnfiltered;
+  readonly memories: SqliteMemoryRepository;
+  /**
+   * Memory **search** (`02` §3.7.1's `MemorySearchPort`).
+   *
+   * Here and not on `ReadScope`, for the same reason as `messagesUnfiltered`: putting it there
+   * would hand a memory search to every holder of a read transaction, and
+   * `memory-search-restricted-callers` exists to stop exactly that. `02` §3.7.1's `ReadScope` lists
+   * a `memories` *reader*, which is the repository above; `engine/context` and
+   * `engine/readmodels` receive this instance directly at the composition root.
+   */
+  readonly memorySearch: SqliteMemorySearch;
+  readonly embeddingSpaces: EmbeddingSpaceManager;
 }
 
 export interface RepositoriesOptions {
   readonly db: Db;
+  /** Needed by `EmbeddingSpaceManager`, which mints an `emb_` id per space. */
+  readonly ids: IdGenerator;
   /**
    * The same connection `db` wraps.
    *
@@ -84,6 +102,11 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
   const { db, connection } = options;
   const groups = new SqliteGroupRepository(db);
   const labels = new LabelStore(connection);
+  const spaces = new EmbeddingSpaceManager({ db, connection, ids: options.ids });
+  // A **getter**, not a value. Reading the active space here made constructing the repository set
+  // require a migrated database, and `SqliteStore` is built at boot around the migration rather
+  // than after it — see the note on `MemoryRepositoryOptions.activeSpaceSlug`.
+  const activeSpaceSlug = () => spaces.activeSpace()?.slug;
   return {
     groups,
     persons: new SqlitePersonRepository(db),
@@ -94,12 +117,16 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     settings: new SqliteSettingsRepository(db),
     labels,
     messagesUnfiltered: new SqliteMessageReaderUnfiltered(db),
+    memories: new SqliteMemoryRepository({ db, connection, labels, activeSpaceSlug }),
+    memorySearch: new SqliteMemorySearch({ db, connection, activeSpaceSlug }),
+    embeddingSpaces: spaces,
   };
 }
 
 export { SqliteConversationRepository } from './conversations.js';
 export { SqliteGroupRepository } from './groups.js';
 export { SqliteMemberRepository } from './members.js';
+export { SqliteMemoryRepository } from './memory.js';
 export { dedupeKey, SqliteMessageRepository } from './messages.js';
 export { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 export { SqliteSettingsRepository } from './settings.js';

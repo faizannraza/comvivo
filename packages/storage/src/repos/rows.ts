@@ -21,8 +21,12 @@ import type {
   Conversation,
   Group,
   Member,
+  MemoryItem,
+  MemorySource,
+  MemorySubject,
   Message,
   Person,
+  RetrievalState,
   Setting,
 } from '@comvivo/core';
 import type {
@@ -30,6 +34,9 @@ import type {
   conversations,
   groups,
   members,
+  memoryItems,
+  memorySources,
+  memorySubjects,
   messages,
   persons,
   settings,
@@ -171,5 +178,62 @@ export function toSetting(row: typeof settings.$inferSelect): Setting {
     value: row.value,
     updatedAt: row.updatedAt,
     updatedBy: opt(row.updatedBy),
+  };
+}
+
+/**
+ * `memory_items` → `MemoryItem`.
+ *
+ * `retrievalState` is cast rather than validated, and that is the one place here worth a note: the
+ * column has `CHECK (retrieval_state BETWEEN 0 AND 3)` (`02` §3.3.4), so the database is what
+ * guarantees the value is in the union — re-checking would be checking SQLite against itself, the
+ * pattern this module's header rules out.
+ */
+export function toMemoryItem(row: typeof memoryItems.$inferSelect): MemoryItem {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    content: row.content,
+    statement: row.statement,
+    searchTerms: row.searchTerms,
+    language: row.language,
+    fingerprint: row.fingerprint,
+    labelId: row.labelId,
+    provenance: row.provenance,
+    confidence: row.confidence,
+    status: row.status,
+    validFrom: row.validFrom,
+    validTo: opt(row.validTo),
+    supersedesId: opt(row.supersedesId),
+    supersededById: opt(row.supersededById),
+    contradicts: row.contradicts,
+    links: row.links,
+    retrievalState: row.retrievalState as RetrievalState,
+    pinned: row.pinned,
+    pinnedAt: opt(row.pinnedAt),
+    archivedAt: opt(row.archivedAt),
+    lastConfirmedAt: opt(row.lastConfirmedAt),
+    retractReason: opt(row.retractReason),
+    portable: row.portable,
+    embeddingState: row.embeddingState,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toMemorySubject(row: typeof memorySubjects.$inferSelect): MemorySubject {
+  return { ref: row.subjectRef, role: row.role };
+}
+
+export function toMemorySource(row: typeof memorySources.$inferSelect): MemorySource {
+  return {
+    ref: row.sourceRef,
+    messageId: opt(row.messageId),
+    windowKey: opt(row.windowKey),
+    span: opt(row.span),
+    addedAt: row.addedAt,
   };
 }

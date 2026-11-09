@@ -14,7 +14,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
-import { type Logger, StorageError, SystemClock } from '@comvivo/shared';
+import { type Logger, StorageError, SystemClock, TypeIdGenerator } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { describe, expect, it } from 'vitest';
 import { withDataDir } from '../datadir/testing/data-dir.js';
@@ -53,10 +53,16 @@ function makeStore(
   db: Database.Database,
   options: { readonly logger: Logger; readonly slowTxMs?: number },
 ): SqliteStore {
+  const clock = new SystemClock();
   return new SqliteStore({
     db,
-    clock: new SystemClock(),
+    clock,
     logger: options.logger,
+    // `M1-T18` made the store build an `EmbeddingSpaceManager`, which mints an `emb_` id per
+    // space — so the id port is now part of the store's dependencies rather than only the
+    // repositories'. These tests open a **bare** database on purpose, and the manager reads its
+    // table lazily for exactly that reason.
+    ids: new TypeIdGenerator(clock),
     ...(options.slowTxMs === undefined ? {} : { slowTxMs: options.slowTxMs }),
   });
 }

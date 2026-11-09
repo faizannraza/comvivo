@@ -18,6 +18,7 @@ import {
   type ReaderSetId,
   StorageError,
   SystemClock,
+  TypeIdGenerator,
 } from '@comvivo/shared';
 import { fcConfig } from '@comvivo/shared/testing';
 import type Database from 'better-sqlite3-multiple-ciphers';
@@ -85,7 +86,12 @@ function withWorld<T>(fn: (world: World) => T, tag = 'ls'): T {
     const extra = seedMember(db, seeded.groupId, `${tag}x`);
     return fn({
       db,
-      store: new SqliteStore({ db, clock: new SystemClock(), logger: silent }),
+      store: new SqliteStore({
+        db,
+        clock: new SystemClock(),
+        logger: silent,
+        ids: new TypeIdGenerator(new SystemClock()),
+      }),
       labels: new LabelStore(db),
       groupId: seeded.groupId as GroupId,
       memberIds: [seeded.memberId as MemberId, extra],
@@ -282,7 +288,12 @@ describe('labels.intern-idempotent.property', { tags: ['prop', 'db'] }, () => {
     withMigratedDb((db) => {
       const a = seedGroup(db, 'lsa');
       const b = seedGroup(db, 'lsb');
-      const store = new SqliteStore({ db, clock: new SystemClock(), logger: silent });
+      const store = new SqliteStore({
+        db,
+        clock: new SystemClock(),
+        logger: silent,
+        ids: new TypeIdGenerator(new SystemClock()),
+      });
       const labels = new LabelStore(db);
 
       const readersA: Audience = { kind: 'group', groupId: a.groupId as GroupId };

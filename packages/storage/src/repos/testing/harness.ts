@@ -18,19 +18,24 @@ import {
   type Label,
   type NewGroup,
   type NewMember,
+  type NewMemoryItem,
   type NewPerson,
 } from '@comvivo/core';
 import {
   type ChannelIdentityId,
   type ConversationId,
+  type EntityId,
   type GroupId,
   type Logger,
   type MemberId,
+  type MemoryId,
   type MessageId,
   type PersonId,
   SystemClock,
+  TypeIdGenerator,
   UTC,
 } from '@comvivo/shared';
+import { sha256 } from '@comvivo/shared/crypto';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { Temporal } from 'temporal-polyfill';
 import { type Db, makeDb } from '../../db/drizzle.js';
@@ -74,8 +79,10 @@ export interface World {
 export function withRepos<T>(fn: (world: World) => T): T {
   return withMigratedDb((db) => {
     const drizzle = makeDb(db);
-    const store = new SqliteStore({ db, clock: new SystemClock(), logger: silent });
-    const repos = makeRepositories({ db: drizzle, connection: db });
+    const clock = new SystemClock();
+    const ids = new TypeIdGenerator(clock);
+    const store = new SqliteStore({ db, clock, logger: silent, ids });
+    const repos = makeRepositories({ db: drizzle, connection: db, ids });
     const primary = groupId('rep1');
     const other = groupId('rep2');
     store.write((uow) => {
@@ -204,3 +211,64 @@ export function identityId(tag: string): ChannelIdentityId {
  * is about the repository.
  */
 export const ABSENT_GROUP = groupId('nxpe');
+
+/* --- Memory fixtures (`M1-T18`) --------------------------------------------------------------- */
+
+/**
+ * A `NewMemoryItem` with every field the schema demands and nothing a test would have to repeat.
+ *
+ * `provenance` is a complete `MemoryProvenance`, not a partial one: the column is a
+ * `jsonOf(MemoryProvenanceSchema)` and validates on the way in, so a fixture with a half-built
+ * provenance fails at the write with a zod error rather than where the test is looking.
+ */
+export function memoryItem(
+  tag: string,
+  groupId: GroupId,
+  overrides: Partial<NewMemoryItem> = {},
+): NewMemoryItem {
+  return {
+    id: memoryId(tag),
+    groupId,
+    kind: 'fact',
+    content: { kind: 'fact', attribute: 'school', value: `value-${tag}`, polarity: 'affirm' },
+    statement: `a fact about ${tag}`,
+    searchTerms: [tag],
+    language: 'en',
+    provenance: {
+      source: 'extraction',
+      sourceMessageIds: [],
+      windowKey: null,
+      extractor: null,
+      assertion: 'explicit',
+      assertedBy: 'system',
+      rawConfidence: null,
+      calibration: null,
+      confirmedBy: [],
+      derivedFrom: [],
+      turnId: null,
+    },
+    confidence: 0.9,
+    status: 'active',
+    validFrom: T0,
+    ...overrides,
+  };
+}
+
+/**
+ * A fingerprint for a fixture item.
+ *
+ * `04` §3.3.11 owns the real derivation; what matters to a test is that two items with different
+ * tags get **different** fingerprints, or `insert` would report the second as a duplicate and the
+ * test would fail for a reason that has nothing to do with what it is checking.
+ */
+export function fingerprintFor(tag: string): Uint8Array {
+  return new Uint8Array(sha256(`fixture:${tag}`).subarray(0, 16));
+}
+
+export function memoryId(tag: string): MemoryId {
+  return `mem_${suffix(tag)}` as MemoryId;
+}
+
+export function entityId(tag: string): EntityId {
+  return `ent_${suffix(tag)}` as EntityId;
+}

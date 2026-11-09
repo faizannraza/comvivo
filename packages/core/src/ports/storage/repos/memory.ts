@@ -150,6 +150,31 @@ export interface MemoryRepository {
     id: MemoryId,
     sources: readonly Omit<MemorySource, 'addedAt'>[],
   ): WriteResult<MemoryItem>;
+  /**
+   * Write an item's embedding into the active space (`02` §3.5's insert path).
+   *
+   * The storage half of the `embed.items` job: the job embeds **outside** any transaction (CPU
+   * work, in the embedding worker) and then calls this inside one `store.write`. `02` §3.5 lists
+   * three steps and this does the last two — re-check that the row is still non-retracted with the
+   * same label, insert the vec row, set `embedding_state='done'` — because the re-check and the
+   * insert have to be atomic with respect to a concurrent retraction. Step 1, the embedding itself,
+   * cannot be in a transaction and is the caller's.
+   *
+   * Returns `conflict` when the label moved under the job, which is the case the re-check exists
+   * for: the vector is still correct but the metadata the job computed is not, and a vec row with
+   * a stale `label_id` is an `I1` leak until something notices.
+   *
+   * `vector` must be unit-normalised and of the active space's dimension; both are checked, because
+   * a wrong length reaches sqlite-vec as an opaque error about a blob size and a non-unit vector
+   * silently changes the ranking (`02` §3.5 relies on L2-on-unit-vectors ordering like cosine).
+   */
+  putEmbedding(
+    uow: TxToken,
+    groupId: GroupId,
+    id: MemoryId,
+    expectLabelId: number,
+    vector: Float32Array,
+  ): WriteResult<MemoryItem>;
   /** Move an item's embedding state (the `embed.items` job, `02` §3.5). */
   setEmbeddingState(
     uow: TxToken,

@@ -18,120 +18,44 @@
   // `scripts/support/paths-tsconfig.ts`, which derives the same filter at the location they need.
   "compilerOptions": {
     "paths": {
-          "@comvivo/api-client": [
-                "./packages/api-client/src/index.ts"
-          ],
-          "@comvivo/channel-discord": [
-                "./packages/channels/discord/src/index.ts"
-          ],
-          "@comvivo/channel-matrix": [
-                "./packages/channels/matrix/src/index.ts"
-          ],
-          "@comvivo/channel-sdk": [
-                "./packages/channels/sdk/src/index.ts"
-          ],
-          "@comvivo/channel-sdk/testing": [
-                "./packages/channels/sdk/src/testing/index.ts"
-          ],
-          "@comvivo/channel-signal": [
-                "./packages/channels/signal/src/index.ts"
-          ],
-          "@comvivo/channel-simulator": [
-                "./packages/channels/simulator/src/index.ts"
-          ],
-          "@comvivo/channel-slack": [
-                "./packages/channels/slack/src/index.ts"
-          ],
-          "@comvivo/channel-telegram": [
-                "./packages/channels/telegram/src/index.ts"
-          ],
-          "@comvivo/channel-web": [
-                "./packages/channels/web/src/index.ts"
-          ],
-          "@comvivo/core": [
-                "./packages/core/src/index.ts"
-          ],
-          "@comvivo/core/testing": [
-                "./packages/core/src/testing/index.ts"
-          ],
-          "@comvivo/core/unfiltered": [
-                "./packages/core/src/ports/storage/unfiltered.ts"
-          ],
-          "@comvivo/core/memory-search": [
-                "./packages/core/src/ports/memory-search/index.ts"
-          ],
-          "@comvivo/dashboard": [
-                "./apps/dashboard/src/index.ts"
-          ],
-          "@comvivo/engine": [
-                "./packages/engine/src/index.ts"
-          ],
-          "@comvivo/engine/testing": [
-                "./packages/engine/src/testing/index.ts"
-          ],
-          "@comvivo/evals": [
-                "./packages/evals/src/index.ts"
-          ],
-          "@comvivo/evals/arbitraries": [
-                "./packages/evals/src/arbitraries/index.ts"
-          ],
-          "@comvivo/mcp": [
-                "./packages/mcp/src/index.ts"
-          ],
-          "@comvivo/mcp-bridge": [
-                "./packages/mcp-bridge/src/index.ts"
-          ],
-          "@comvivo/models": [
-                "./packages/models/src/index.ts"
-          ],
-          "@comvivo/models/testing": [
-                "./packages/models/src/testing/index.ts"
-          ],
-          "@comvivo/plugin-host": [
-                "./packages/plugin-host/src/index.ts"
-          ],
-          "@comvivo/plugin-sdk": [
-                "./packages/plugin-sdk/src/index.ts"
-          ],
-          "@comvivo/server": [
-                "./apps/server/src/index.ts"
-          ],
-          "@comvivo/shared": [
-                "./packages/shared/src/index.ts"
-          ],
-          "@comvivo/shared/crypto": [
-                "./packages/shared/src/crypto/index.ts"
-          ],
-          "@comvivo/shared/observability": [
-                "./packages/shared/src/observability/index.ts"
-          ],
-          "@comvivo/shared/testing": [
-                "./packages/shared/src/testing/index.ts"
-          ],
-          "@comvivo/storage": [
-                "./packages/storage/src/index.ts"
-          ],
-          "@comvivo/storage/crypto": [
-                "./packages/storage/src/crypto/index.ts"
-          ],
-          "@comvivo/storage/datadir": [
-                "./packages/storage/src/datadir/index.ts"
-          ],
-          "@comvivo/storage/db": [
-                "./packages/storage/src/db/index.ts"
-          ],
-          "@comvivo/storage/schema": [
-                "./packages/storage/src/schema/index.ts"
-          ],
-          "@comvivo/storage/testing": [
-                "./packages/storage/src/testing/index.ts"
-          ],
-          "@comvivo/tools": [
-                "./packages/tools/src/index.ts"
-          ],
-          "comvivo": [
-                "./apps/cli/src/index.ts"
-          ]
+      "@comvivo/api-client": ["./packages/api-client/src/index.ts"],
+      "@comvivo/channel-discord": ["./packages/channels/discord/src/index.ts"],
+      "@comvivo/channel-matrix": ["./packages/channels/matrix/src/index.ts"],
+      "@comvivo/channel-sdk": ["./packages/channels/sdk/src/index.ts"],
+      "@comvivo/channel-sdk/testing": ["./packages/channels/sdk/src/testing/index.ts"],
+      "@comvivo/channel-signal": ["./packages/channels/signal/src/index.ts"],
+      "@comvivo/channel-simulator": ["./packages/channels/simulator/src/index.ts"],
+      "@comvivo/channel-slack": ["./packages/channels/slack/src/index.ts"],
+      "@comvivo/channel-telegram": ["./packages/channels/telegram/src/index.ts"],
+      "@comvivo/channel-web": ["./packages/channels/web/src/index.ts"],
+      "@comvivo/core": ["./packages/core/src/index.ts"],
+      "@comvivo/core/testing": ["./packages/core/src/testing/index.ts"],
+      "@comvivo/core/unfiltered": ["./packages/core/src/ports/storage/unfiltered.ts"],
+      "@comvivo/core/memory-search": ["./packages/core/src/ports/memory-search/index.ts"],
+      "@comvivo/dashboard": ["./apps/dashboard/src/index.ts"],
+      "@comvivo/engine": ["./packages/engine/src/index.ts"],
+      "@comvivo/engine/testing": ["./packages/engine/src/testing/index.ts"],
+      "@comvivo/evals": ["./packages/evals/src/index.ts"],
+      "@comvivo/evals/arbitraries": ["./packages/evals/src/arbitraries/index.ts"],
+      "@comvivo/mcp": ["./packages/mcp/src/index.ts"],
+      "@comvivo/mcp-bridge": ["./packages/mcp-bridge/src/index.ts"],
+      "@comvivo/models": ["./packages/models/src/index.ts"],
+      "@comvivo/models/testing": ["./packages/models/src/testing/index.ts"],
+      "@comvivo/plugin-host": ["./packages/plugin-host/src/index.ts"],
+      "@comvivo/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"],
+      "@comvivo/server": ["./apps/server/src/index.ts"],
+      "@comvivo/shared": ["./packages/shared/src/index.ts"],
+      "@comvivo/shared/crypto": ["./packages/shared/src/crypto/index.ts"],
+      "@comvivo/shared/observability": ["./packages/shared/src/observability/index.ts"],
+      "@comvivo/shared/testing": ["./packages/shared/src/testing/index.ts"],
+      "@comvivo/storage": ["./packages/storage/src/index.ts"],
+      "@comvivo/storage/crypto": ["./packages/storage/src/crypto/index.ts"],
+      "@comvivo/storage/datadir": ["./packages/storage/src/datadir/index.ts"],
+      "@comvivo/storage/db": ["./packages/storage/src/db/index.ts"],
+      "@comvivo/storage/schema": ["./packages/storage/src/schema/index.ts"],
+      "@comvivo/storage/testing": ["./packages/storage/src/testing/index.ts"],
+      "@comvivo/tools": ["./packages/tools/src/index.ts"],
+      "comvivo": ["./apps/cli/src/index.ts"]
     }
   }
 }

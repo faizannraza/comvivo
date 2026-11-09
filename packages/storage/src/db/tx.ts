@@ -24,7 +24,7 @@
  */
 import { performance } from 'node:perf_hooks';
 import type { NotPromise, ReadScope, Store, TxMeta, UnitOfWork } from '@comvivo/core';
-import { type Clock, type Logger, StorageError } from '@comvivo/shared';
+import { type Clock, type IdGenerator, type Logger, StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { makeRepositories, type Repositories } from '../repos/index.js';
 import { makeDb } from './drizzle.js';
@@ -57,6 +57,15 @@ export interface SqliteStoreOptions {
   readonly clock: Clock;
   /** Slow-transaction logging goes here. Never parameters, never content (`01` §11.7). */
   readonly logger: Logger;
+  /**
+   * The id generator, for the repositories that mint ids of their own.
+   *
+   * Only `EmbeddingSpaceManager` does today — a space is created by configuration loading rather
+   * than by a caller who could supply an id. Injected rather than constructed here because
+   * `01` §4 makes ids a port: a test needs a deterministic sequence, and `TypeIdGenerator` reaches
+   * a CSPRNG.
+   */
+  readonly ids: IdGenerator;
   /** `storage.slowTxMs`. A transaction over this logs `storage.slow_tx`. */
   readonly slowTxMs?: number;
   /**
@@ -109,7 +118,8 @@ export class SqliteStore implements Store {
     // still exported, because a test that wants a repository without a transaction wrapper is a
     // reasonable thing to want.
     this.#repositories =
-      options.repositories ?? makeRepositories({ db: makeDb(options.db), connection: options.db });
+      options.repositories ??
+      makeRepositories({ db: makeDb(options.db), connection: options.db, ids: options.ids });
   }
 
   write<T>(fn: (uow: UnitOfWork) => NotPromise<T>, meta?: TxMeta): T {
