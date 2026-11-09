@@ -3,6 +3,7 @@
  */
 import {
   type GroupId,
+  idSchema,
   type LabelId,
   type MemberId,
   type PlanId,
@@ -10,7 +11,6 @@ import {
   type RotationId,
   type TaskId,
   type TimeZoneId,
-  idSchema,
   timeZoneIdSchema,
   z,
 } from '@comvivo/shared';
@@ -85,15 +85,21 @@ export type TaskStatus = (typeof TASK_STATUSES)[number];
 /**
  * `02` §3.3.5's `tasks.assignment_state` (`07` §3.4).
  *
- * How the assignee got there, which `03`'s fairness rules read: a rotation assignment is owed back
- * if it is swapped away, and a volunteered one is not.
+ * How the assignee got there, which `03`'s fairness rules read: a `requested` assignment the
+ * member has not answered is not yet work they owe, and a `declined` one has to be re-offered to
+ * somebody else rather than silently sitting unassigned.
+ *
+ * The values are the **column's** (`unassigned`, `requested`, `accepted`, `declined`, `direct`).
+ * A first version of this type invented `proposed`/`claimed`/`assigned`/`rotation`, which read
+ * plausibly and matched nothing — caught by the compiler at the row mapper, where the column's
+ * union and this one met.
  */
 export const ASSIGNMENT_STATES = [
   'unassigned',
-  'proposed',
-  'claimed',
-  'assigned',
-  'rotation',
+  'requested',
+  'accepted',
+  'declined',
+  'direct',
 ] as const;
 export type AssignmentState = (typeof ASSIGNMENT_STATES)[number];
 

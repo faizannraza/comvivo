@@ -2,13 +2,14 @@
  * Calendar JSON columns (`02` §3.3.5; `07` §3.1).
  */
 import {
+  type CalendarSubscriptionId,
+  capped,
   type EventId,
   type GroupId,
   type LabelId,
   type MemberId,
   type PlanId,
   type TimeZoneId,
-  capped,
   z,
 } from '@comvivo/shared';
 import type { Temporal } from 'temporal-polyfill';
@@ -138,7 +139,7 @@ export interface Event {
   readonly attendeesMode: AttendeesMode;
   readonly leadTimes: readonly string[] | undefined;
   readonly source: EventSource;
-  readonly subscriptionId: string | undefined;
+  readonly subscriptionId: CalendarSubscriptionId | undefined;
   readonly sourceUid: string | undefined;
   readonly sourceRecurrenceId: string | undefined;
   readonly contentHash: Uint8Array | undefined;
@@ -187,7 +188,7 @@ export interface NewEvent {
   readonly attendeesMode?: AttendeesMode | undefined;
   readonly leadTimes?: readonly string[] | undefined;
   readonly source: EventSource;
-  readonly subscriptionId?: string | undefined;
+  readonly subscriptionId?: CalendarSubscriptionId | undefined;
   readonly sourceUid?: string | undefined;
   readonly sourceRecurrenceId?: string | undefined;
   readonly contentHash?: Uint8Array | undefined;

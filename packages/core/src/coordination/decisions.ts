@@ -1,7 +1,16 @@
 /**
  * Decision JSON columns (`02` §3.3.5; `07` §3.6, `03` §3.9).
  */
+import type {
+  DecisionId,
+  GroupId,
+  LabelId,
+  MemoryId,
+  ProposalId,
+  TimeZoneId,
+} from '@comvivo/shared';
 import { idSchema, z } from '@comvivo/shared';
+import type { Temporal } from 'temporal-polyfill';
 
 /**
  * `decisions.decided_by` (`02` §3.3.9): the rule that settled it, and who took part.
@@ -62,3 +71,61 @@ export const DecisionSourceRefsSchema = z
   .max(20);
 
 export type DecisionSourceRefs = z.infer<typeof DecisionSourceRefsSchema>;
+
+/* ────────────────────────── The decision aggregate (`02` §3.3.5) ────────────────────────── */
+
+/** `02` §3.3.5's `decisions.origin`: how the group arrived at it. */
+export const DECISION_ORIGINS = ['explicit', 'poll', 'proposal', 'extracted'] as const;
+export type DecisionOrigin = (typeof DECISION_ORIGINS)[number];
+
+export const DECISION_STATUSES = ['active', 'superseded', 'retracted'] as const;
+export type DecisionStatus = (typeof DECISION_STATUSES)[number];
+
+/**
+ * A recorded decision (`02` §3.3.5; semantics in `07`, governance in `03`).
+ *
+ * Like a memory item, a decision is **superseded rather than edited** — the chain is the record of
+ * what the group decided and when, and rewriting a decision would erase the fact that it changed.
+ * `decidedAt` and `decidedTz` are stored together because "we decided on Tuesday" is a claim about
+ * a day in a place, and `07`'s decision log renders it in the zone it was made in.
+ */
+export interface Decision {
+  readonly rid: number;
+  readonly id: DecisionId;
+  readonly groupId: GroupId;
+  readonly summary: string;
+  readonly rationale: string | undefined;
+  readonly topicTags: readonly string[];
+  readonly decidedBy: DecidedBy;
+  readonly alternativesRejected: DecisionAlternatives;
+  readonly sourceRefs: DecisionSourceRefs;
+  readonly origin: DecisionOrigin;
+  readonly status: DecisionStatus;
+  readonly supersedesId: DecisionId | undefined;
+  readonly supersededById: DecisionId | undefined;
+  readonly labelId: LabelId;
+  /** The memory item this decision is mirrored as, if `04` made one (`decisions_memory_uq`). */
+  readonly memoryItemId: MemoryId | undefined;
+  readonly proposalId: ProposalId | undefined;
+  readonly decidedAt: Temporal.Instant;
+  readonly decidedTz: TimeZoneId;
+  readonly createdAt: Temporal.Instant;
+  readonly version: number;
+}
+
+export interface NewDecision {
+  readonly id: DecisionId;
+  readonly groupId: GroupId;
+  readonly summary: string;
+  readonly rationale?: string | undefined;
+  readonly topicTags?: readonly string[] | undefined;
+  readonly decidedBy: DecidedBy;
+  readonly alternativesRejected?: DecisionAlternatives | undefined;
+  readonly sourceRefs?: DecisionSourceRefs | undefined;
+  readonly origin: DecisionOrigin;
+  readonly supersedesId?: DecisionId | undefined;
+  readonly memoryItemId?: MemoryId | undefined;
+  readonly proposalId?: ProposalId | undefined;
+  readonly decidedAt: Temporal.Instant;
+  readonly decidedTz: TimeZoneId;
+}

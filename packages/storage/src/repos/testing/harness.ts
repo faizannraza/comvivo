@@ -22,9 +22,11 @@ import {
   type NewPerson,
 } from '@comvivo/core';
 import {
+  type CalendarSubscriptionId,
   type ChannelIdentityId,
   type ConversationId,
   type EntityId,
+  type EventId,
   type GroupId,
   type Logger,
   type MemberId,
@@ -271,4 +273,12 @@ export function memoryId(tag: string): MemoryId {
 
 export function entityId(tag: string): EntityId {
   return `ent_${suffix(tag)}` as EntityId;
+}
+
+export function eventId(tag: string): EventId {
+  return `evt_${suffix(tag)}` as EventId;
+}
+
+export function subscriptionId(tag: string): CalendarSubscriptionId {
+  return `csub_${suffix(tag)}` as CalendarSubscriptionId;
 }

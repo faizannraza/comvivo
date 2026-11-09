@@ -1,7 +1,18 @@
 /**
  * Poll JSON columns (`02` §3.3.5; `07` §3.5, `06` §4.1).
  */
+import type {
+  ConversationId,
+  DecisionId,
+  GroupId,
+  LabelId,
+  MemberId,
+  PlanStepId,
+  PollId,
+  ProposalId,
+} from '@comvivo/shared';
 import { z } from '@comvivo/shared';
+import type { Temporal } from 'temporal-polyfill';
 
 /**
  * `polls.options` (`07` §1045): two to ten options, each with a stable id.

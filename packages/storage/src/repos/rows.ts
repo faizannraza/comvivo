@@ -19,6 +19,8 @@
 import type {
   ChannelIdentity,
   Conversation,
+  Event,
+  EventAttendee,
   Group,
   Member,
   MemoryItem,
@@ -32,6 +34,8 @@ import type {
 import type {
   channelIdentities,
   conversations,
+  eventAttendees,
+  events,
   groups,
   members,
   memoryItems,
@@ -237,3 +241,68 @@ export function toMemorySource(row: typeof memorySources.$inferSelect): MemorySo
     addedAt: row.addedAt,
   };
 }
+
+/* --- Coordination (`02` §3.3.5; `M1-T19`) ----------------------------------------------------- */
+
+export function toEvent(row: typeof events.$inferSelect): Event {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    seriesId: row.seriesId,
+    splitFromEventId: opt(row.splitFromEventId),
+    title: row.title,
+    notes: opt(row.notes),
+    url: opt(row.url),
+    location: opt(row.location),
+    allDay: row.allDay,
+    tz: row.tz,
+    startLocal: row.startLocal,
+    endLocal: opt(row.endLocal),
+    startAt: row.startAt,
+    endAt: opt(row.endAt),
+    rrule: opt(row.rrule),
+    rruleInvalid: row.rruleInvalid,
+    rdates: row.rdates,
+    exdates: row.exdates,
+    recurrenceUntilAt: opt(row.recurrenceUntilAt),
+    status: row.status,
+    busy: row.busy,
+    attendeesMode: row.attendeesMode,
+    // `lead_times` is `jsonOf(… .nullable())`, so the column holds a JSON `null` as a *value* —
+    // which `opt` would leave as `null`. Normalised here like every other absence.
+    leadTimes: row.leadTimes ?? undefined,
+    source: row.source,
+    subscriptionId: opt(row.subscriptionId),
+    sourceUid: opt(row.sourceUid),
+    sourceRecurrenceId: opt(row.sourceRecurrenceId),
+    contentHash: opt(row.contentHash),
+    planId: opt(row.planId),
+    labelId: row.labelId,
+    createdByMemberId: opt(row.createdByMemberId),
+    updatedByMemberId: opt(row.updatedByMemberId),
+    icsUid: row.icsUid,
+    icsSequence: row.icsSequence,
+    tzdataVersion: row.tzdataVersion,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toEventAttendee(row: typeof eventAttendees.$inferSelect): EventAttendee {
+  return {
+    eventId: row.eventId,
+    memberId: row.memberId,
+    // The column is `rsvp`; the domain field is `response`, which reads better at a call site
+    // (`attendee.response === 'accepted'`). The rename lives here and nowhere else.
+    response: row.rsvp,
+    respondedAt: opt(row.respondedAt),
+  };
+}
+
+// The mappers for tasks, lists, polls, plans, decisions and reminders are **not here yet**. They
+// arrive with their repositories (`M1-T19` continues), because a mapper with no caller is code the
+// per-file coverage thresholds correctly refuse — the same judgement that deleted three uncalled
+// helpers at `M1-T17`. The row shapes are mechanical; what they cost to re-derive is less than
+// what an unused export costs to carry.

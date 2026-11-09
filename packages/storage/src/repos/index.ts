@@ -18,6 +18,7 @@ import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
+import { SqliteCalendarRepository } from './calendar.js';
 import { SqliteConversationRepository } from './conversations.js';
 import { SqliteGroupRepository } from './groups.js';
 import { SqliteMemberRepository } from './members.js';
@@ -73,6 +74,7 @@ export interface Repositories {
    * `engine/readmodels` receive this instance directly at the composition root.
    */
   readonly memorySearch: SqliteMemorySearch;
+  readonly calendar: SqliteCalendarRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
 }
 
@@ -119,10 +121,12 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     messagesUnfiltered: new SqliteMessageReaderUnfiltered(db),
     memories: new SqliteMemoryRepository({ db, connection, labels, activeSpaceSlug }),
     memorySearch: new SqliteMemorySearch({ db, connection, activeSpaceSlug }),
+    calendar: new SqliteCalendarRepository(db, labels),
     embeddingSpaces: spaces,
   };
 }
 
+export { SqliteCalendarRepository } from './calendar.js';
 export { SqliteConversationRepository } from './conversations.js';
 export { SqliteGroupRepository } from './groups.js';
 export { SqliteMemberRepository } from './members.js';
