@@ -12,6 +12,9 @@
  * the two together cover both "does the function do the right thing" and "does the database agree".
  */
 import {
+  BRAND,
+  EXIT_CODES,
+  exitCodeForStorageCode,
   type Id,
   internedId,
   type LabelId,
@@ -447,9 +450,25 @@ describe('bool, labelRef and the standard columns (02 §3.1)', () => {
     const id: LabelId = internedId(42, 'labels');
     expect(id).toBe(42);
     // Checked rather than cast: `AUTOINCREMENT` starts at 1, so zero is as wrong as a negative.
-    expect(() => internedId(0, 'labels')).toThrow(/STORAGE_ID_INVALID/);
-    expect(() => internedId(-1, 'labels')).toThrow(/STORAGE_ID_INVALID/);
-    expect(() => internedId(1.5, 'labels')).toThrow(/STORAGE_ID_INVALID/);
+    for (const bad of [0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY]) {
+      // The **typed** code, not a message prefix. `internedId` became production code in `M1-T16`
+      // (every interning write narrows two ids through it), and a bare `Error` with the code in
+      // its text is invisible to `exitCodeForStorageCode` and to `doctor`'s hint rendering — the
+      // two things the code exists for.
+      let caught: unknown;
+      try {
+        internedId(bad, 'labels');
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught, String(bad)).toBeInstanceOf(StorageError);
+      const storageError = caught as StorageError;
+      expect(storageError.storageCode, String(bad)).toBe('STORAGE_ID_INVALID');
+      expect(storageError.message, String(bad)).toContain('labels.id');
+      // A hint a host can act on, naming a command rather than a function.
+      expect(storageError.hint, String(bad)).toContain(`${BRAND.cliName} doctor`);
+      expect(exitCodeForStorageCode(storageError.storageCode)).toBe(EXIT_CODES.bug);
+    }
   });
 
   it('names the standard timestamp and version columns', () => {

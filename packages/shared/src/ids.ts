@@ -18,6 +18,8 @@
  * Generation is a port (`ports/ids.ts`), injected, so `core` stays pure and tests get reproducible
  * ids. This module is the pure half: the registry, the brand, and the parser.
  */
+import { BRAND } from './brand.js';
+import { StorageError } from './errors.js';
 import { err, ok, type Result } from './result.js';
 import { z } from './zod.js';
 
@@ -367,10 +369,26 @@ export type ReaderSetId = InternedId<'reader_sets'>;
  * Checked rather than cast, because the value comes from a column and a non-integer or negative
  * one means the row is corrupt — the same reasoning as `unwrapId`. `AUTOINCREMENT` starts at 1, so
  * zero is as wrong as a negative.
+ *
+ * Raises a typed `StorageError` rather than a bare `Error` with the code in its message: the code
+ * is what `exitCodeForStorageCode` reads and what `doctor` renders a hint from, and neither can
+ * see a string prefix. This mattered from `M1-T16`, which made the function production code —
+ * every interning write narrows two ids through it. `unwrapId` above still throws the untyped
+ * form from its one column-mapper call site; that is logged as a follow-up rather than changed
+ * here, because its code is arguably `STORAGE_CORRUPT` and re-deciding that is its own change.
  */
 export function internedId<Table extends string>(value: number, table: Table): InternedId<Table> {
   if (!Number.isInteger(value) || value < 1) {
-    throw new Error(`STORAGE_ID_INVALID: ${table}.id is ${String(value)}, not a positive integer`);
+    throw new StorageError(
+      'STORAGE_ID_INVALID',
+      `${table}.id is ${String(value)}, not a positive integer`,
+      {
+        category: 'bug',
+        hint:
+          'An interned id came back non-positive or fractional, which an `AUTOINCREMENT` column ' +
+          `cannot produce. Run \`${BRAND.cliName} doctor\` to check the database for corruption.`,
+      },
+    );
   }
   return value as InternedId<Table>;
 }

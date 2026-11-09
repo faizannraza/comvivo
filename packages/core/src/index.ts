@@ -150,7 +150,6 @@ export {
   type StorageContract,
   storageContracts,
 } from './domain/storage-contract.js';
-// --- Governance and runtime domain (`03`, `05`; the schemas `02` §3.3.6–§3.3.8's columns hold) --
 export {
   ActionRequestSnapshotSchema,
   type ConfirmationResponse,
@@ -184,6 +183,19 @@ export {
   type ProposalRule,
   ProposalRuleSchema,
 } from './governance/proposals.js';
+// --- Governance and runtime domain (`03`, `05`; the schemas `02` §3.3.6–§3.3.8's columns hold) --
+export {
+  type Audience,
+  audienceKey,
+  computeEligible,
+  type EligibleLabelSet,
+  type GroupSnapshot,
+  type Influence,
+  type Label,
+  type ReadEligibility,
+  type Sensitivity,
+  StubInformationFlow,
+} from './ifc/eligible.js';
 // --- Memory domain (`04` §3.2.2–§3.2.4; M1-T12 needs the schemas `02` §3.3.4's columns hold) ----
 export {
   CommitmentContentSchema,

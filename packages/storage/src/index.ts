@@ -8,6 +8,13 @@
  */
 
 export {
+  LABEL_COUNT_TEMP_TABLE,
+  LABEL_COUNT_WARN,
+  LabelStore,
+  labelCanonicalKey,
+  readerSetCanonicalKey,
+} from './ifc/label-store.js';
+export {
   assertSpaceForBackup,
   databaseBytesOf,
   nodeSpaceProbe,
