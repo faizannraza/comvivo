@@ -469,6 +469,14 @@ export type {
   MessageRepository,
   MessageWindow,
 } from './ports/storage/repos/messages.js';
+export type {
+  OutboxReader,
+  OutboxRef,
+  OutboxRepository,
+  SendFailure,
+  SendReceipt,
+} from './ports/storage/repos/outbox.js';
+export { TERMINAL_OUTBOX_STATUSES } from './ports/storage/repos/outbox.js';
 export {
   INSTANCE_SCOPE,
   isPersistableSettingKey,
@@ -546,6 +554,13 @@ export {
   type AuditDetails,
   AuditDetailsSchema,
 } from './runtime/audit.js';
+export {
+  attemptsExhausted,
+  type BackoffPolicy,
+  backoffMs,
+  JOB_BACKOFF,
+  OUTBOX_BACKOFF,
+} from './runtime/backoff.js';
 export {
   EXPIRY_CLASSES,
   type ExpiryClass,

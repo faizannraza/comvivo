@@ -2160,7 +2160,7 @@ stateDiagram-v2
   dead --> [*]
   cancelled --> [*]
 ```
-- **Claim** (dispatcher, M3). This selects the FIFO head per conversation, so a multi-part reply stays ordered:
+- **Claim** (dispatcher, M3). This selects the FIFO head per conversation, so a multi-part reply stays ordered. The inner `h.status IN ('pending','sending')` is load-bearing (M1-T22): an **in-flight** head must keep counting, or the second part becomes the minimum and a second dispatcher slot sends it while part one is still on the wire. The `RETURNING` rows are re-sorted by `seq` before they are handed out, because SQLite makes no ordering promise there and a dispatcher that sent in receipt order would undo the FIFO the subquery just established:
   ```sql
   UPDATE outbox_messages SET status='sending', attempts=attempts+1, lease_until=:now+30000
   WHERE id IN (
@@ -2172,12 +2172,16 @@ stateDiagram-v2
   RETURNING *;
   ```
 - **Receipt.** `markSent(uow, id, attempts, platformMessageId)` runs `WHERE id=? AND status='sending' AND attempts=?` (fencing). In the same transaction it inserts the Village message into `messages` (`kind='assistant'`, the outbox `label_id`, a dedupe key derived from the receipt). The router can then detect "reply to a Village message" (Q-ING-5).
+  - **The fence is the only check** (M1-T22). A first implementation read the row, compared `status` and `attempts` in TypeScript, *and* fenced the `UPDATE` with the same predicate — which made the `WHERE` clause above unreachable, so deleting it left every test green. Both halves of it earn their place and each is falsifiable on its own: `attempts=?` refuses a late receipt from a dispatcher whose lease was taken, and `status='sending'` refuses one for a row that has since gone back to `pending` or `dead` **at the same attempt number** — without it, a receipt would mark a pending row sent and the dispatcher would still send it again.
+  - The message is written **after** the fence, so a conflict writes nothing; and a refusal from the message repository throws rather than returning, because a receipt naming a conversation in another group is a bug, not a state to retry.
+  - The caller passes the reply's **`Label`**, not a `label_id`: `02` §3.2 makes interning the only way a `label_id` comes into being. The repository compares the interned id with the row's and refuses a mismatch, because a message stored under a label the guard never approved it for is an I1 hole no later read could detect.
 - **Seq.** `seq = coalesce((SELECT max(seq) FROM outbox_messages WHERE conversation_id=?), 0) + 1`, computed inside the write transaction.
 - **Duplicate defense.**
   - (a) `idempotency_key UNIQUE` (I6). Enqueue uses `INSERT … ON CONFLICT(idempotency_key) DO NOTHING RETURNING id`; a missing row means it was already enqueued.
   - (b) A recent-sent check (Q-OBX-3): before sending, if a row with the same `(conversation_id, content_hash)` was sent within `outbox.dedupeWindowMs` (default 10 min), the row is marked `cancelled` with `last_error.code='DUPLICATE_CONTENT'`.
   - (c) `maybe_sent` rows go to the adapter's optional duplicate probe (06). Absent a probe, the policy in 05/06 applies; the storage default is to resend.
-- **Backoff.** Equal jitter (§3.10.3). Defaults: `base=2 s`, `cap=10 min`, `maxAttempts=10`. A platform `retry-after` overrides the next attempt.
+- **Backoff.** Equal jitter (§3.10.3). Defaults: `base=2 s`, `cap=10 min`, `maxAttempts=10`. A platform `retry-after` overrides the next attempt. The formula lives in `packages/core/src/runtime/backoff.ts` (M1-T22), not in either caller: §3.9 and §3.10.3 apply the **same** arithmetic with different constants, and two implementations would drift — the drift showing up as a retry storm on one of the two paths long after the change that caused it.
+- **Recovery has two triggers, and only one of them is a time comparison** (M1-T22). `outbox_messages` has no `lease_owner` column, unlike `jobs` (§3.10.3 filters on `lease_owner NOT LIKE :bootId || ':%'`). So `recoverSending` takes an optional `before`: **with** it, the periodic sweep inside a running process recovers only rows whose lease has actually expired, because another dispatcher slot may be mid-send on the rest; **without** it, boot recovers every `sending` row, because they all belong to the incarnation that died. A boot that waited for the leases to expire would sit on a queue of replies for 30 seconds after every restart.
 - **Retention.** `sent` and `cancelled` rows are deleted after `outbox.retainDays` (default 14). `dead` rows stay until the dashboard acknowledges them, or 90 days.
 
 ### 3.10 Durable job queue (ADR-012)
@@ -2991,7 +2995,7 @@ All tests use Vitest. Property tests use fast-check 4 with `numRuns` 200 locally
 - `store.nested-savepoint.test`: an inner failure rolls back only the inner work when caught.
 - `repos.<aggregate>.contract.test` (one per repository): CRUD, optimistic-concurrency conflict, `not_found`, and label interning. These contract tests are reusable later by a Postgres implementation (`describeRepositoryContract(factory)`).
 - `turn-journal.recovery.test`: effects without completion → recovery query finds them → `recover()` acks all → I7 query empty. Realised as `repos/turn-journal.recovery.contract.test.ts`: the names in this section are **shorthand**, and the file needs the pool-selecting infix, since `vitest.config.ts` runs the `unit` project on `threads` (reserved for pure code) and `contract`/`integration` on `forks` because they load native modules. Same realisation as `store.tx-async-guard.test` → `db/tx.int.test.ts` (M1-T21).
-- `outbox.crash.test` (child process `kill -9` at 5 injected points: after enqueue, after claim, after send-before-receipt, after receipt) → no logical duplicate and no loss across 50 iterations.
+- `outbox.crash.test` (child process `kill -9` at 5 injected points: after enqueue, after claim, after send-before-receipt, after receipt, and mid-recovery) → no logical duplicate and no loss across 50 iterations. **"No logical duplicate" is about the record, not the platform** (M1-T22): the send-before-receipt point kills the process *after* the platform accepted the message, and no local bookkeeping can undo that — which is why §3.9 keeps a `maybe_sent` column rather than pretending the question is answerable, and why `06` §3.13 sorts platforms by whether they can deduplicate or verify. What the test asserts is that **one `sent` row and one assistant message** exist per idempotency key wherever the process died; the fake platform has native idempotency, so a re-send returns the same message id and the dedupe key absorbs it.
 - `migrations.*` (§3.12.6).
 - `encryption.at-rest.canary.test`: the canary is absent from `comvivo.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
 - `backup.roundtrip.test`: seed (`release-small` + blobs), `createBackup`, `restoreBackup` into a new dataDir, then a logical dump (all tables as sorted JSONL, excluding `app_meta.restored_from`) equals the original. A **recovery-key-only** restore into an empty dataDir succeeds (A10); a passphrase-slot restore succeeds when the slot exists.

@@ -60,6 +60,7 @@ import {
   UTC,
 } from '@comvivo/shared';
 import { sha256 } from '@comvivo/shared/crypto';
+import { SeededRng } from '@comvivo/shared/testing';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { Temporal } from 'temporal-polyfill';
 import { type Db, makeDb } from '../../db/drizzle.js';
@@ -105,8 +106,10 @@ export function withRepos<T>(fn: (world: World) => T): T {
     const drizzle = makeDb(db);
     const clock = new SystemClock();
     const ids = new TypeIdGenerator(clock);
-    const store = new SqliteStore({ db, clock, logger: silent, ids });
-    const repos = makeRepositories({ db: drizzle, connection: db, ids });
+    // A **seeded** rng, so the outbox's equal-jitter backoff is a number a test can assert.
+    const rng = new SeededRng(7);
+    const store = new SqliteStore({ db, clock, logger: silent, ids, rng });
+    const repos = makeRepositories({ db: drizzle, connection: db, ids, rng });
     const primary = groupId('rep1');
     const other = groupId('rep2');
     store.write((uow) => {

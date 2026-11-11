@@ -12,10 +12,11 @@
  * see a write made earlier in the same transaction would be a different kind of bug. The *types*
  * stay split, so a read transaction still cannot reach a writer.
  */
-import type { IdGenerator } from '@comvivo/shared';
+import type { IdGenerator, Rng } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
+import { SqliteOutboxRepository } from '../outbox/repository.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
@@ -114,6 +115,15 @@ export interface Repositories {
    */
   readonly audit: SqliteAuditLog;
   readonly usage: SqliteUsageRepository;
+  /**
+   * The transactional outbox (`02` §3.9).
+   *
+   * Holds the **message repository**, because `02` §3.9's receipt writes the assistant message in
+   * the same transaction — Q-ING-5 needs it in `messages` for the router to recognise a reply to
+   * the bot. A second message writer here would be a second place the dedupe key and the I4 guard
+   * could be forgotten.
+   */
+  readonly outbox: SqliteOutboxRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
    * `02` §3.7.3's context read model.
@@ -130,6 +140,13 @@ export interface RepositoriesOptions {
   readonly db: Db;
   /** Needed by `EmbeddingSpaceManager`, which mints an `emb_` id per space. */
   readonly ids: IdGenerator;
+  /**
+   * `02` §3.10.3's injected `rng`, for the outbox's equal-jitter backoff.
+   *
+   * Injected rather than `Math.random` because a backoff a test cannot predict is a backoff no
+   * test asserts — and `CLAUDE.md` §2 keeps `Math.random` out of `core`, where the formula lives.
+   */
+  readonly rng: Rng;
   /**
    * The same connection `db` wraps.
    *
@@ -152,6 +169,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
   const { db, connection } = options;
   const groups = new SqliteGroupRepository(db);
   const labels = new LabelStore(connection);
+  const messages = new SqliteMessageRepository(db, labels);
   const spaces = new EmbeddingSpaceManager({ db, connection, ids: options.ids });
   // A **getter**, not a value. Reading the active space here made constructing the repository set
   // require a migrated database, and `SqliteStore` is built at boot around the migration rather
@@ -163,7 +181,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     identities: new SqliteChannelIdentityRepository(db),
     members: new SqliteMemberRepository(db, groups),
     conversations: new SqliteConversationRepository(db),
-    messages: new SqliteMessageRepository(db, labels),
+    messages,
     settings: new SqliteSettingsRepository(db),
     labels,
     messagesUnfiltered: new SqliteMessageReaderUnfiltered(db),
@@ -181,11 +199,17 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     traces: new SqliteTraceRepository(db, labels),
     audit: new SqliteAuditLog(db),
     usage: new SqliteUsageRepository(db),
+    outbox: new SqliteOutboxRepository({ db, labels, messages, rng: options.rng }),
     embeddingSpaces: spaces,
   };
   return { ...set, context: new SqliteContextReadModel(set) };
 }
 
+export {
+  DEFAULT_DEDUPE_WINDOW_MS,
+  DEFAULT_LEASE_MS,
+  SqliteOutboxRepository,
+} from '../outbox/repository.js';
 export { SqliteContextReadModel } from '../readmodels/context.js';
 export { auditHash, DEFAULT_VERIFY_LIMIT, GENESIS_HASH, SqliteAuditLog } from './audit.js';
 export { SqliteCalendarRepository } from './calendar.js';

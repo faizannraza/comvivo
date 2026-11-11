@@ -24,7 +24,14 @@
  */
 import { performance } from 'node:perf_hooks';
 import type { NotPromise, ReadScope, Store, TxMeta, UnitOfWork } from '@comvivo/core';
-import { type Clock, type IdGenerator, type Logger, StorageError } from '@comvivo/shared';
+import {
+  type Clock,
+  type IdGenerator,
+  type Logger,
+  type Rng,
+  StorageError,
+  SystemRng,
+} from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { makeRepositories, type Repositories } from '../repos/index.js';
 import { makeDb } from './drizzle.js';
@@ -66,6 +73,14 @@ export interface SqliteStoreOptions {
    * a CSPRNG.
    */
   readonly ids: IdGenerator;
+  /**
+   * The random source the outbox's backoff draws its jitter from (`02` §3.10.3).
+   *
+   * A port for the same reason ids are: the formula is in `core`, where `Math.random` is banned,
+   * and a retry delay a test cannot predict is a retry delay no test asserts. Defaults to
+   * `SystemRng` so a host need not supply one.
+   */
+  readonly rng?: Rng;
   /** `storage.slowTxMs`. A transaction over this logs `storage.slow_tx`. */
   readonly slowTxMs?: number;
   /**
@@ -119,7 +134,12 @@ export class SqliteStore implements Store {
     // reasonable thing to want.
     this.#repositories =
       options.repositories ??
-      makeRepositories({ db: makeDb(options.db), connection: options.db, ids: options.ids });
+      makeRepositories({
+        db: makeDb(options.db),
+        connection: options.db,
+        ids: options.ids,
+        rng: options.rng ?? new SystemRng(),
+      });
   }
 
   write<T>(fn: (uow: UnitOfWork) => NotPromise<T>, meta?: TxMeta): T {
