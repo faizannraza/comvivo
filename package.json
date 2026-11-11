@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Comvivo \u2014 the open-source AI that belongs to your group, not to one person.",
+  "description": "Comvivo — the open-source AI that belongs to your group, not to one person.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -45,6 +45,8 @@
     "test:contract": "vitest run --project contract",
     "test:scenario": "vitest run --project scenario",
     "test:guards": "vitest run --project unit --project integration test/boundaries test/docs-ia scripts/ packages/shared/src/logger/scrub.test.ts",
+    "mutation": "stryker run packages/core/stryker.config.json",
+    "mutation:ifc": "stryker run packages/core/stryker.ifc-policy.config.json",
     "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run .prop.",
     "bench": "tsx --tsconfig tsconfig.runtime.json scripts/bench/run.ts",
     "coverage": "vitest run --coverage",
@@ -74,6 +76,9 @@
   "devDependencies": {
     "@biomejs/biome": "^2.6",
     "@changesets/cli": "^3.0.3",
+    "@stryker-mutator/core": "10.1.1",
+    "@stryker-mutator/typescript-checker": "10.1.1",
+    "@stryker-mutator/vitest-runner": "10.1.1",
     "@types/node": "^24.9",
     "@vitest/coverage-v8": "^5.0",
     "dependency-cruiser": "^18.7",

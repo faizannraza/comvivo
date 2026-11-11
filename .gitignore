@@ -42,6 +42,10 @@ pi-storage.md
 pi-knn.json
 pi-knn.md
 reports/
+# Stryker's sandbox: a full copy of the repository with one mutant applied, which must never be
+# linted, formatted, typechecked or committed (`11` §3.1.5). Biome reads this file, so naming it
+# here is also what keeps `biome ci .` from reporting 42 errors in mutated source.
+.stryker-tmp/
 *.tsbuildinfo
 .eslintcache
 

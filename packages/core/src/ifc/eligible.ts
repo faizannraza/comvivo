@@ -124,12 +124,18 @@ export type EligibleLabelSet = {
  * Sorted and de-duplicated, so two audiences that mean the same thing key the same.
  */
 export function audienceKey(audience: Audience): string {
+  // The separator is load-bearing for **seats**, which are conversation ids of any length:
+  // joining `['a', 'bc']` and `['ab', 'c']` without one gives the same key for two different
+  // audiences, and a shared cache key is a shared context. `eligible.test.ts` pins that case.
   const seats = [...new Set(audience.seats ?? [])].toSorted().join(',');
   // Narrowed by elimination rather than by an exhaustive chain ending in `assertNever`: the union
   // has two members, so a second `kind ===` check is a comparison the compiler already knows the
   // answer to and `no-unnecessary-condition` rejects it. `assert-never.ts` records the same
   // conclusion for switches.
   if (audience.kind === 'group') return `g|s:${seats}`;
+  // Stryker disable next-line StringLiteral: member ids are fixed-length typeids, so no two
+  // distinct sorted sets concatenate to the same string and the separator cannot change a key.
+  // It stays for symmetry with the seats above, where it *is* load-bearing.
   const members = [...new Set(audience.memberIds)].toSorted().join(',');
   return `m:${members}|s:${seats}`;
 }
@@ -225,13 +231,23 @@ export const StubInformationFlow: ReadEligibility = {
   },
 };
 
-/** Every seat the requesting audience reaches must also be a seat the label admits. */
+/**
+ * Every seat the requesting audience reaches must also be a seat the label admits.
+ *
+ * No early return for the seatless case: `[].every(…)` is already `true`, so a
+ * `if (requested.length === 0) return true` was a branch that could not change an answer — which
+ * `M1-T34`'s mutation run found by surviving its removal. An unkillable mutant is usually a sign
+ * of code that does nothing, and it was.
+ */
 function containsSeats(readers: Audience, audience: Audience): boolean {
   const requested = audience.seats ?? [];
-  if (requested.length === 0) return true;
   // A label with no seats admits no outsider, so any requested seat is outside it. Seats are
   // per-conversation and an occupant is by definition not a member (`01` §14 A5), so they are
   // never covered by the member comparison above.
+  //
+  // Stryker disable next-line ArrayDeclaration: the fallback is reached only when the label has no
+  // seats, and the mutant replaces it with a sentinel string no conversation id can equal — so it
+  // cannot change an answer. Equivalent mutant, annotated rather than left for the next reader.
   const permitted = new Set(readers.seats ?? []);
   return requested.every((seat) => permitted.has(seat));
 }

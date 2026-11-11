@@ -66,13 +66,15 @@ const TEST_SHAPED =
 /**
  * Build tooling that sits at a package root rather than under `src/`.
  *
- * Only `drizzle.config.ts` so far: drizzle-kit is a devDependency, the config imports it, and the
- * file is outside every package's `files` list so it cannot ship. Named by exact filename rather
+ * Two files, each named in full: `drizzle.config.ts` (drizzle-kit is a devDependency and the
+ * config imports it) and `vitest.mutation.config.ts` (`11` §3.1.5's Stryker runner needs a Vitest
+ * config of its own, and it imports `vitest/config`). Both sit outside every package's `files`
+ * list and outside its `tsconfig` `include`, so neither can ship. Named by exact filename rather
  * than by a `*.config.ts` wildcard, because the point of `no-dev-dep-in-src` is that an exemption
  * is a decision somebody made once and wrote down — a glob invites the next config file to inherit
  * it silently, which is how the `apps/docs` exclusion disabled a working rule during M0.
  */
-const PACKAGE_BUILD_TOOLING = '^packages/[^/]+/drizzle\\.config\\.ts$';
+const PACKAGE_BUILD_TOOLING = '^packages/[^/]+/(drizzle|vitest\\.mutation)\\.config\\.ts$';
 
 /**
  * Packages that must stay runnable in a browser and free of platform APIs (`01` §4, A11). Their

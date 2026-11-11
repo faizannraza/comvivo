@@ -77,6 +77,16 @@ describe('audienceKey', () => {
     );
   });
 
+  it('separates seats, so two different seat sets cannot share a key', () => {
+    // A seat is a conversation id of any length, so without a separator `['a', 'bc']` and
+    // `['ab', 'c']` would key identically — and in `engine/context` a shared key is a shared
+    // context, which is `I1` lost to a string concatenation. Found by `M1-T34`'s mutation run,
+    // which survived replacing the separator with the empty string.
+    expect(audienceKey({ kind: 'group', groupId: GROUP, seats: ['a', 'bc'] })).not.toBe(
+      audienceKey({ kind: 'group', groupId: GROUP, seats: ['ab', 'c'] }),
+    );
+  });
+
   it('is unhashed, so a debug dump is readable', () => {
     // Deliberate: `02` §3.2's `canonical_key` hashes with sha256 to bound a stored column, and
     // hashing cannot happen here because `@comvivo/core` is pure and has no `node:crypto`.
@@ -108,6 +118,40 @@ describe('StubInformationFlow — containment is the whole of canRead', () => {
         snapshot(),
       ),
     ).toBe(false);
+  });
+
+  it('refuses a datum that covers only part of the audience (I1)', () => {
+    // **Containment, not overlap.** Every earlier case compares sets that either match exactly or
+    // are disjoint, and for those `every` and `some` agree — so the suite passed with the test
+    // either way until `M1-T34`'s mutation run turned `every` into `some` and nothing failed.
+    // Partial overlap is the case that separates them, and getting it wrong is a read-up: Cat
+    // would see a datum written for Ana and Ben.
+    const anaAndBen = label({ kind: 'members', groupId: GROUP, memberIds: [ANA, BEN] });
+    const anaAndCat: Audience = { kind: 'members', groupId: GROUP, memberIds: [ANA, CAT] };
+    expect(StubInformationFlow.canRead(anaAndBen, anaAndCat, snapshot())).toBe(false);
+    // The same for the group audience, whose members come from the snapshot rather than the
+    // audience: a label naming two of three members does not cover the group.
+    expect(StubInformationFlow.canRead(anaAndBen, groupAudience, snapshot())).toBe(false);
+    // And the same shape one level down, on seats: a label admitting one of two requested seats
+    // admits neither audience.
+    const oneSeat = label({ kind: 'group', groupId: GROUP, seats: ['cnv_guest'] });
+    expect(
+      StubInformationFlow.canRead(
+        oneSeat,
+        { kind: 'group', groupId: GROUP, seats: ['cnv_guest', 'cnv_other'] },
+        snapshot(),
+      ),
+    ).toBe(false);
+    // Non-vacuity: the subset direction is admitted, so these assertions are about containment
+    // rather than about seats being refused in general.
+    const bothSeats = label({ kind: 'group', groupId: GROUP, seats: ['cnv_guest', 'cnv_other'] });
+    expect(
+      StubInformationFlow.canRead(
+        bothSeats,
+        { kind: 'group', groupId: GROUP, seats: ['cnv_guest'] },
+        snapshot(),
+      ),
+    ).toBe(true);
   });
 
   it('admits a narrow datum into a group context when it happens to cover everyone', () => {

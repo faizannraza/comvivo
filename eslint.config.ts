@@ -136,6 +136,11 @@ export default defineConfig(
     '**/.vitest/**',
     '**/coverage/**',
     '**/reports/**',
+    // Stryker's sandbox: a copy of the repository with one mutant applied (`11` §3.1.5). Linting
+    // mutated source would report every mutant as a lint error, which is the one place in this
+    // repository where `// eslint-disable` would be the honest answer — so the directory is
+    // ignored instead.
+    '**/.stryker-tmp/**',
     'packages/api-client/src/generated/**',
     'apps/docs/.astro/**',
   ]),
