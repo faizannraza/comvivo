@@ -29,7 +29,7 @@
  */
 import type { AuditActor, RetentionWindows, SweepableTable, TxToken } from '@comvivo/core';
 import { AUDIT_REANCHOR_ACTION } from '@comvivo/core';
-import type { AuditId, IdGenerator } from '@comvivo/shared';
+import type { IdGenerator } from '@comvivo/shared';
 import { and, eq, inArray, isNotNull, lte, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { Temporal } from 'temporal-polyfill';
@@ -39,7 +39,7 @@ import type { SqliteMessageRepository } from '../repos/messages.js';
 import type { SqliteTraceRepository } from '../repos/traces.js';
 import { jobs } from '../schema/jobs.js';
 import { forgetSourceBlocks, memoryOpsApplied } from '../schema/memory.js';
-import { outboxMessages, turnTraceDebug, turns, usageRecords } from '../schema/runtime.js';
+import { outboxMessages, turns, turnTraceDebug, usageRecords } from '../schema/runtime.js';
 
 /** `02` §3.13.1's "`memory_ops_applied` | 30 days". Not configurable: it is pure idempotency state. */
 export const MEMORY_OPS_RETENTION_DAYS = 30;
@@ -140,7 +140,7 @@ export function sweepRules(deps: SweepDeps): readonly SweepRule[] {
     },
     {
       table: 'turn_trace_debug',
-      spec: 'turn_trace_debug',
+      spec: '`turn_trace_debug`',
       // `expires_at` rather than a window, because `11` §3.10.4 makes this row's lifetime 24 hours
       // by default and 1–30 days when captured model I/O is on — a per-row decision taken by
       // whoever wrote it, under the configuration in force *then*.
@@ -179,12 +179,7 @@ export function sweepRules(deps: SweepDeps): readonly SweepRule[] {
       // `usage_daily` is not swept: `02` §3.13.1 keeps it forever because it holds counts and no
       // `turn_id`, so it survives the detail it was rolled up from.
       sweep: (_uow, now, windows, limit) =>
-        deleteChunk(
-          db,
-          usageRecords,
-          lte(usageRecords.at, cutoff(now, windows.usageDays)),
-          limit,
-        ),
+        deleteChunk(db, usageRecords, lte(usageRecords.at, cutoff(now, windows.usageDays)), limit),
     },
     {
       table: 'jobs',
@@ -203,10 +198,7 @@ export function sweepRules(deps: SweepDeps): readonly SweepRule[] {
                 inArray(jobs.status, ['succeeded', 'cancelled']),
                 lte(jobs.finishedAt, cutoff(now, windows.jobSucceededDays)),
               ),
-              and(
-                eq(jobs.status, 'dead'),
-                lte(jobs.finishedAt, cutoff(now, windows.jobDeadDays)),
-              ),
+              and(eq(jobs.status, 'dead'), lte(jobs.finishedAt, cutoff(now, windows.jobDeadDays))),
             ),
           ),
           limit,
@@ -244,7 +236,7 @@ export function sweepRules(deps: SweepDeps): readonly SweepRule[] {
     },
     {
       table: 'memory_ops_applied',
-      spec: 'memory_ops_applied',
+      spec: '`memory_ops_applied`',
       sweep: (_uow, now, windows, limit) =>
         deleteChunk(
           db,
@@ -255,7 +247,7 @@ export function sweepRules(deps: SweepDeps): readonly SweepRule[] {
     },
     {
       table: 'forget_source_blocks',
-      spec: 'forget_source_blocks',
+      spec: '`forget_source_blocks`',
       // `04` R9: the block expires with the message it suppresses, so the suppression cannot
       // outlive its reason. The column already says when, which is the whole design.
       sweep: (_uow, now, _windows, limit) =>
@@ -295,7 +287,7 @@ function sweepAuditChains(
       chainKey,
       before,
       limit,
-      id: deps.ids.next('aud') as AuditId,
+      id: deps.ids.next('aud'),
       actor: RETENTION_ACTOR,
       at: now,
     });

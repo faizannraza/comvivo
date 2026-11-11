@@ -121,7 +121,11 @@ export function findCanary(
       for (const [form, needle] of forms) {
         const count = countMatches(db, table, column, needle);
         if (count > 0) {
-          hits.push({ where: `${table}.${column}${shadows.has(table) ? ' (shadow)' : ''}`, form, count });
+          hits.push({
+            where: `${table}.${column}${shadows.has(table) ? ' (shadow)' : ''}`,
+            form,
+            count,
+          });
         }
       }
     }

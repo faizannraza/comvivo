@@ -46,7 +46,7 @@ import {
   StorageError,
 } from '@comvivo/shared';
 import { secureEqual, sha256 } from '@comvivo/shared/crypto';
-import { and, asc, desc, eq, gt, gte, lte, ne } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, lte, ne } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
 import type { Db } from '../db/drizzle.js';
 import { exactlyOne, maybeOne } from '../db/drizzle.js';
@@ -316,28 +316,28 @@ export class SqliteAuditLog implements AuditReader, AuditLog {
     const through = doomed.at(-1);
     if (through === undefined) return 0;
 
-    // The whole chain cannot go: with no surviving row there is nothing for the re-anchor to
-    // anchor, and `append` would extend a chain the next statement empties. A chain entirely
-    // outside the window keeps its newest row, which is one row of overhead per dormant chain and
-    // the only alternative to a chain that silently ceases to exist.
-    // A plain `select … limit 1` rather than `$count`: drizzle's `$count` is awaitable only, and
-    // `01` §1 forbids an `await` inside a transaction. "Is there one?" is the question anyway.
-    const survivor = maybeOne(
-      this.#db
-        .select({ seq: auditEvents.seq })
-        .from(auditEvents)
-        .where(and(eq(auditEvents.chainKey, request.chainKey), gt(auditEvents.seq, through.seq))),
-    );
-    if (survivor === undefined) {
-      if (doomed.length === 1) return 0;
-      return this.reanchorBefore(uow, { ...request, limit: doomed.length - 1 });
-    }
-
+    // **No "keep one row" guard**, and the first version had one. It held the newest real event
+    // back when the whole chain was outside the window, on the stated grounds that "with no
+    // surviving row there is nothing for the re-anchor to anchor" — which is false: the re-anchor
+    // is appended at the head *before* the delete, so its own `prev_hash` is the hash of the last
+    // row removed and `#startsCorrectly` finds it vouching for itself. A fully expired chain
+    // becomes re-anchors only, and verifies.
+    //
+    // The guard was also wrong on its own terms: it kept a row the host's configured ceiling says
+    // to remove, which is the opposite of what a retention ceiling is for. Removed after a mutation
+    // showed that deleting it changed no test *and* no behaviour anyone needs — the rule being that
+    // a line whose reaching input exists and whose effect nobody wants is a line to delete, not a
+    // line to write a test for.
     const appended = this.append(uow, {
       id: request.id,
       actor: request.actor,
       action: AUDIT_REANCHOR_ACTION,
-      decision: { outcome: 'not_applicable', reason: null, capability: null, constitutionVersionId: null },
+      decision: {
+        outcome: 'not_applicable',
+        reason: null,
+        capability: null,
+        constitutionVersionId: null,
+      },
       details: {
         chainKey: request.chainKey,
         through: through.seq,
@@ -354,15 +354,25 @@ export class SqliteAuditLog implements AuditReader, AuditLog {
       });
     }
 
+    // **The delete takes re-anchors too, and the select does not.** The asymmetry is the fix for a
+    // bug a mutation found: excluding them from both left an earlier re-anchor stranded above a
+    // gap. Two passes over one chain — remove rows 1–2 (re-anchor A at 5), add rows 6–7, remove
+    // 3–4 and 6–7 — leave A at seq 5 whose predecessor, row 4, is gone and whom **no** re-anchor
+    // vouches for: A's own claim is `through = 2`. The chain then reads as broken for a reason
+    // nobody did anything wrong to cause.
+    //
+    // A re-anchor is a row in the chain like any other, so a purge that passes over it has to take
+    // it, and the re-anchor it just wrote subsumes the claim: `through` is the highest `seq`
+    // removed, whatever kind of row it was. What is lost is the per-pass breakdown of a chain that
+    // has shed records more than once — and a host who wants that keeps `auditRetentionDays` null,
+    // which is the default.
+    //
+    // The **select** still excludes them, and must: `through` is taken from that result, so a
+    // chain of nothing but re-anchors would otherwise choose one of them as `through` and delete
+    // itself a row at a time until nothing was left.
     this.#db
       .delete(auditEvents)
-      .where(
-        and(
-          eq(auditEvents.chainKey, request.chainKey),
-          lte(auditEvents.seq, through.seq),
-          ne(auditEvents.action, AUDIT_REANCHOR_ACTION),
-        ),
-      )
+      .where(and(eq(auditEvents.chainKey, request.chainKey), lte(auditEvents.seq, through.seq)))
       .run();
     return doomed.length;
   }

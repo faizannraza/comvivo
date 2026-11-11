@@ -21,7 +21,7 @@ import { JobKindRegistry } from '../queue/kinds.js';
 import { SqliteJobQueue } from '../queue/queue.js';
 import { SqliteScheduler } from '../queue/scheduler.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
-import { registerRetentionKinds, type RetentionJobKinds } from '../retention/jobs.js';
+import { type RetentionJobKinds, registerRetentionKinds } from '../retention/jobs.js';
 import { SqliteDeletionPrimitives } from '../retention/primitives.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';

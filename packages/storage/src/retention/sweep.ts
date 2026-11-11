@@ -29,12 +29,13 @@
  * said to keep, occasionally, depending on how long the sweep took.
  */
 import type { RetentionWindows, Store, SweepableTable } from '@comvivo/core';
-import { SWEEPABLE_TABLES, SWEEP_CHUNK_ROWS } from '@comvivo/core';
+import { SWEEP_CHUNK_ROWS, SWEEPABLE_TABLES } from '@comvivo/core';
 import type { Logger } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { sql } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
 import type { Db } from '../db/drizzle.js';
+import { optimizeFtsIndexes } from './fts.js';
 
 export interface RetentionSweepOptions {
   readonly store: Pick<Store, 'write'>;
@@ -84,8 +85,16 @@ export class RetentionSweep {
       total += removed;
     }
 
-    // Outside every transaction: SQLite refuses both inside one. A crash between the deletes and
-    // these two leaves a correct database with pages on its free list, which the next pass takes.
+    // Outside every transaction: SQLite refuses the two pragmas inside one, and an `optimize`
+    // rewrites every FTS segment so it has no business holding a write lock either. A crash
+    // between the deletes and these three leaves a correct database with pages on its free list
+    // and stale terms in the indexes, which the next pass takes.
+    //
+    // The FTS optimize is `02` §3.13.2's list as amended at `M1-T26`: `secure-delete` makes a
+    // deleted row unmatchable and overwrites its position list, but leaves its **terms** in the
+    // segment dictionary — so a swept message's distinctive words stay in `messages_fts_data` as
+    // raw bytes until a merge rewrites them. `schema/search.sql.ts` has the measurement.
+    optimizeFtsIndexes(this.#options.connection);
     this.#options.connection.pragma('incremental_vacuum(2048)');
     this.#options.connection.pragma('wal_checkpoint(TRUNCATE)');
 

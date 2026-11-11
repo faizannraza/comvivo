@@ -2533,6 +2533,7 @@ Progress is shown by `village doctor` and in the dashboard. Rough Pi 5 throughpu
 | `domain_events` | 1 hour | 09 | `retention.sweep` |
 | `plugin_egress_log`, `mcp_access_log` / `mcp_idempotency` | 30 days / 24 h | 10 | `retention.sweep` |
 | `memory_ops_applied` | 30 days | 04 | `retention.sweep` |
+| `forget_source_blocks` | with the source message's retention | 04 | `expires_at` |
 | `turn_trace_debug` | 24 h (11: 1–30 d when captured I/O is on) | 05/11 | `expires_at` |
 | Memories, events, tasks, lists, decisions, plans, polls | persist | — | Deleted only by user, policy or erasure actions |
 | Turn traces (manifests only, never content) | 30 days | `traces.retentionDays` (7–365; owned by 11 §5, 08 §3.16.2) | `expires_at` |
@@ -2540,7 +2541,7 @@ Progress is shown by `village doctor` and in the dashboard. Rough Pi 5 throughpu
 | Usage records | 400 days (`usage_daily`: forever, aggregate only) | `privacy.usageRetentionDays` | sweep by `at` |
 | Jobs | succeeded/cancelled 7 days; dead 30 days | `jobs.retainSucceededDays`, `jobs.retainDeadDays` | Q-RET-3 |
 | Outbox | sent/cancelled 14 days; dead 90 days | `outbox.retainDays` | sweep |
-| Audit events | forever (deleted only with the group) | — | append-only |
+| Audit events | forever (deleted only with the group); a host may set a ceiling | `privacy.auditRetentionDays` (null = forever, floor 30) | append-only; `reanchorBefore` |
 | Blobs | until unreferenced + 24 h | `blobs.gcGraceHours` | §3.11 GC |
 | Backups | `backups.keep` = 14 daily | spine | §3.14 rotation |
 
@@ -2551,8 +2552,24 @@ for table in [messages, turn_traces, turns(completed & older), usage_records, jo
     n = store.write(uow => uow.deletions.sweepChunk(table, now, 1000))   // DELETE … WHERE rid IN (SELECT rid … LIMIT 1000)
     if n == 0: break
     await setImmediate()                                                   // yield the event loop between chunks
-then: PRAGMA incremental_vacuum(2048); PRAGMA wal_checkpoint(TRUNCATE)
+then: for each FTS table: INSERT INTO <t>(<t>) VALUES('optimize')   // M1-T26; see below
+      PRAGMA incremental_vacuum(2048); PRAGMA wal_checkpoint(TRUNCATE)
 ```
+**The FTS optimize is not optional, and `secure-delete` is not enough** (added at `M1-T26`). With
+`secure-delete = 1` and `contentless_delete = 1` — which §3.4 sets on all four FTS tables —
+deleting an indexed row makes `MATCH` return nothing and overwrites the row's position list, but
+leaves its **terms** in the segment dictionary. Measured on SQLite 3.53.4: a canary written into one
+message and then deleted is still findable in `messages_fts_data.block` as raw lowercase bytes.
+Found by `erasure.person`'s canary scan, which failed on exactly this.
+
+That is a real leak. What survives is the distinctive *words* a person used — a name, a street, a
+diagnosis — recoverable as a bag of terms by anyone who can read the decrypted file, which is
+`08` T-T02's attacker. §9.3's at-rest criterion is already byte-level ("absent from `comvivo.db`,
+`-wal`, `-shm` … raw bytes, UTF-16 and lowercase forms"), and a deletion has to meet the same bar
+as encryption does. `'optimize'` rather than `'rebuild'`, because every table is `content=''` and a
+rebuild on a contentless table *empties* the index; and rather than a bounded `'merge', N`, which is
+FTS5's incremental maintenance command and promises nothing about having finished. The same step
+runs at the end of §3.13.4's purge and §3.13.5's erasure.
 - Message deletion cascades to `message_attachments` (FK), to the FTS rows (trigger), and to `memory_sources.message_id`, which is set NULL while `source_ref` is kept. Blobs become unreferenced and are collected by GC.
 - **Interaction with turns.** Config validation enforces a minimum retention of 1 day. Turn deadlines are ≤ 180 s and recovery needs only the conversation id and the journaled effects, not trigger message content. The sweep therefore never races a running turn and needs no `NOT EXISTS` check against `turns`.
 - **Interaction with extraction.** If `extraction_cursors.last_rid` < the rid of a message about to be swept (extraction was down for longer than the retention period), the sweep logs `RETENTION_UNEXTRACTED` with the count and deletes anyway. Retention wins over memory (03 privacy posture).
@@ -2584,7 +2601,9 @@ sequenceDiagram
   Q->>S: final tx: delete the groups row, deletions.status completed
 ```
 - Vector rows: `DELETE FROM vec_memory_<slug> WHERE group_id = ?` per space (a partition-key delete; chunk it if > 5,000).
-- After completion, run `incremental_vacuum` and `wal_checkpoint(TRUNCATE)`. Backups still contain the group until they rotate out (documented in 08). `village backup prune --before <date>` exists for the impatient.
+- **Three steps are not reached by the `group_id` sweep above**, and no cascade reaches them either (added at `M1-T26`): `jobs` and `job_schedules` are keyed by `partition_key`, and `job_partitions` by the partition itself. Without them a deleted group leaves its queue rows, its recurring schedules and its paused-partition marker in the database forever — and that marker would quietly exclude a partition key that could be reused.
+- **The table list is introspected, not written down** (`M1-T26`). Every table with a `group_id` column, ordered children before parents by its foreign keys. A hand-written list is edited by every milestone that adds a table, and the failure when it is not would be invisible: every group-scoped table cascades from `groups`, so the final `DELETE FROM groups` removes whatever the steps missed and §9.3's introspection loop still passes. What is lost is the chunking — a missed table is not a leak, it is the stall D18 forbids. `group.purge.test` therefore also asserts that each table's rows were deleted by **its own step**, which the cascade cannot fake.
+- After completion, run the FTS `'optimize'` statements (§3.13.2), then `incremental_vacuum` and `wal_checkpoint(TRUNCATE)`. Backups still contain the group until they rotate out (documented in 08). `village backup prune --before <date>` exists for the impatient.
 
 #### 3.13.5 Right to be forgotten (`privacy.erase_person`)
 The steps run in order. Each step is chunked and idempotent, and the cursor lives in `deletions.progress`. Which data counts as "about" the person is 03's policy; the defaults below are the mechanics 03 parameterizes.
@@ -2601,7 +2620,7 @@ The steps run in order. Each step is chunked and idempotent, and the cursor live
 6. Delete `turn_traces` for turns where the member was requester, `consent_events`, `private_constraint_policies`, `poll_votes` and `proposal_votes` (votes keep their aggregate effect in `polls.result`).
 7. `event_attendees`, `event_attendee_overrides`, `rotation_participants`, `guardian_relations`, `standing_approvals`, `catchup_cursors`, `feedback_items`, `message_reactions` and the member's pending `confirmation_requests` → delete. `tasks.assignee_member_id` → NULL for open tasks.
 8. Kept (pseudonymous ids, no content): `audit_events`, `ledger_entries`, `usage_records`, and `labels` and `reader_sets` that still reference the member id. Ids carry no personal data once `persons` is erased.
-9. `wal_checkpoint(TRUNCATE)`, then `incremental_vacuum`. `deletions.status='completed'` and an audit event.
+9. The FTS `'optimize'` statements (§3.13.2), then `wal_checkpoint(TRUNCATE)`, then `incremental_vacuum`. `deletions.status='completed'` and an audit event. The optimize is what removes the erased person's **terms** from the search indexes; without it `assertNoCanary` fails on `messages_fts_data` (added at `M1-T26`).
 
 **Canary verification** (test helper `assertNoCanary(db, blobsDir, canary)`): scans every text/blob column of every table, the FTS doclists (`MATCH` on canary tokens), the vec rows of erased rids, the decrypted blobs, and the raw DB/WAL files after checkpoint.
 

@@ -39,7 +39,6 @@ import type { GroupId, LabelId } from '@comvivo/shared';
 import type { Label } from '../../ifc/eligible.js';
 import type { JobQueueTx } from './jobs.js';
 import type { AuditLog, AuditReader } from './repos/audit.js';
-import type { DeletionPrimitives } from './repos/deletions.js';
 import type {
   CalendarReader,
   CalendarRepository,
@@ -56,6 +55,7 @@ import type {
   TaskReader,
   TaskRepository,
 } from './repos/coordination.js';
+import type { DeletionPrimitives } from './repos/deletions.js';
 import type { GovernanceReader, GovernanceRepository } from './repos/governance.js';
 import type {
   ChannelIdentityReader,

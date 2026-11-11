@@ -33,7 +33,6 @@ import type {
 } from '@comvivo/core';
 import { duplicate, notFound, writeOk } from '@comvivo/core';
 import {
-  type AuditId,
   type ConversationId,
   type DeletionId,
   type GroupId,
@@ -189,13 +188,7 @@ export class SqliteDeletionPrimitives implements DeletionPrimitives {
       .all();
     let stamped = 1;
     for (const child of derived) {
-      const result = this.#options.messages.tombstone(
-        uow,
-        groupId,
-        child.id,
-        'redaction',
-        uow.now,
-      );
+      const result = this.#options.messages.tombstone(uow, groupId, child.id, 'redaction', uow.now);
       if (result.kind === 'ok') stamped += 1;
     }
 
@@ -329,7 +322,7 @@ export class SqliteDeletionPrimitives implements DeletionPrimitives {
     // be deleted with the group, and a record that a group was purged has to outlive it (`02`
     // §3.3.7). `groupId` is left out for the same reason — it is a foreign key with a cascade.
     this.#options.audit.append(uow, {
-      id: this.#options.ids.next('aud') as AuditId,
+      id: this.#options.ids.next('aud'),
       actor: requestedBy,
       action: 'group.purge_requested',
       target: groupId,
@@ -371,7 +364,7 @@ export class SqliteDeletionPrimitives implements DeletionPrimitives {
       requestedBy,
     });
     this.#options.audit.append(uow, {
-      id: this.#options.ids.next('aud') as AuditId,
+      id: this.#options.ids.next('aud'),
       actor: requestedBy,
       action: 'privacy.erase_requested',
       target: personId,
@@ -401,10 +394,7 @@ export class SqliteDeletionPrimitives implements DeletionPrimitives {
     return row === undefined ? undefined : toDeletionRecord(row);
   }
 
-  oldestUnfinished(
-    scope: DeletionRecord['scope'],
-    subjectRef: string,
-  ): DeletionRecord | undefined {
+  oldestUnfinished(scope: DeletionRecord['scope'], subjectRef: string): DeletionRecord | undefined {
     const row = maybeOne(
       this.#db
         .select()
@@ -421,11 +411,7 @@ export class SqliteDeletionPrimitives implements DeletionPrimitives {
     return row === undefined ? undefined : toDeletionRecord(row);
   }
 
-  advance(
-    _uow: TxToken,
-    id: DeletionId,
-    progress: DeletionProgress,
-  ): WriteResult<DeletionRecord> {
+  advance(_uow: TxToken, id: DeletionId, progress: DeletionProgress): WriteResult<DeletionRecord> {
     const row = maybeOne(
       this.#db
         .update(deletions)

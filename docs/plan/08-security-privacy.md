@@ -892,12 +892,34 @@ which is deliberately limited to files that cannot do their job without naming a
 | Memories | Until superseded, retracted or forgotten; superseded items purged after 180 days | `04` |
 | TurnTrace (content-free manifest: ids, labels, hashes, counts; never content) | 30 days (`traces.retentionDays`, 7–365, `11` §3.10.4); hosts may raise it up to message retention to lengthen the "why?" window | Host |
 | Captured model I/O (opt-in `traces.captureModelIO`) | 7 days (1–30), encrypted, IFC-labeled | Host |
-| Audit events | 1 year (hash chain re-anchored on purge) | Host |
+| Audit events | **forever by default**; a host may set a ceiling, and the hash chain is then re-anchored (below) | `privacy.auditRetentionDays` (null = forever, floor 30 days) |
 | Magic links, pending logins, pairing codes | Purged 24 h after expiry | — |
 | Sessions | Purged 30 days after expiry | — |
 | Logs (file logging, if enabled) | 14 days, rotated, 0600 | Host |
 | Backups | GFS (`12` §3.9): 14 daily (spine `keep`), 4 weekly, 6 monthly, 5 pre-migration; manual backups until deleted | Host |
 | Debug content logs | 24 h, then auto-deleted | — |
+
+**Audit retention: `02` §3.13.1 wins the default, this section keeps the mechanism** (resolved at
+`M1-T26`). This table said one year; `02` §3.13.1 says forever, deleted only with the group. The
+default is `02`'s, because an audit row holds ids, enums and counts and **never** content (`02`
+§3.3.9, enforced by `AuditDetailsSchema`'s 120-character values) — it is what *remains* after an
+erasure precisely because there is nothing personal left in it, so deleting it by default trades
+away the accountability the chain exists for and buys no privacy at all. A host with a policy or a
+jurisdiction that requires a ceiling sets `privacy.auditRetentionDays`.
+
+**The re-anchor.** Removing the oldest rows of a chain leaves a chain that verifies perfectly from
+its new first row onwards, because the survivors all link to each other — so `verifyChain`'s
+start-of-chain check reports it as broken, which is the safe direction and makes the purge unusable.
+The mechanism is a reserved event: before any row is removed, an `audit.reanchor` event is appended
+at the chain's **head**, carrying `through` (the highest `seq` removed) and `throughHash` (that
+row's hash); `verifyChain` then accepts a first row whose `prev_hash` a re-anchor vouches for, and
+nothing else. Inside the chain rather than in a side table, because the claim "these rows were
+removed lawfully" has to be as tamper-evident as the rows it is about — inside, it is covered by
+every row written after it. Three properties are preserved and each is tested: a prefix removed
+*without* a re-anchor still reads as broken; a row removed from the *middle* still reads as broken,
+re-anchor or not; and a re-anchor is never itself swept, because deleting row *n* while row *n+1*
+exists breaks the link mid-chain. The standing cost is one row per sweep that removed anything — a
+few hundred a year.
 
 #### 3.16.3 Zero telemetry
 - No analytics, crash reporting or phone-home of any kind (ADR-017).

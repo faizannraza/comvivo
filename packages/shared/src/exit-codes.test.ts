@@ -47,9 +47,9 @@ describe('every storage error code is classified', () => {
 
   it('lists every member of the union, so the loop above is not short', () => {
     // The array is hand-written beside the union, so the two can drift. The count is pinned
-    // because a silent shrink would make the loop pass over whatever was removed. 37 since
-    // `I4_GROUP_IMMUTABLE` was added for the group-move guard.
-    expect(STORAGE_ERROR_CODES).toHaveLength(37);
+    // because a silent shrink would make the loop pass over whatever was removed. 38 since
+    // `AUDIT_REANCHOR_FAILED` was added for `08` §3.16.2's chain re-anchor (`M1-T26`).
+    expect(STORAGE_ERROR_CODES).toHaveLength(38);
     expect(new Set(STORAGE_ERROR_CODES).size).toBe(STORAGE_ERROR_CODES.length);
   });
 

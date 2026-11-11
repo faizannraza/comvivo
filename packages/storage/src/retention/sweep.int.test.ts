@@ -34,11 +34,13 @@ import {
   memoryId,
   memoryItem,
   messageId,
+  outboxId,
   silentLogger,
   T0,
   turnId,
-  withReposAsync,
+  usageId,
   type World,
+  withReposAsync,
 } from '../repos/testing/harness.js';
 import { RetentionSweep } from './sweep.js';
 import { retentionWindowsFrom } from './windows.js';
@@ -186,6 +188,34 @@ describe('retention.cascade (02 §9.3)', () => {
       // than a truncation.
       expect(ftsMatches(world, 'rhubarb')).toBe(1);
       expect(countOf(world, 'message_attachments')).toBe(0);
+    });
+  });
+
+  it('leaves no trace of the swept text in the FTS index itself', async () => {
+    await withReposAsync(async (world) => {
+      seed(world);
+      const term = Buffer.from('aubergine');
+      const inIndex = () => {
+        const rows = world.drizzle.all<{ n: number }>(
+          sql`SELECT count(*) AS n FROM messages_fts_data
+               WHERE instr(CAST(block AS BLOB), ${term}) > 0`,
+        );
+        return rows[0]?.n ?? 0;
+      };
+      expect(inIndex()).toBeGreaterThan(0);
+
+      await sweepOf(world).run(T0, WINDOWS);
+
+      // `02` §9.3's at-rest criterion is byte-level — "absent from `comvivo.db` … raw bytes,
+      // UTF-16 and lowercase forms" — and deleting the row is not enough to meet it. With
+      // `secure-delete = 1` the row stops matching and its position list is overwritten, but the
+      // **term** stays in the segment dictionary, so a swept message's distinctive words remain
+      // recoverable from `messages_fts_data` by anyone who can read the decrypted file. The FTS
+      // `optimize` in the sweep's tail is what removes them, and this is the only assertion that
+      // notices if it goes away — `MATCH` returns nothing either way.
+      expect(inIndex()).toBe(0);
+      // And the index still works, which a destructive "fix" would also satisfy without this.
+      expect(ftsMatches(world, 'rhubarb')).toBe(1);
     });
   });
 
@@ -395,6 +425,143 @@ describe('the other sweepable tables (02 §3.13.1)', () => {
       expect(result.deleted['jobs']).toBe(1);
       const left = world.drizzle.all<{ status: string }>(sql`SELECT status FROM jobs ORDER BY id`);
       expect(left.map((row) => row.status).toSorted()).toEqual(['dead', 'succeeded']);
+    });
+  });
+
+  it('sweeps usage detail on its own window, not the traces one', async () => {
+    await withReposAsync(async (world) => {
+      const record = (tag: string, daysAgo: number) => {
+        const at = T0.subtract({ hours: 24 * daysAgo });
+        world.store.write((uow) =>
+          expectWritten(
+            world.repos.usage.record(uow, {
+              id: usageId(tag),
+              groupId: world.groupId,
+              route: 'chat',
+              provider: 'anthropic',
+              model: 'claude-opus-5-5',
+              servedModel: 'claude-opus-5-5',
+              purpose: 'reply',
+              inputTokens: 1,
+              cachedReadTokens: 0,
+              cacheWrite5mTokens: 0,
+              cacheWrite1hTokens: 0,
+              outputTokens: 1,
+              costMicros: 1,
+              priceTableVersion: 'v1',
+              at,
+              dayLocal: at.toZonedDateTimeISO('UTC').toPlainDate().toString(),
+            }),
+            `usage ${tag}`,
+          ),
+        );
+      };
+      // `privacy.usageRetentionDays` is 400 and `traces.retentionDays` is 30, so a 100-day-old
+      // usage row must survive. Reading the wrong window here would quietly delete thirteen months
+      // of the only record of what the instance spent — and both are "days", so nothing but this
+      // case distinguishes them.
+      record('xsa', 100);
+      record('xsb', 500);
+
+      const result = await sweepOf(world).run(T0, WINDOWS);
+      expect(result.deleted['usage_records']).toBe(1);
+      const left = world.drizzle.all<{ id: string }>(sql`SELECT id FROM usage_records`);
+      expect(left.map((row) => row.id)).toEqual([usageId('xsa')]);
+      // `usage_daily` holds the rollup and is never swept: `02` §3.13.1 keeps it forever because
+      // it is counts with no `turn_id`, so it survives the detail it came from.
+      expect(countOf(world, 'usage_daily')).toBeGreaterThan(0);
+    });
+  });
+
+  it('sweeps a terminal turn that never recorded a completion time', async () => {
+    await withReposAsync(async (world) => {
+      const convId = conversationId('swp4');
+      const old = T0.subtract({ hours: 24 * 400 });
+      world.store.write((uow) => {
+        expectWritten(
+          world.repos.conversations.create(uow, {
+            id: convId,
+            groupId: world.groupId,
+            channel: 'simulator',
+            platformChatId: 'chat-nulls',
+            kind: 'group',
+            boundAt: T0,
+          }),
+          'the conversation',
+        );
+        world.repos.labels.intern(uow, groupLabel(world.groupId));
+        const id = turnId('trnz');
+        // `cancelled` with no `completed_at` and no `timed_out_at`, which is the common shape: a
+        // turn cancelled before it ran records neither. `coalesce(…, deadline_at)` is what dates
+        // it, and without that fallback the row is **immortal** — a `NULL` never satisfies `<=`,
+        // so it would sit in the table forever and no test noticed.
+        world.drizzle.run(
+          sql`INSERT INTO turns (id, group_id, conversation_id, kind, trigger_message_ids,
+                                 audience_reader_set_id, status, boot_id, root_turn_id,
+                                 restarts, recovery_done, started_at, deadline_at)
+              VALUES (${id}, ${world.groupId}, ${convId}, 'reply', '[]',
+                      (SELECT reader_set_id FROM labels WHERE group_id = ${world.groupId} LIMIT 1),
+                      'cancelled', 'boot-1', ${id}, 0, 0, ${old.epochMilliseconds},
+                      ${old.add({ seconds: 180 }).epochMilliseconds})`,
+        );
+      });
+
+      const result = await sweepOf(world).run(T0, WINDOWS);
+      expect(result.deleted['turns']).toBe(1);
+      expect(countOf(world, 'turns')).toBe(0);
+    });
+  });
+
+  it('keeps a dead outbox row six times longer than a sent one', async () => {
+    await withReposAsync(async (world) => {
+      const convId = conversationId('swp5');
+      world.store.write((uow) => {
+        expectWritten(
+          world.repos.conversations.create(uow, {
+            id: convId,
+            groupId: world.groupId,
+            channel: 'simulator',
+            platformChatId: 'chat-obx',
+            kind: 'group',
+            boundAt: T0,
+          }),
+          'the conversation',
+        );
+        world.repos.labels.intern(uow, groupLabel(world.groupId));
+        let seq = 0;
+        for (const [tag, status, daysAgo] of [
+          ['bxs', 'sent', 20],
+          ['bxd', 'dead', 20],
+          ['bxf', 'sent', 5],
+        ] as const) {
+          seq += 1;
+          const at = T0.subtract({ hours: 24 * daysAgo });
+          world.drizzle.run(
+            sql`INSERT INTO outbox_messages
+                  (id, group_id, conversation_id, seq, idempotency_key, message_class, priority,
+                   expiry_class, payload, parts_json, content_hash, audience_reader_set_id,
+                   guard_ref, manifest_label_ids, status, maybe_sent, attempts, next_attempt_at,
+                   created_at, sent_at)
+                VALUES (${outboxId(tag)}, ${world.groupId}, ${convId}, ${seq}, ${`k-${tag}`},
+                        'reply', 'interactive', 'timely', '{"kind":"text","text":"x"}', '[]',
+                        ${Buffer.alloc(32, seq)},
+                        (SELECT reader_set_id FROM labels WHERE group_id = ${world.groupId} LIMIT 1),
+                        'guard:v1', '[]', ${status}, 0, 1, ${at.epochMilliseconds},
+                        ${at.epochMilliseconds},
+                        ${status === 'sent' ? at.epochMilliseconds : null})`,
+          );
+        }
+      });
+
+      // `outbox.retainDays` is 14 and `retainDeadDays` is 90: a dead send is the record of a
+      // message the group was promised and never received, and it is the first thing a host looks
+      // for. One window for both would take it with the delivered ones.
+      const result = await sweepOf(world).run(T0, WINDOWS);
+      expect(result.deleted['outbox_messages']).toBe(1);
+      const left = world.drizzle.all<{ status: string }>(
+        sql`SELECT status FROM outbox_messages ORDER BY seq`,
+      );
+      expect(left.map((row) => row.status).toSorted()).toEqual(['dead', 'sent']);
     });
   });
 

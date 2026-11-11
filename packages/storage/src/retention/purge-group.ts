@@ -42,6 +42,7 @@ import { type DeletionId, type Logger, StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { deleteByColumnChunk, deleteGroupChunk } from './chunk.js';
+import { optimizeFtsIndexes } from './fts.js';
 import { type GroupScopedTable, groupScopedTables } from './inventory.js';
 
 /** One step of a purge: a name for `deletions.progress`, and a bounded delete. */
@@ -182,6 +183,10 @@ export class GroupPurge {
       });
       uow.deletions.complete(uow, deletionId, uow.now);
     });
+    // The FTS optimize is what removes the group's **terms** from the indexes: `secure-delete`
+    // makes a deleted row unmatchable but leaves its words in the segment dictionary. See
+    // `schema/search.sql.ts`.
+    optimizeFtsIndexes(this.#options.connection);
     this.#options.connection.pragma('incremental_vacuum(2048)');
     this.#options.connection.pragma('wal_checkpoint(TRUNCATE)');
   }

@@ -36,9 +36,10 @@ import {
   type EntityId,
   type EventId,
   type GroupId,
+  type JobId,
+  type JobScheduleId,
   type LedgerEntryId,
   type ListId,
-  type JobId,
   type ListItemId,
   type Logger,
   type MemberId,
@@ -432,6 +433,10 @@ export function usageId(tag: string): UsageId {
 
 export function jobId(tag: string): JobId {
   return `job_${suffix(tag)}` as JobId;
+}
+
+export function scheduleId(tag: string): JobScheduleId {
+  return `jsch_${suffix(tag)}` as JobScheduleId;
 }
 
 export function deletionId(tag: string): DeletionId {

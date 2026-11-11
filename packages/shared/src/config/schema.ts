@@ -232,10 +232,18 @@ export const configSchema = z
     blobs: z
       .object({
         maxBytes: z.number().int().positive().default(52_428_800),
-        groupQuotaBytes: z.number().int().positive().default(2 * 1024 * 1024 * 1024),
+        groupQuotaBytes: z
+          .number()
+          .int()
+          .positive()
+          .default(2 * 1024 * 1024 * 1024),
         /** 0 means unlimited (`02` §3.11). */
         instanceQuotaBytes: z.number().int().min(0).default(0),
-        minFreeBytes: z.number().int().positive().default(1024 * 1024 * 1024),
+        minFreeBytes: z
+          .number()
+          .int()
+          .positive()
+          .default(1024 * 1024 * 1024),
         /** How long an unreferenced blob survives before the sweep takes it. */
         gcGraceHours: z.number().int().min(1).default(24),
       })

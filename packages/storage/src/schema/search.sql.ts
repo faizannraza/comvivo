@@ -61,6 +61,33 @@ export const SECURE_DELETE_STATEMENTS: readonly string[] = FTS_TABLES.map(
   (table) => `INSERT INTO ${table}(${table}, rank) VALUES('secure-delete', 1)`,
 );
 
+/**
+ * Compact every FTS index, which is what finally removes a deleted row's **terms**.
+ *
+ * `secure-delete` is not enough, and the measurement is worth recording because the setting's name
+ * suggests otherwise. With `secure-delete = 1` and `contentless_delete = 1`, deleting an indexed
+ * row makes `MATCH` return nothing and overwrites the row's position list — but the *term string*
+ * stays in the segment's dictionary until a merge rewrites it. A canary written into one message,
+ * then deleted, is still findable in `messages_fts_data.block` as raw lowercase bytes. Measured on
+ * SQLite 3.53.4, found by `erasure.person`'s canary scan at `M1-T26`.
+ *
+ * That is a real leak rather than a theoretical one: the surviving data is the distinctive *words*
+ * someone used — names, places, a street — recoverable as a bag of terms by anyone who can read
+ * the decrypted file. `02` §9.3's at-rest canary criterion is byte-level ("absent from
+ * `comvivo.db`, `-wal`, `-shm` … raw bytes, UTF-16 and lowercase forms"), and an erasure has to
+ * meet the same bar as encryption does.
+ *
+ * `'optimize'` rather than `'rebuild'`: every one of these tables is `content=''`, so there is
+ * nothing to rebuild *from* — `rebuild` on a contentless table empties the index. And rather than
+ * a bounded `'merge', N`, which is FTS5's incremental maintenance command and makes no promise
+ * about having finished. `02` §3.13.2's "then:" list is amended to include this beside
+ * `incremental_vacuum`: it is the same kind of step, reclaiming what a delete left behind, and it
+ * runs in the same daily maintenance window.
+ */
+export const FTS_OPTIMIZE_STATEMENTS: readonly string[] = FTS_TABLES.map(
+  (table) => `INSERT INTO ${table}(${table}) VALUES('optimize')`,
+);
+
 /** The terms column of `memory_fts`: the `search_terms` JSON array flattened to a token string. */
 const MEMORY_TERMS_SQL =
   "coalesce((SELECT group_concat(value, ' ') FROM json_each(NEW.search_terms)), '')";

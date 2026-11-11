@@ -49,6 +49,7 @@ import { channelIdentities, persons } from '../schema/identity.js';
 import { messages } from '../schema/messages.js';
 import { tasks } from '../schema/tasks.js';
 import { deleteByColumnChunk } from './chunk.js';
+import { optimizeFtsIndexes } from './fts.js';
 
 /**
  * The two decisions `02` §3.13.5 leaves to `03`.
@@ -195,6 +196,12 @@ export class PersonErasure {
       });
       uow.deletions.complete(uow, deletionId, uow.now);
     });
+    // `02` §3.13.5 step 9's checkpoint and vacuum, plus the FTS optimize the canary scan at
+    // `M1-T26` proved necessary: with `secure-delete = 1` a deleted row stops matching and its
+    // position list is overwritten, but its **terms** stay in the segment dictionary — so the
+    // erased person's distinctive words were still recoverable from `messages_fts_data` as raw
+    // bytes. Without this, `erasure.person` fails on exactly that, which is how it was found.
+    optimizeFtsIndexes(this.#options.connection);
     this.#options.connection.pragma('wal_checkpoint(TRUNCATE)');
     this.#options.connection.pragma('incremental_vacuum(2048)');
   }
@@ -216,7 +223,10 @@ export class PersonErasure {
       ...this.#labelSteps(memberships),
       { name: 'conversations.dm', run: (uow, limit) => this.#deleteDms(uow, memberIds, limit) },
       { name: 'messages.redact', run: (uow, limit) => this.#redactSent(uow, memberIds, limit) },
-      { name: 'memory.sole_subject', run: (_uow, limit) => this.#deleteSoleSubject(memberIds, limit) },
+      {
+        name: 'memory.sole_subject',
+        run: (_uow, limit) => this.#deleteSoleSubject(memberIds, limit),
+      },
       ...memberColumnSteps(this.#options.db, memberIds),
       { name: 'tasks.unassign', run: (uow, limit) => this.#unassign(uow, memberIds, limit) },
     ];
