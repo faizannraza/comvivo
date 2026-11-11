@@ -15,7 +15,7 @@
  * the journal carries — I6 on the effect idempotency key, I7 on `ack_outbox_id` — and the
  * conventions `02` §3.7.1 requires of every repository.
  */
-import { expectWritten, isOrphaned } from '@comvivo/core';
+import { expectWritten, isOrphaned, type NotPromise } from '@comvivo/core';
 import { internedId, type ReaderSetId, StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
@@ -44,7 +44,7 @@ function withJournal<T>(
   fn: (
     world: Parameters<Parameters<typeof withRepos>[0]>[0],
     ids: { conversation: ReturnType<typeof conversationId>; who: string; readerSet: ReaderSetId },
-  ) => T,
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const ids = world.store.write((uow) => {

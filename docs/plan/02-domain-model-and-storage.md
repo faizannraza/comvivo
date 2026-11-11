@@ -2187,6 +2187,8 @@ stateDiagram-v2
 ### 3.10 Durable job queue (ADR-012)
 
 #### 3.10.1 Job kinds registry (`packages/storage/src/queue/kinds.ts`; handlers are registered by engine/apps)
+
+**The catalog and the definition are separate** (M1-T23). The catalog below is the half `02` owns — name, partition scope, pool, seriality, limits — and the **payload schema** is the half the owning milestone owns: `04` knows what an `extract.conversation` payload is, and this module must not guess. So a `JobKindDef` is *registered* by its owner against the catalog, rather than declared complete here. A catalog carrying placeholder payload schemas would be a set of stubs (`CLAUDE.md` §8), and a registry with no catalog would accept any string a caller invented — which is how a typo becomes a job nothing ever runs, queued forever, invisible except as a number in a gauge. `JobKindRegistry.unregistered()` reports the gap rather than refusing to boot, because `M1` registers none of the forty kinds and a boot that demanded all of them would make the queue unusable until `M11`.
 ```ts
 export interface JobKindDef<P> {
   kind: JobKind;                       // e.g. 'extract.conversation'
@@ -2268,6 +2270,8 @@ RETURNING id;
 ```
 No row returned means a `SELECT id … WHERE idempotency_key=?` follows, and the result is `duplicate`. Keys stay unique until the row is swept (succeeded rows: 7 days), so a key must name a logical unit that cannot recur inside that window, e.g. `reminder.fire:rem_…:1762450200000`.
 
+**Implementation note (M1-T23): the key is checked *before* the insert, not after.** `drizzle-orm` 0.45.4 cannot emit the statement above — measured: `onConflictDoNothing({ target, where })` places the predicate *after* `DO NOTHING`, which SQLite rejects as a syntax error, and without the predicate the clause does not match `jobs_idempotency_uq` at all, because that index is **partial** (`WHERE idempotency_key IS NOT NULL`) and SQLite matches an upsert's conflict target against the index including its `WHERE`. Looking before leaping is safe here — §3.7.2 gives the store one write connection and better-sqlite3 serialises writes — and it has the better property that both branches are reachable by a test, where the conflict-clause form has a "the row must be there" follow-up nothing can exercise. The same shape as the outbox's enqueue (§3.9).
+
 **Debounce** (01 §6.1: 12 messages / 90 s). If a queued row with `debounce_key` exists:
 - set `run_at = min(debounce_deadline_at, now + quietMs)` and `payload = merge(prev, next)`;
 - if `payload.count ≥ threshold`, the caller passes `quietMs = 0`, so `run_at = now`.
@@ -2301,6 +2305,8 @@ RETURNING *;
 - `:leaseMs` is bound per claim call. The worker loop claims per pool, and every kind in a pool shares the pool's `leaseMs`; a kind needing a longer lease heartbeats.
 - **Fairness.** At most one job per partition per claim round (`rn = 1`), and partitions are ordered by least-recently-served. A group with 10,000 backlogged extraction jobs and a group with 1 job each get one slot per round. The test `queue.fairness` (§9) pins this down.
 - **Lease owner** = `${bootId}:${pool}:${slot}`. **Fencing:** complete, heartbeat and fail all include `AND lease_owner=:owner AND attempts=:attempts AND status='leased'`. A zero-row update returns `lease_lost`, and the handler's transaction rolls back (`completeIn` throws `JobLeaseLostError` inside the transaction).
+  - All three clauses are load-bearing and each is tested in isolation (M1-T23). `attempts` is reachable through the API — the same worker id re-claims after its own lease expired. `lease_owner` is **not**: a different owner implies a later claim, which implies a different attempt, so the row is written directly to isolate it; the clause is what keeps the fence correct for a multi-process deployment rather than only for this one. `status='leased'` catches a completion landing on a `cancelled` or `dead` row, which would revive it as succeeded with nothing having run.
+- **Fairness is approximate inside one millisecond** (M1-T23). `job_partitions.last_claimed_at` is an instant in milliseconds, so several claims in the same millisecond record the same value and the `ORDER BY coalesce(p.last_claimed_at, 0) ASC` tie-break falls through to `run_at` — which favours whichever partition enqueued first. Harmless in production, where a claim round does real work and rounds are milliseconds or seconds apart; but a test of the *ordering* has to drive the clock, and one that does not will pass against an implementation with the ordering deleted.
 - **Expired leases:**
   ```sql
   UPDATE jobs SET status = CASE WHEN attempts >= max_attempts THEN 'dead' ELSE 'queued' END,

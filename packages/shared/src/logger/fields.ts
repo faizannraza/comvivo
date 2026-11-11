@@ -57,6 +57,14 @@ export interface LogFields {
   readonly memberId?: string;
   readonly jobId?: string;
   readonly jobKind?: string;
+  /**
+   * `02` §3.10.4: "Logs carry job id, kind and partition, never the payload."
+   *
+   * A group id or `'_instance'`, so a host can see *whose* work is backed up. It is an
+   * identifier, which is the line this interface draws — the payload it belongs to is not here
+   * and has no field.
+   */
+  readonly partitionKey?: string;
   readonly channel?: string;
 
   // --- Tracing ---------------------------------------------------------------------------------

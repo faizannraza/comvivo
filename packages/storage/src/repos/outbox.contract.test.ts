@@ -10,7 +10,7 @@
  *  - **every settling write is fenced on `attempts`**, so a dispatcher whose lease expired cannot
  *    report a stale outcome over a live send.
  */
-import { expectWritten, OUTBOX_BACKOFF } from '@comvivo/core';
+import { expectWritten, type NotPromise, OUTBOX_BACKOFF } from '@comvivo/core';
 import { internedId, type ReaderSetId, StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
@@ -38,7 +38,7 @@ function withOutbox<T>(
       second: ReturnType<typeof conversationId>;
       readerSet: ReaderSetId;
     },
-  ) => T,
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const ids = world.store.write((uow) => {

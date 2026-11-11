@@ -15,6 +15,7 @@
 import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { NotPromise } from '@comvivo/core';
 import Database from 'better-sqlite3-multiple-ciphers';
 import * as sqliteVec from 'sqlite-vec';
 
@@ -62,19 +63,51 @@ export function applyMigrations(db: Database.Database): number {
   return applied;
 }
 
-/** Open a migrated in-memory database and hand it to `fn`, closing it afterwards. */
-export function withMigratedDb<T>(fn: (db: Database.Database) => T): T {
-  const db = new Database(':memory:');
+/**
+ * Open a migrated in-memory database and hand it to `fn`, closing it afterwards.
+ *
+ * **`fn` must be synchronous**, and the `NotPromise` return type is what says so. An `async`
+ * callback returns a promise immediately, the `finally` closes the database, and the body then runs
+ * against a closed connection — `TypeError: The database connection is not open`, from somewhere
+ * three frames into drizzle. Exactly the trap `02` §3.7.2 guards `store.write` against, in the
+ * harness rather than in the store; found when the worker-loop tests needed `await`.
+ *
+ * For an asynchronous test, use `withMigratedDbAsync`.
+ */
+export function withMigratedDb<T>(fn: (db: Database.Database) => NotPromise<T>): T {
+  const db = openMigrated();
   try {
-    // Before `sqliteVec.load`, and before any trigger that touches a vec table runs.
-    db.pragma('trusted_schema = ON');
-    sqliteVec.load(db);
-    db.pragma('foreign_keys = ON');
-    applyMigrations(db);
     return fn(db);
   } finally {
     db.close();
   }
+}
+
+/**
+ * The same, for a test that must `await` — a worker loop, a handler, a virtual clock.
+ *
+ * Separate rather than a widened `withMigratedDb`, so the synchronous guard above stays a type
+ * error: a single function taking either would accept the mistake it exists to prevent.
+ */
+export async function withMigratedDbAsync<T>(
+  fn: (db: Database.Database) => Promise<T>,
+): Promise<T> {
+  const db = openMigrated();
+  try {
+    return await fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+function openMigrated(): Database.Database {
+  const db = new Database(':memory:');
+  // Before `sqliteVec.load`, and before any trigger that touches a vec table runs.
+  db.pragma('trusted_schema = ON');
+  sqliteVec.load(db);
+  db.pragma('foreign_keys = ON');
+  applyMigrations(db);
+  return db;
 }
 
 /** A group with everything a labeled row needs to exist. */

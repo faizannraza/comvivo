@@ -8,6 +8,7 @@
  * caused it, and crediting the assignee would miss exactly the case fairness exists to see:
  * somebody covering for an absent member.
  */
+import type { NotPromise } from '@comvivo/core';
 import { expectWritten } from '@comvivo/core';
 import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -89,7 +90,10 @@ function seedTasks(
 
 /** A group with two members, so an assignment can move between them. */
 function withMembers<T>(
-  fn: (world: Parameters<Parameters<typeof withRepos>[0]>[0], who: readonly string[]) => T,
+  fn: (
+    world: Parameters<Parameters<typeof withRepos>[0]>[0],
+    who: readonly string[],
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const who = world.store.write((uow) =>

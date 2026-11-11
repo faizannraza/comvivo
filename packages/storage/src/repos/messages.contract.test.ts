@@ -11,6 +11,7 @@
  *  - **Window ordering.** `limit` means "the most recent N", returned oldest first. A forward scan
  *    reversed by the caller would give the oldest N and look plausible.
  */
+import type { NotPromise } from '@comvivo/core';
 import { computeEligible, type EligibleLabelSet, expectWritten, type Label } from '@comvivo/core';
 import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -57,7 +58,7 @@ describe('MessageRepository', () => {
     fn: (
       world: Parameters<Parameters<typeof withRepos>[0]>[0],
       ids: { conversationId: ReturnType<typeof conversationId>; memberId: string },
-    ) => T,
+    ) => NotPromise<T>,
   ): T {
     return withRepos((world) => {
       const ids = world.store.write((uow) => {

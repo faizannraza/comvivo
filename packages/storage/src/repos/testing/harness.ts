@@ -20,6 +20,7 @@ import {
   type NewMember,
   type NewMemoryItem,
   type NewPerson,
+  type NotPromise,
 } from '@comvivo/core';
 import {
   type AuditId,
@@ -65,7 +66,7 @@ import type Database from 'better-sqlite3-multiple-ciphers';
 import { Temporal } from 'temporal-polyfill';
 import { type Db, makeDb } from '../../db/drizzle.js';
 import { SqliteStore } from '../../db/tx.js';
-import { withMigratedDb } from '../../schema/testing/migrated-db.js';
+import { withMigratedDb, withMigratedDbAsync } from '../../schema/testing/migrated-db.js';
 import { makeRepositories, type Repositories } from '../index.js';
 
 /** A logger that records nothing: these tests assert on rows, not on lines. */
@@ -79,6 +80,13 @@ const silent = {
   content: () => {},
   child: () => silent,
 } as unknown as Logger;
+
+/**
+ * The same silent logger, for a test that constructs something needing one.
+ *
+ * Exported as an alias rather than renamed, so the `withRepos` body below reads the way it did.
+ */
+export const silentLogger: Logger = silent;
 
 /** A fixed instant, so a test that asserts on a timestamp has something to assert against. */
 export const T0 = Temporal.Instant.from('2026-11-08T12:00:00Z');
@@ -101,7 +109,7 @@ export interface World {
  * that could cross a group is scoped on `groupId`". A single-group fixture lets a missing `WHERE
  * group_id = ?` pass every test in the file, which is how an `I4` hole survives a green suite.
  */
-export function withRepos<T>(fn: (world: World) => T): T {
+export function withRepos<T>(fn: (world: World) => NotPromise<T>): T {
   return withMigratedDb((db) => {
     const drizzle = makeDb(db);
     const clock = new SystemClock();
@@ -109,7 +117,35 @@ export function withRepos<T>(fn: (world: World) => T): T {
     // A **seeded** rng, so the outbox's equal-jitter backoff is a number a test can assert.
     const rng = new SeededRng(7);
     const store = new SqliteStore({ db, clock, logger: silent, ids, rng });
-    const repos = makeRepositories({ db: drizzle, connection: db, ids, rng });
+    const repos = makeRepositories({ db: drizzle, connection: db, ids, rng, clock });
+    const primary = groupId('rep1');
+    const other = groupId('rep2');
+    store.write((uow) => {
+      expectWritten(repos.groups.create(uow, group(primary, 'Primary')), 'the primary group');
+      expectWritten(repos.groups.create(uow, group(other, 'Other')), 'the other group');
+    });
+    return fn({ db, drizzle, store, repos, groupId: primary, otherGroupId: other });
+  });
+}
+
+/**
+ * The same world, for a test that must `await`.
+ *
+ * **Not a widened `withRepos`.** `withRepos` closes the database when its callback returns, so an
+ * `async` callback leaves the body running against a closed connection — `TypeError: The database
+ * connection is not open`, from three frames inside drizzle. That is the same trap `02` §3.7.2
+ * guards `store.write` against, and the guard is a type error for the same reason: one function
+ * accepting either shape would accept the mistake it exists to prevent. Found by the worker-loop
+ * tests, which cannot be synchronous.
+ */
+export async function withReposAsync<T>(fn: (world: World) => Promise<T>): Promise<T> {
+  return withMigratedDbAsync(async (db) => {
+    const drizzle = makeDb(db);
+    const clock = new SystemClock();
+    const ids = new TypeIdGenerator(clock);
+    const rng = new SeededRng(7);
+    const store = new SqliteStore({ db, clock, logger: silent, ids, rng });
+    const repos = makeRepositories({ db: drizzle, connection: db, ids, rng, clock });
     const primary = groupId('rep1');
     const other = groupId('rep2');
     store.write((uow) => {

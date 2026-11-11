@@ -10,7 +10,7 @@
  * `afterCommit` rather than inline: "a rolled-back insert would otherwise leave a cached id that
  * `AUTOINCREMENT` never reissues".
  */
-import { type Audience, audienceKey, type Label } from '@comvivo/core';
+import { type Audience, audienceKey, type Label, type NotPromise } from '@comvivo/core';
 import {
   type GroupId,
   type Logger,
@@ -80,7 +80,7 @@ function count(db: Database.Database, table: string): number {
   return (db.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
 }
 
-function withWorld<T>(fn: (world: World) => T, tag = 'ls'): T {
+function withWorld<T>(fn: (world: World) => NotPromise<T>, tag = 'ls'): T {
   return withMigratedDb((db) => {
     const seeded = seedGroup(db, tag);
     const extra = seedMember(db, seeded.groupId, `${tag}x`);

@@ -53,6 +53,20 @@ function readersOf(repos: Repositories): Omit<ReadScope, 'now'> {
     conversations: repos.conversations,
     messages: repos.messages,
     settings: repos.settings,
+    memories: repos.memories,
+    calendar: repos.calendar,
+    reminders: repos.reminders,
+    tasks: repos.tasks,
+    lists: repos.lists,
+    polls: repos.polls,
+    plans: repos.plans,
+    decisions: repos.decisions,
+    governance: repos.governance,
+    turns: repos.journal,
+    traces: repos.traces,
+    audit: repos.audit,
+    usage: repos.usage,
+    labels: repos.labels,
   };
 }
 
@@ -139,6 +153,7 @@ export class SqliteStore implements Store {
         connection: options.db,
         ids: options.ids,
         rng: options.rng ?? new SystemRng(),
+        clock: options.clock,
       });
   }
 
@@ -294,7 +309,11 @@ export class SqliteStore implements Store {
    * transaction's own atomicity, and the turn journal and outbox read timestamps as sequence
    * (I6, I7).
    *
-   * Repositories are added to this by the milestone that creates each aggregate (`M1-T12` onward).
+   * Every repository `02` §3.7.1 lists is here, and that completeness is itself a finding: `M1-T19`
+   * through `M1-T22` added eleven repositories to `Repositories` and **none** to `ReadScope` or
+   * `UnitOfWork`, so nothing could reach them through a transaction at all. Their contract tests
+   * passed because they go through `world.repos.*` directly, which is how the gap survived four
+   * green suites. `M1-T26` adds `deletions`.
    */
   #unitOfWork(): UnitOfWork {
     const hooks = this.#hooks;
@@ -313,6 +332,21 @@ export class SqliteStore implements Store {
       messagesW: repos.messages,
       settingsW: repos.settings,
       labelsW: repos.labels,
+      memoriesW: repos.memories,
+      calendarW: repos.calendar,
+      remindersW: repos.reminders,
+      tasksW: repos.tasks,
+      listsW: repos.lists,
+      pollsW: repos.polls,
+      plansW: repos.plans,
+      decisionsW: repos.decisions,
+      governanceW: repos.governance,
+      journal: repos.journal,
+      tracesW: repos.traces,
+      auditW: repos.audit,
+      usageW: repos.usage,
+      outbox: repos.outbox,
+      jobs: repos.jobs,
     };
   }
 

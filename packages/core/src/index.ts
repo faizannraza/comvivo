@@ -424,6 +424,29 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+export type {
+  ClaimedJob,
+  ClaimRequest,
+  DebounceArgs,
+  EnqueueArgs,
+  EnqueueResult,
+  FailResult,
+  Job,
+  JobKindDef,
+  JobPool,
+  JobQueue,
+  JobQueueTx,
+  JobStatus,
+  LeaseResult,
+  PartitionKey,
+} from './ports/storage/jobs.js';
+export {
+  INSTANCE_PARTITION,
+  JOB_PAYLOAD_INVALID,
+  JOB_POOLS,
+  JOB_STATUSES,
+  POOL_LIMITS,
+} from './ports/storage/jobs.js';
 export type { AuditLog, AuditReader } from './ports/storage/repos/audit.js';
 export type {
   CalendarReader,

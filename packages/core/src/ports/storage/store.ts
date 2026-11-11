@@ -35,8 +35,27 @@
  * The alternative — repositories holding a connection and starting their own transactions — is how
  * a single logical change ends up as four commits, three of which can be interrupted.
  */
-import type { LabelId } from '@comvivo/shared';
+import type { GroupId, LabelId } from '@comvivo/shared';
 import type { Label } from '../../ifc/eligible.js';
+import type { JobQueueTx } from './jobs.js';
+import type { AuditLog, AuditReader } from './repos/audit.js';
+import type {
+  CalendarReader,
+  CalendarRepository,
+  DecisionReader,
+  DecisionRepository,
+  ListReader,
+  ListRepository,
+  PlanReader,
+  PlanRepository,
+  PollReader,
+  PollRepository,
+  ReminderReader,
+  ReminderRepository,
+  TaskReader,
+  TaskRepository,
+} from './repos/coordination.js';
+import type { GovernanceReader, GovernanceRepository } from './repos/governance.js';
 import type {
   ChannelIdentityReader,
   ChannelIdentityRepository,
@@ -49,8 +68,17 @@ import type {
   PersonReader,
   PersonRepository,
 } from './repos/membership.js';
+import type { MemoryReader, MemoryRepository } from './repos/memory.js';
 import type { MessageReader, MessageRepository } from './repos/messages.js';
+import type { OutboxRepository } from './repos/outbox.js';
 import type { SettingsReader, SettingsRepository } from './repos/settings.js';
+import type {
+  TraceReader,
+  TraceRepository,
+  TurnJournal,
+  TurnJournalReader,
+} from './repos/turns.js';
+import type { UsageReader, UsageRepository } from './repos/usage.js';
 import type { NotPromise, TxClock, TxMeta, TxToken } from './uow.js';
 
 /**
@@ -81,6 +109,35 @@ export interface ReadScope extends TxClock {
   readonly conversations: ConversationReader;
   readonly messages: MessageReader;
   readonly settings: SettingsReader;
+  readonly memories: MemoryReader;
+  readonly calendar: CalendarReader;
+  readonly reminders: ReminderReader;
+  readonly tasks: TaskReader;
+  readonly lists: ListReader;
+  readonly polls: PollReader;
+  readonly plans: PlanReader;
+  readonly decisions: DecisionReader;
+  /**
+   * `02` §3.7.1 lists `constitution` and `proposals` separately; this is both.
+   *
+   * One reader, because the two share `constraint_records` and `confirmation_requests` and `03`
+   * reads them together — a proposal to amend the constitution is evaluated under the constitution
+   * in force. Splitting the type would not split the queries, and `M1-T20` built one repository.
+   */
+  readonly governance: GovernanceReader;
+  readonly turns: TurnJournalReader;
+  readonly traces: TraceReader;
+  readonly audit: AuditReader;
+  readonly usage: UsageReader;
+  /**
+   * `02` §3.7.1's `labels`. Reading labels back is Q-IFC-2, which `computeEligible` needs.
+   *
+   * There is deliberately **no `outbox` reader here**, and `02` §3.7.1's list does not have one:
+   * the queue is the dispatcher's, not a reader every holder of a read transaction should have, and
+   * `OutboxRepository` already carries the reads its own state machine needs. Adding one would also
+   * collide with the writer's name on `UnitOfWork` — the same clash `UsageReader.byId` resolved.
+   */
+  readonly labels: LabelLookup;
 }
 
 /**
@@ -101,6 +158,31 @@ export interface UnitOfWork extends ReadScope, TxToken {
   readonly conversationsW: ConversationRepository;
   readonly messagesW: MessageRepository;
   readonly settingsW: SettingsRepository;
+  readonly memoriesW: MemoryRepository;
+  readonly calendarW: CalendarRepository;
+  readonly remindersW: ReminderRepository;
+  readonly tasksW: TaskRepository;
+  readonly listsW: ListRepository;
+  readonly pollsW: PollRepository;
+  readonly plansW: PlanRepository;
+  readonly decisionsW: DecisionRepository;
+  readonly governanceW: GovernanceRepository;
+  /** `02` §3.7.1's `journal`: the turn journal's writes (§3.8). */
+  readonly journal: TurnJournal;
+  readonly tracesW: TraceRepository;
+  /** `02` §3.7.1's `auditW`. In the transaction, so a rolled-back effect takes its audit row. */
+  readonly auditW: AuditLog;
+  readonly usageW: UsageRepository;
+  /** `02` §3.7.1's `outbox`: enqueued in the transaction that decided to send (§3.9). */
+  readonly outbox: OutboxRepository;
+  /**
+   * `02` §3.7.1's `jobs`: the in-transaction half of the queue (§3.10.2).
+   *
+   * Here and not on the worker loop's `JobQueue`, because enqueuing belongs to the transaction
+   * that decided to enqueue — a job scheduled by work that then rolled back must not exist — and
+   * `completeIn` is how a handler's final write and its own completion commit together.
+   */
+  readonly jobs: JobQueueTx;
   /**
    * The label store (`02` §3.2, §3.7.1's `labelsW`).
    *
@@ -121,6 +203,17 @@ export interface UnitOfWork extends ReadScope, TxToken {
  */
 export interface LabelInterner {
   intern(uow: TxToken, label: Label): LabelId;
+}
+
+/**
+ * What `ReadScope.labels` must provide (`02` §3.3.10 Q-IFC-2).
+ *
+ * One method, for the same reason as `LabelInterner`: `core` names what it calls. `computeEligible`
+ * takes a `ReadonlyMap<LabelId, Label>` and this is where that map comes from — `M1-T19` found
+ * that the function had no input producer at all until `LabelStore.groupLabels` was added.
+ */
+export interface LabelLookup {
+  groupLabels(groupId: GroupId): ReadonlyMap<LabelId, Label>;
 }
 
 /**

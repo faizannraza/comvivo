@@ -9,7 +9,7 @@
  * `02` §3.4's maintenance section promises a `search.verify` job that checks FTS/base parity; the
  * cases here are the behaviours that job would be checking *for*.
  */
-import { expectWritten, type Label } from '@comvivo/core';
+import { expectWritten, type Label, type NotPromise } from '@comvivo/core';
 import { describe, expect, it } from 'vitest';
 import {
   fingerprintFor,
@@ -37,7 +37,7 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
   /** A world with `items` memories indexed, returning their ids and the eligible set. */
   function withIndexed<T>(
     items: readonly { tag: string; statement: string; terms?: readonly string[] }[],
-    fn: (world: Parameters<Parameters<typeof withRepos>[0]>[0], eligible: never) => T,
+    fn: (world: Parameters<Parameters<typeof withRepos>[0]>[0], eligible: never) => NotPromise<T>,
   ): T {
     return withRepos((world) => {
       const label: Label = groupLabel(world.groupId);

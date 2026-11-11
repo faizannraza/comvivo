@@ -12,6 +12,7 @@
  *    field-encrypted and host-only. The separation is the control — a trace can be shown because
  *    the prompt is not in it.
  */
+import type { NotPromise } from '@comvivo/core';
 import { expectWritten, TRACE_TOTAL_BUDGET_BYTES } from '@comvivo/core';
 import { internedId, type ReaderSetId } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -74,7 +75,7 @@ function withTraces<T>(
   fn: (
     world: Parameters<Parameters<typeof withRepos>[0]>[0],
     ids: { conversation: ReturnType<typeof conversationId>; readerSet: ReaderSetId },
-  ) => T,
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const ids = world.store.write((uow) => {

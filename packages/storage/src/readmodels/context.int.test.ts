@@ -18,6 +18,7 @@ import {
   computeEligible,
   expectWritten,
   type Label,
+  type NotPromise,
   StubInformationFlow,
 } from '@comvivo/core';
 import type { MemberId } from '@comvivo/shared';
@@ -209,7 +210,7 @@ describe('ContextReadModel', () => {
     fn: (
       world: Parameters<Parameters<typeof withRepos>[0]>[0],
       ids: { conversation: ReturnType<typeof conversationId>; who: MemberId },
-    ) => T,
+    ) => NotPromise<T>,
   ): T {
     return withRepos((world) => {
       const label = groupLabel(world.groupId);

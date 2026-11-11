@@ -51,6 +51,28 @@ export const LOG_EVENTS = {
    */
   'storage.after_commit_failed': 'an afterCommit hook failed',
 
+  // --- Job queue (`02` §3.10.4) ----------------------------------------------------------------
+  /**
+   * A job's payload no longer matches its kind's schema.
+   *
+   * A row can outlive the code that wrote it, so this is reachable by an upgrade rather than only
+   * by a bug — and it is non-retryable (`02` §3.10.1: `JOB_PAYLOAD_INVALID ⇒ dead`), which makes
+   * the log line the only notice anyone gets.
+   */
+  'job.payload_invalid': 'a job payload did not match its schema',
+  /** A handler threw or timed out. `attempt` and `code` say whether it will be retried. */
+  'job.failed': 'a job failed',
+  /**
+   * A worker's lease expired while its handler was still working.
+   *
+   * The handler's own transaction rolls back (`02` §3.10.4), so no work is lost — but a instance
+   * seeing these regularly has handlers slower than their leases, which is a tuning problem rather
+   * than an error.
+   */
+  'job.lease_lost': 'a job lease was lost before the handler finished',
+  /** `02` §3.10.3's dead letter. Visible in the dashboard and `village doctor --check jobs`. */
+  'job.dead': 'a job will not be retried',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',

@@ -13,6 +13,7 @@
  *    the scheduler remembering. That is `I6` for reminders, and a scheduler that remembered would
  *    forget on restart.
  */
+import type { NotPromise } from '@comvivo/core';
 import { expectWritten } from '@comvivo/core';
 import { internedId, type ReaderSetId, UTC } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -67,7 +68,7 @@ function withWorld<T>(
       who: readonly string[];
       readerSet: ReaderSetId;
     },
-  ) => T,
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const ids = world.store.write((uow) => {

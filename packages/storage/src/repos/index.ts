@@ -12,11 +12,12 @@
  * see a write made earlier in the same transaction would be a different kind of bug. The *types*
  * stay split, so a read transaction still cannot reach a writer.
  */
-import type { IdGenerator, Rng } from '@comvivo/shared';
+import type { Clock, IdGenerator, Rng } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
 import { SqliteOutboxRepository } from '../outbox/repository.js';
+import { SqliteJobQueue } from '../queue/queue.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
@@ -124,6 +125,18 @@ export interface Repositories {
    * could be forgotten.
    */
   readonly outbox: SqliteOutboxRepository;
+  /**
+   * The durable job queue (`02` §3.10; ADR-012).
+   *
+   * `UnitOfWork` names the in-transaction half `jobs`. One instance implements both halves — the
+   * transactional `JobQueueTx` and the worker loop's `JobQueue` — because they share prepared
+   * statements and because `completeIn` has to see the same rows the claim moved.
+   *
+   * Holds the **clock**, unlike every other repository here: `claim`, `heartbeat` and
+   * `recoverExpiredLeases` run outside any transaction, so there is no `TxToken.now` to read. That
+   * is also why it is the only one that can tell the time at all.
+   */
+  readonly jobs: SqliteJobQueue;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
    * `02` §3.7.3's context read model.
@@ -147,6 +160,14 @@ export interface RepositoriesOptions {
    * test asserts — and `CLAUDE.md` §2 keeps `Math.random` out of `core`, where the formula lives.
    */
   readonly rng: Rng;
+  /**
+   * The clock the job queue reads.
+   *
+   * Needed because `claim`, `heartbeat` and `recoverExpiredLeases` run **outside** a transaction,
+   * so there is no `TxToken.now` — and `01` §4 makes the clock a port, so a test can drive the
+   * lease arithmetic with a `VirtualClock` rather than sleeping.
+   */
+  readonly clock: Clock;
   /**
    * The same connection `db` wraps.
    *
@@ -200,6 +221,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     audit: new SqliteAuditLog(db),
     usage: new SqliteUsageRepository(db),
     outbox: new SqliteOutboxRepository({ db, labels, messages, rng: options.rng }),
+    jobs: new SqliteJobQueue({ db, clock: options.clock, ids: options.ids, rng: options.rng }),
     embeddingSpaces: spaces,
   };
   return { ...set, context: new SqliteContextReadModel(set) };
@@ -210,6 +232,13 @@ export {
   DEFAULT_LEASE_MS,
   SqliteOutboxRepository,
 } from '../outbox/repository.js';
+export {
+  assertPartition,
+  catalogEntry,
+  JOB_KIND_CATALOG,
+  JobKindRegistry,
+} from '../queue/kinds.js';
+export { DEFAULT_CLAIM_LEASE_MS, SqliteJobQueue } from '../queue/queue.js';
 export { SqliteContextReadModel } from '../readmodels/context.js';
 export { auditHash, DEFAULT_VERIFY_LIMIT, GENESIS_HASH, SqliteAuditLog } from './audit.js';
 export { SqliteCalendarRepository } from './calendar.js';

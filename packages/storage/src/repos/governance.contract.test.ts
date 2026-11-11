@@ -11,6 +11,7 @@
  *    winner". That one is the centrepiece, and it is tested two ways — both deciders reading the
  *    same version, and the decision racing the expiry sweep.
  */
+import type { NotPromise } from '@comvivo/core';
 import { expectWritten, quorumSatisfied } from '@comvivo/core';
 import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -106,7 +107,10 @@ const NONE = {
 
 /** A group with three members: a requester and two deciders, which the CAS test needs. */
 function withMembers<T>(
-  fn: (world: Parameters<Parameters<typeof withRepos>[0]>[0], who: readonly string[]) => T,
+  fn: (
+    world: Parameters<Parameters<typeof withRepos>[0]>[0],
+    who: readonly string[],
+  ) => NotPromise<T>,
 ): T {
   return withRepos((world) => {
     const who = world.store.write((uow) =>
