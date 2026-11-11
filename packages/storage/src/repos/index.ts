@@ -18,6 +18,7 @@ import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
 import { SqliteOutboxRepository } from '../outbox/repository.js';
 import { SqliteJobQueue } from '../queue/queue.js';
+import { SqliteScheduler } from '../queue/scheduler.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
@@ -137,6 +138,13 @@ export interface Repositories {
    * is also why it is the only one that can tell the time at all.
    */
   readonly jobs: SqliteJobQueue;
+  /**
+   * Recurring schedules (`02` §3.10.5).
+   *
+   * Holds the queue rather than the other way round: a tick's only output is an enqueue, and the
+   * queue knows nothing about schedules. `02` §3.7.1 names it `JobSchedules`.
+   */
+  readonly schedules: SqliteScheduler;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
    * `02` §3.7.3's context read model.
@@ -191,6 +199,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
   const groups = new SqliteGroupRepository(db);
   const labels = new LabelStore(connection);
   const messages = new SqliteMessageRepository(db, labels);
+  const jobs = new SqliteJobQueue({ db, clock: options.clock, ids: options.ids, rng: options.rng });
   const spaces = new EmbeddingSpaceManager({ db, connection, ids: options.ids });
   // A **getter**, not a value. Reading the active space here made constructing the repository set
   // require a migrated database, and `SqliteStore` is built at boot around the migration rather
@@ -221,7 +230,8 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     audit: new SqliteAuditLog(db),
     usage: new SqliteUsageRepository(db),
     outbox: new SqliteOutboxRepository({ db, labels, messages, rng: options.rng }),
-    jobs: new SqliteJobQueue({ db, clock: options.clock, ids: options.ids, rng: options.rng }),
+    jobs,
+    schedules: new SqliteScheduler({ db, queue: jobs }),
     embeddingSpaces: spaces,
   };
   return { ...set, context: new SqliteContextReadModel(set) };
@@ -239,6 +249,14 @@ export {
   JobKindRegistry,
 } from '../queue/kinds.js';
 export { DEFAULT_CLAIM_LEASE_MS, SqliteJobQueue } from '../queue/queue.js';
+export {
+  type JobSchedule,
+  MISFIRE_POLICIES,
+  type MisfirePolicy,
+  type NewJobSchedule,
+  SqliteScheduler,
+  type TickResult,
+} from '../queue/scheduler.js';
 export { SqliteContextReadModel } from '../readmodels/context.js';
 export { auditHash, DEFAULT_VERIFY_LIMIT, GENESIS_HASH, SqliteAuditLog } from './audit.js';
 export { SqliteCalendarRepository } from './calendar.js';

@@ -2364,7 +2364,14 @@ for i in 0..(366*5 days of iterations, bounded):
      (field-wise increment: bump the first non-matching field, reset lower fields to their min)
   inst = c.toZonedDateTime(tz, { disambiguation: 'compatible' }).toInstant()
      // gap (spring forward, e.g. 02:30 missing) ⇒ shifted forward by the gap (fires 03:30 once)
+     //   NB "by the gap", not "to the first instant that exists": a 30-minute transition
+     //   (Australia/Lord_Howe) sends 02:15 to 02:45, not 02:30 (M1-T24).
      // overlap (fall back, 01:30 twice) ⇒ earlier instant (fires once)
+     //   Consequence worth knowing (M1-T24): a sub-hourly *wall-clock* schedule therefore SKIPS
+     //   the repeated hour rather than running it twice — `*/30` fires 01:00, 01:30, then 02:00,
+     //   a one-hour gap once a year. That is the right trade for anything stated in local terms,
+     //   and it is why the `interval` arm exists: work that must run every N minutes regardless
+     //   (Batches polling, auth probes) belongs there, where no hour is repeated or missing.
   if inst > after: return inst
   z = c + 1 minute (as zoned)               // overlap edge: candidate resolved ≤ after
 throw ScheduleError('SCHEDULE_NO_NEXT')     // e.g. Feb 30
@@ -2379,7 +2386,7 @@ For each due schedule, in one transaction:
 - `fire = next_run_at`.
 - If `now − fire > misfire_grace_ms` and `misfire = 'skip'`, do not enqueue.
 - Otherwise `enqueue(kind, payload, runAt=now, idempotencyKey='sched:'+id+':'+fire.epochMs)`.
-- `next_run_at = nextFireAfter(spec, max(fire, now − 1 ms), resolveTz(spec.tz))`. This catches up at most once. `last_fired_at = fire`.
+- `next_run_at = nextFireAfter(spec, max(fire, now − 1 ms), resolveTz(spec.tz))`. This catches up at most once. `last_fired_at = fire`. **Both halves of that `max` are load-bearing** (M1-T24): `now − 1 ms` is the catch-up bound, and the millisecond is there because `nextFireAfter` is *strictly* after its argument so `now` alone would skip an occurrence landing exactly on it; `fire` covers the punctual case, where a tick running in the same millisecond as the occurrence would otherwise have a base *before* the occurrence it just fired, get it back from the strict search, and never advance `next_run_at` — a schedule permanently one occurrence behind, re-enqueuing a duplicate every tick, with the idempotency key hiding the symptom. Reached only by a clock set exactly to the occurrence, which is what the test now does.
 
 **Timezone changes.** Updating `persons.timezone` or `groups.timezone` recomputes `next_run_at` for schedules whose `TzRef` points at them, in the same transaction (`JobSchedules.recomputeFor(ref)`).
 

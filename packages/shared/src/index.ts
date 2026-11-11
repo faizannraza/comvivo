@@ -223,6 +223,7 @@ export {
   MAX_INSTANT_EPOCH_MS,
   parseInstant,
 } from './time/instant.js';
+export { nextFireAfter, type SchedulePattern } from './time/schedule.js';
 export {
   isCanonicalTimeZoneId,
   isTimeZoneId,
