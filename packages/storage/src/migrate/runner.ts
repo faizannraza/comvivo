@@ -47,6 +47,14 @@ export interface MigrateOptions {
   readonly appVersion: string;
   /** Where pre-migration backups go. Omit to skip the backup (tests, and an empty database). */
   readonly backupDir?: string;
+  /**
+   * The key `db` is open under, so the pre-migration backup can be verified.
+   *
+   * Required whenever `backupDir` is set, because `VACUUM INTO` writes an **encrypted** snapshot
+   * (SP-3) and the `quick_check` that makes the copy a rollback path rather than a file cannot run
+   * without it. `null` is the unencrypted instance, which `doctor` warns about.
+   */
+  readonly key?: Buffer | null;
   /** `02` §3.12.2 default. */
   readonly keepPreMigration?: number;
   /** Dev-only escape hatch for a migration edited before release. */
@@ -206,6 +214,7 @@ function takeBackupIfNeeded(
   if (options.backupDir === undefined || !hasUserTables(db)) return undefined;
   return preMigrationBackup(db, {
     backupDir: options.backupDir,
+    key: options.key ?? null,
     fromLastId: applied.at(-1)?.id ?? 'empty',
     toLastId: pending.at(-1)?.id ?? 'empty',
     keep: options.keepPreMigration ?? 3,

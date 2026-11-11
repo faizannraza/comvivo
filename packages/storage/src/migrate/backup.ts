@@ -18,7 +18,7 @@ import { existsSync, mkdirSync, readdirSync, rmSync, statfsSync, statSync } from
 import { join } from 'node:path';
 import { StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
-import DatabaseCtor from 'better-sqlite3-multiple-ciphers';
+import { openDatabase } from '../db/open.js';
 
 /** The subdirectory of `backupDir` that pre-migration copies live in. */
 export const PRE_MIGRATE_DIR = 'pre-migrate';
@@ -115,6 +115,14 @@ export function databaseBytesOf(db: Database.Database): number {
 export interface PreMigrationBackupOptions {
   /** The data directory's backup root. */
   readonly backupDir: string;
+  /**
+   * The key the source database is open under, or `null` for an unencrypted instance.
+   *
+   * Needed because the snapshot is encrypted with it (SP-3): the verification below cannot open
+   * the copy without it, and a verification that silently skipped the check would be worse than
+   * none — `02` §3.12.4 makes this backup the rollback path for a forward-only migration.
+   */
+  readonly key: Buffer | null;
   /** The last migration already applied, or `'empty'` for a database with none. */
   readonly fromLastId: string;
   /** The last migration that will be applied. */
@@ -128,7 +136,9 @@ export interface PreMigrationBackupOptions {
 }
 
 /** `02` §3.12.4's file name: `<fromLastId>__<toLastId>__<ts>.db`. */
-export function preMigrationBackupName(options: PreMigrationBackupOptions): string {
+export function preMigrationBackupName(
+  options: Pick<PreMigrationBackupOptions, 'fromLastId' | 'toLastId' | 'nowMs'>,
+): string {
   return `${options.fromLastId}__${options.toLastId}__${String(options.nowMs)}.db`;
 }
 
@@ -182,14 +192,33 @@ export function preMigrationBackup(
     });
   }
 
-  verifyBackup(path);
+  verifyBackup(path, options.key);
   pruneOldBackups(directory, options.keep);
   return path;
 }
 
-/** Open the copy read-only and run `quick_check`. */
-function verifyBackup(path: string): void {
-  const copy = new DatabaseCtor(path, { readonly: true });
+/**
+ * Open the copy read-only and run `quick_check`.
+ *
+ * **With the key**, and the first version of this did not have one — which made it fail on every
+ * encrypted instance, which is every default install. `VACUUM INTO` under SQLite3MultipleCiphers
+ * writes an *encrypted* snapshot (SP-3, and `M1-T2` asserts it), so a keyless
+ * `new Database(path, { readonly: true }).pragma('quick_check')` throws `SQLITE_NOTADB` — raw, with
+ * no code and no hint, out of a function with a `try/finally` and no `try/catch`. Every migration
+ * of a real host would have stopped there.
+ *
+ * It passed CI because the only test of this path seeds a **plaintext** database, so the snapshot
+ * was plaintext too and the keyless open worked. Found at `M1-T27`, when the backup pipeline needed
+ * the same `quick_check` on the same kind of snapshot; measured before being believed.
+ *
+ * `openDatabase` rather than a bare constructor, so the cipher, the `legacy=4` compatibility and
+ * the hex validation are the ones the rest of the product uses. `loadVec: false` because a
+ * snapshot's integrity does not depend on the extension and a verification that needed it would
+ * fail on a `doctor --repair` host.
+ */
+function verifyBackup(path: string, key: Buffer | null): void {
+  const opened = openDatabase({ path, key, readonly: true, role: 'cli', loadVec: false });
+  const copy = opened.db;
   try {
     const result = copy.pragma('quick_check', { simple: true });
     if (result !== 'ok') {

@@ -2496,7 +2496,15 @@ migrate(db, source, opts: { appVersion, backupDir, keepPreMigration = 3, allowCh
 5. Long data migrations must be chunked and must be safe to run more than once, so a crash mid-way can resume.
 
 #### 3.12.4 Pre-migration backup
-`VACUUM INTO '<backupDir>/pre-migrate/<fromLastId>__<toLastId>__<ts>.db'`. The output is encrypted with the same key, pending U1; otherwise the §3.14 encrypted path is used. Then `quick_check` runs on the copy. Only the newest `keepPreMigration` copies are kept. The CLI prints the path.
+`VACUUM INTO '<backupDir>/pre-migrate/<fromLastId>__<toLastId>__<ts>.db'`. The output **is** encrypted with the same key (U1/SP-3, measured at `M1-T2`), so §3.14's encrypted path is not needed here. Then `quick_check` runs on the copy — **opened with that same key**, which `migrate()` therefore has to be given (`M1-T27`). Only the newest `keepPreMigration` copies are kept. The CLI prints the path.
+
+The key is not an optional nicety and the first implementation left it out: a keyless
+`new Database(copy, { readonly: true }).pragma('quick_check')` on an encrypted snapshot throws
+`SQLITE_NOTADB`, so every migration of every default install would have stopped there with a raw
+driver error. It passed CI because the only test of the path seeded a *plaintext* database. There is
+now an encrypted case, and a second one asserting that a verification given the **wrong** key
+fails — the opposite error, and the one a "skip the check when there is no key" workaround would
+have introduced.
 
 #### 3.12.5 Re-embedding migration (embedding model change)
 When the configured `(provider, model, dims)` differs from the `active` embedding space at boot:

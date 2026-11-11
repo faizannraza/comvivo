@@ -21,6 +21,7 @@ import { join } from 'node:path';
 import { BRAND, exitCodeFor, StorageError } from '@comvivo/shared';
 import Database from 'better-sqlite3-multiple-ciphers';
 import { afterEach, describe, expect, it } from 'vitest';
+import { openDatabase } from '../db/open.js';
 import {
   assertSpaceForBackup,
   databaseBytesOf,
@@ -57,6 +58,26 @@ function seededDb(file: string): Database.Database {
   return db;
 }
 
+/**
+ * The same database, **encrypted** — which is what every default install is.
+ *
+ * Opened through `openDatabase` so the cipher, the `legacy=4` compatibility and the hex validation
+ * are the product's own. This fixture is the one the suite was missing: with only the plaintext
+ * one above, `preMigrationBackup`'s verification opened an *encrypted* snapshot with no key, threw
+ * a raw `SQLITE_NOTADB`, and every migration of a real host would have stopped there. Found at
+ * `M1-T27`.
+ */
+function seededEncryptedDb(file: string, key: Buffer): Database.Database {
+  // `role: 'main'` because this creates the file; every other role sets `fileMustExist`.
+  const { db } = openDatabase({ path: file, key, role: 'main', loadVec: false });
+  db.exec('CREATE TABLE things (id INTEGER PRIMARY KEY, note TEXT)');
+  db.prepare("INSERT INTO things (note) VALUES ('kept')").run();
+  return db;
+}
+
+/** A 32-byte key, fixed so a failure is reproducible. */
+const DB_KEY = Buffer.alloc(32, 0x5e);
+
 const migrationOf = (id: string, sql: readonly string[]): Migration => ({
   id,
   sql,
@@ -69,6 +90,7 @@ describe('the pre-migration backup (02 §3.12.4)', { tags: ['db'] }, () => {
     const db = seededDb(join(root, 'data.db'));
     try {
       const path = preMigrationBackup(db, {
+        key: null,
         backupDir: join(root, 'backups'),
         fromLastId: '0001_two',
         toLastId: '0003_four',
@@ -97,11 +119,11 @@ describe('the pre-migration backup (02 §3.12.4)', { tags: ['db'] }, () => {
 
   it('names an empty history `empty` rather than omitting it', () => {
     expect(
+      // Narrowed to the three fields the name is built from, so a function that does not need a
+      // key does not demand one — a signature over-wide by a `Pick` is a signature that lies.
       preMigrationBackupName({
-        backupDir: '/x',
         fromLastId: 'empty',
         toLastId: '0000_initial_schema',
-        keep: 3,
         nowMs: 1,
       }),
     ).toBe('empty__0000_initial_schema__1.db');
@@ -115,6 +137,7 @@ describe('the pre-migration backup (02 §3.12.4)', { tags: ['db'] }, () => {
     try {
       const attempt = () =>
         preMigrationBackup(db, {
+          key: null,
           // A path whose parent is a *file*, so `mkdirSync` cannot create the directory.
           backupDir: join(root, 'data.db', 'nope'),
           fromLastId: 'empty',
@@ -128,6 +151,61 @@ describe('the pre-migration backup (02 §3.12.4)', { tags: ['db'] }, () => {
     }
   });
 
+  it('verifies an encrypted snapshot, which a keyless open cannot do', () => {
+    const root = tempDir();
+    const db = seededEncryptedDb(join(root, 'data.db'), DB_KEY);
+    try {
+      // The positive case for every real host. `VACUUM INTO` under SQLite3MultipleCiphers writes an
+      // **encrypted** copy (SP-3, asserted at `M1-T2`), so the `quick_check` that makes it a
+      // rollback path has to open it with the same key.
+      const path = preMigrationBackup(db, {
+        key: DB_KEY,
+        backupDir: join(root, 'backups'),
+        fromLastId: 'empty',
+        toLastId: '0001_one',
+        keep: 3,
+        nowMs: 1_700_000_000_001,
+      });
+      expect(existsSync(path)).toBe(true);
+
+      // And the snapshot really is encrypted — otherwise this test would pass against a build that
+      // wrote plaintext backups, which is the far worse failure.
+      expect(() => new Database(path, { readonly: true }).pragma('quick_check')).toThrow();
+      const copy = openDatabase({ path, key: DB_KEY, readonly: true, role: 'cli', loadVec: false });
+      try {
+        expect((copy.db.prepare('SELECT note FROM things').get() as { note: string }).note).toBe(
+          'kept',
+        );
+      } finally {
+        copy.db.close();
+      }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('refuses an encrypted snapshot it was given the wrong key for', () => {
+    const root = tempDir();
+    const db = seededEncryptedDb(join(root, 'data.db'), DB_KEY);
+    try {
+      // A verification that cannot open the copy must **fail**, not pass. This is the case the
+      // keyless version got wrong in the other direction: it could never open an encrypted copy,
+      // so it never verified one.
+      expect(() =>
+        preMigrationBackup(db, {
+          key: Buffer.alloc(32, 0x99),
+          backupDir: join(root, 'backups'),
+          fromLastId: 'empty',
+          toLastId: '0001_one',
+          keep: 3,
+          nowMs: 1_700_000_000_002,
+        }),
+      ).toThrow(StorageError);
+    } finally {
+      db.close();
+    }
+  });
+
   it('refuses to overwrite an existing copy', () => {
     // `VACUUM INTO` will not overwrite, and that is the behaviour we want: a name collision means
     // two upgrades started in the same millisecond, and replacing the first copy would destroy
@@ -135,6 +213,7 @@ describe('the pre-migration backup (02 §3.12.4)', { tags: ['db'] }, () => {
     const root = tempDir();
     const db = seededDb(join(root, 'data.db'));
     const options = {
+      key: null,
       backupDir: join(root, 'backups'),
       fromLastId: 'empty',
       toLastId: '0000_x',
@@ -550,6 +629,7 @@ describe('the free-space guard (12 §3.7 step 6)', () => {
         db.exec('CREATE TABLE t (x TEXT)');
         expect(() =>
           preMigrationBackup(db, {
+            key: null,
             backupDir: join(dir, 'backups'),
             fromLastId: 'empty',
             toLastId: '0001',
@@ -562,6 +642,7 @@ describe('the free-space guard (12 §3.7 step 6)', () => {
         // being broken.
         expect(
           preMigrationBackup(db, {
+            key: null,
             backupDir: join(dir, 'backups'),
             fromLastId: 'empty',
             toLastId: '0001',
