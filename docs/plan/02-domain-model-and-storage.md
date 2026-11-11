@@ -2712,21 +2712,31 @@ export const BackupManifestSchema = z.object({
 ### 3.15 Export format (JSONL)
 
 ```
-village-export-<groupId|memberId>-<YYYYMMDDTHHmmssZ>/
+comvivo-export-<groupId|memberId>-<YYYYMMDDTHHmmssZ>/
   manifest.json            { exportFormatVersion: 1, scope: 'group'|'member', groupId, memberId?, audience: {...},
-                             generatedAt, appVersion, files: [{ name, records, sha256 }], filters: {...} }
-  group.json               group profile + current constitution YAML/charter
-  members.jsonl            { $type:'member', $v:1, id, displayName, role, status, joinedAt, leftAt }
-  conversations.jsonl  messages.jsonl  attachments.jsonl  files/<sha256>.<ext>   (decrypted; optional --no-files)
-  memories.jsonl (records = 04 §3.9.5 `MemoryExportRecordV1`)  events.jsonl  reminders.jsonl  tasks.jsonl  rotations.jsonl  lists.jsonl (items nested)
-  polls.jsonl (votes nested per 03 visibility)  plans.jsonl (steps nested)  decisions.jsonl
-  constitution_versions.jsonl  proposals.jsonl  audit_events.jsonl (group scope + capability only)
+                             generatedAt, appVersion, files: [{ name, records, sha256 }],
+                             filters: { includeFiles, includeAudit, eligibleLabels } }
+  group.json               group profile + the constitution in force (YAML + charter), via
+                           groups.constitution_version_id — not the highest version number
+  members.jsonl            { $type:'member', $v:1, id, displayName, role, status, joinedAt, leftAt, ... }
+  conversations.jsonl  messages.jsonl  memories.jsonl  events.jsonl  reminders.jsonl  tasks.jsonl
+  lists.jsonl  list_items.jsonl  polls.jsonl  plans.jsonl  plan_steps.jsonl  decisions.jsonl
+  constitution_versions.jsonl  proposals.jsonl
+  audit_events.jsonl       (group scope, opt-in; ordered by chain `seq`)
+  attachments.jsonl  files/<sha256>.<ext>   (M6: decrypted; the `--no-files` filter)
+  rotations.jsonl          (M7)
   me/                      (member scope only) person.json, identities.jsonl, consent_events.jsonl,
-                           private_constraint_policy.json, my_votes.jsonl
+                           private_constraint_policy.json, my_votes.jsonl (M7)
 ```
 - **One JSON object per line.** Records are **domain objects** (camelCase, ISO-8601 instants, labels rendered as `{ readers: { kind, memberIds? }, owner, sensitivity, influence, untrusted }`), not raw rows. Every record has `$type` and `$v`. The zod schemas `ExportRecordSchemas` in `src/export/schemas.ts` are the published contract (docs in 13).
 - **Filtering.** Group export uses audience `{kind:'group'}`, so it contains only data every current member may read. Admins therefore cannot export others' private data (01 §9). Member export uses `{kind:'members', memberIds:{m}}`, plus the `me/` section. Both compute `EligibleLabelSet` through core `computeEligible`, and every labeled table is read through the same `label_id IN eligible` predicate. 03 may add exclusions through an `ExportPolicy` hook (`(record) => 'include' | 'exclude' | 'redact'`).
 - **Streaming.** A worker-thread connection reads in `rid`/`id` order with chunks of 1,000. Output is written to `<dataDir>/exports/` with 0600 permissions, then `tar.gz` (Node `zlib` + `tar-stream`). The dashboard download link (09) expires after 24 h, and `export.cleanup` deletes the files after 7 days.
+- **A table becomes a source when it has a domain mapper.** The records come from `repos/rows.ts` — the same mappers every repository uses — so the export cannot invent a record shape that the feature's own milestone then contradicts. That is why the files above carry a milestone: `attachments.jsonl` and `files/` arrive with the attachments reader (M6), `rotations.jsonl` and `me/my_votes.jsonl` with their features (M7), and `memories.jsonl` carries the storage-level memory record until `M6-T20` replaces it with 04 §3.9.5's `MemoryExportRecordV1`. Adding a source is then one entry in `GROUP_SOURCES`.
+- **Children are sibling files, not nested** (amended in M1-T28; this section previously said "items nested"). Nesting contradicts the streaming read in the bullet above: holding every child of a list or plan in memory before its parent line can be written makes a 10,000-item list unbounded. `list_items.jsonl` carries `listId`, `plan_steps.jsonl` carries `planId`, so a consumer that wants them nested groups them — and one that wants to stream still can. `plan_steps` has no `label_id` of its own: a step's audience is its plan's, so a step whose plan was filtered out is exported with no plan to attach it to, until M7 gives plans a nesting reader.
+- **`members.jsonl` carries `displayName` through a `LEFT JOIN` on `persons`** — the one join in the reader. Without it the file is a list of `mbr_…` ids and so is every reference to a member in the archive. The join is `LEFT` because the membership is the row being exported; a missing person row is a broken foreign key, and the record then carries `null`, which the published schema refuses rather than smoothing into a nameless member.
+- **`audit_events.jsonl` is opt-in.** The capability (`audit.read`) does not exist until M5 and the requester is only known at M9's CLI and dashboard, so the library takes an explicit `includeAudit` that defaults to **false** and records which way it went in `filters.includeAudit`. A group export does not carry it by default: "what every current member may read" (01 §9) is not true of an admin's actions. `filters.includeFiles` is `false` until M6, because no export can carry attachment bodies before the attachments reader lands.
+- **A member export is refused if its subject is not a person in this instance**, before anything is written. The id comes from the caller, so "no such person" is a wrong request rather than a member with nothing — and failing after `mkdir` would leave `export.cleanup` a half-written directory it cannot tell from a finished one.
+- **`ExportRecordSchemas` are loose, and that is the contract.** Records are domain objects, and a domain object gains an optional field whenever a feature does, so within `$v: 1` the format is **additive**: unknown keys pass through rather than failing a consumer built against an older schema. A field is required in a schema when its column is `NOT NULL`; everything else is optional. The rendered label is the exception and is strict, because `renderLabel` lives in this package — drift there is a bug here rather than a domain object growing. `format.contract.int.test.ts` seeds one row in every table an export reads and parses every record against its published schema, which is the only test that catches a source whose row and mapper disagree (the mappers are reached through a cast, so that mismatch is not a type error).
 - **Re-import** (post-1.0) is out of scope. The format is designed for it: stable ids and `$v`.
 
 ### 3.16 Capacity planning
