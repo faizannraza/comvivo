@@ -5,6 +5,7 @@ import {
   type GroupId,
   idSchema,
   type LabelId,
+  type LedgerEntryId,
   type MemberId,
   type PlanId,
   type PlanStepId,
@@ -199,4 +200,59 @@ export function isOpenTask(task: Pick<Task, 'status'>): boolean {
  */
 export function chargesLedger(task: Pick<Task, 'kind' | 'status'>): boolean {
   return task.kind === 'chore' && task.status === 'done';
+}
+
+/* ──────────────────────── The fairness ledger (`02` §3.3.5; `03` §3.9.3) ──────────────────────── */
+
+/**
+ * `02` §3.3.5's `ledger_entries.kind`.
+ *
+ * `03` §3.9.3 makes the ledger an **append-only** record of who carried what, so a correction is a
+ * `reversal` that points at the entry it undoes rather than a deletion — which is why
+ * `reverses_id` exists and why no repository here deletes an entry. A ledger you can edit is a
+ * ledger nobody trusts.
+ */
+export const LEDGER_KINDS = [
+  'task_assigned',
+  'task_done',
+  'coordination',
+  'baseline_adjust',
+  'self_logged',
+  'skipped_unavailable',
+  'declined',
+  'reassigned_in',
+  'reassigned_out',
+  'reversal',
+] as const;
+export type LedgerKind = (typeof LEDGER_KINDS)[number];
+
+/** One entry in the fairness ledger (`02` §3.3.5). */
+export interface LedgerEntry {
+  readonly id: LedgerEntryId;
+  readonly groupId: GroupId;
+  readonly memberId: MemberId;
+  readonly kind: LedgerKind;
+  readonly category: string | undefined;
+  readonly points: number;
+  readonly taskId: TaskId | undefined;
+  readonly rotationId: RotationId | undefined;
+  readonly sourceRef: string | undefined;
+  /** The entry this one undoes (`03` §3.9.3): a correction is an entry, never a deletion. */
+  readonly reversesId: LedgerEntryId | undefined;
+  readonly labelId: LabelId;
+  readonly at: Temporal.Instant;
+}
+
+export interface NewLedgerEntry {
+  readonly id: LedgerEntryId;
+  readonly groupId: GroupId;
+  readonly memberId: MemberId;
+  readonly kind: LedgerKind;
+  readonly points: number;
+  readonly category?: string | undefined;
+  readonly taskId?: TaskId | undefined;
+  readonly rotationId?: RotationId | undefined;
+  readonly sourceRef?: string | undefined;
+  readonly reversesId?: LedgerEntryId | undefined;
+  readonly at: Temporal.Instant;
 }

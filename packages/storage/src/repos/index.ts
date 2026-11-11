@@ -21,11 +21,13 @@ import { SqliteMemorySearch } from '../search/memory-search.js';
 import { SqliteCalendarRepository } from './calendar.js';
 import { SqliteConversationRepository } from './conversations.js';
 import { SqliteGroupRepository } from './groups.js';
+import { SqliteListRepository } from './lists.js';
 import { SqliteMemberRepository } from './members.js';
 import { SqliteMemoryRepository } from './memory.js';
 import { SqliteMessageRepository } from './messages.js';
 import { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 import { SqliteSettingsRepository } from './settings.js';
+import { SqliteTaskRepository } from './tasks.js';
 import { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';
 
 /**
@@ -75,6 +77,8 @@ export interface Repositories {
    */
   readonly memorySearch: SqliteMemorySearch;
   readonly calendar: SqliteCalendarRepository;
+  readonly tasks: SqliteTaskRepository;
+  readonly lists: SqliteListRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
 }
 
@@ -122,6 +126,8 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     memories: new SqliteMemoryRepository({ db, connection, labels, activeSpaceSlug }),
     memorySearch: new SqliteMemorySearch({ db, connection, activeSpaceSlug }),
     calendar: new SqliteCalendarRepository(db, labels),
+    tasks: new SqliteTaskRepository(db, labels),
+    lists: new SqliteListRepository(db, labels),
     embeddingSpaces: spaces,
   };
 }
@@ -129,9 +135,11 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
 export { SqliteCalendarRepository } from './calendar.js';
 export { SqliteConversationRepository } from './conversations.js';
 export { SqliteGroupRepository } from './groups.js';
+export { after, midpoint, SqliteListRepository } from './lists.js';
 export { SqliteMemberRepository } from './members.js';
 export { SqliteMemoryRepository } from './memory.js';
 export { dedupeKey, SqliteMessageRepository } from './messages.js';
 export { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 export { SqliteSettingsRepository } from './settings.js';
+export { SqliteTaskRepository } from './tasks.js';
 export { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';

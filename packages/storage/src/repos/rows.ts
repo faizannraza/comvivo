@@ -22,6 +22,9 @@ import type {
   Event,
   EventAttendee,
   Group,
+  LedgerEntry,
+  List,
+  ListItem,
   Member,
   MemoryItem,
   MemorySource,
@@ -30,6 +33,7 @@ import type {
   Person,
   RetrievalState,
   Setting,
+  Task,
 } from '@comvivo/core';
 import type {
   channelIdentities,
@@ -37,6 +41,9 @@ import type {
   eventAttendees,
   events,
   groups,
+  ledgerEntries,
+  listItems,
+  lists,
   members,
   memoryItems,
   memorySources,
@@ -44,6 +51,7 @@ import type {
   messages,
   persons,
   settings,
+  tasks,
 } from '../schema/index.js';
 
 /** `null` → `undefined`, the only transformation these mappers perform. */
@@ -301,7 +309,104 @@ export function toEventAttendee(row: typeof eventAttendees.$inferSelect): EventA
   };
 }
 
-// The mappers for tasks, lists, polls, plans, decisions and reminders are **not here yet**. They
+export function toTask(row: typeof tasks.$inferSelect): Task {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    title: row.title,
+    notes: opt(row.notes),
+    category: opt(row.category),
+    assigneeMemberId: opt(row.assigneeMemberId),
+    assignmentState: row.assignmentState,
+    requestedByMemberId: opt(row.requestedByMemberId),
+    effortPoints: row.effortPoints,
+    due: row.due,
+    dueAt: opt(row.dueAt),
+    dueTz: opt(row.dueTz),
+    dueLocal: opt(row.dueLocal),
+    recurrence: opt(row.recurrence),
+    rotationId: opt(row.rotationId),
+    occurrenceKey: opt(row.occurrenceKey),
+    proofPolicy: row.proofPolicy,
+    status: row.status,
+    completedAt: opt(row.completedAt),
+    completedByMemberId: opt(row.completedByMemberId),
+    verifiedByMemberId: opt(row.verifiedByMemberId),
+    nudgeCount: row.nudgeCount,
+    planId: opt(row.planId),
+    planStepId: opt(row.planStepId),
+    labelId: row.labelId,
+    sourceRef: opt(row.sourceRef),
+    createdByMemberId: opt(row.createdByMemberId),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toLedgerEntry(row: typeof ledgerEntries.$inferSelect): LedgerEntry {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    memberId: row.memberId,
+    kind: row.kind,
+    category: opt(row.category),
+    points: row.points,
+    taskId: opt(row.taskId),
+    rotationId: opt(row.rotationId),
+    sourceRef: opt(row.sourceRef),
+    reversesId: opt(row.reversesId),
+    labelId: row.labelId,
+    at: row.at,
+  };
+}
+
+export function toList(row: typeof lists.$inferSelect): List {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    name: row.name,
+    kind: row.kind,
+    isDefault: row.isDefault,
+    categoriesEnabled: row.categoriesEnabled,
+    planId: opt(row.planId),
+    labelId: row.labelId,
+    createdByMemberId: opt(row.createdByMemberId),
+    archivedAt: opt(row.archivedAt),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toListItem(row: typeof listItems.$inferSelect): ListItem {
+  return {
+    rid: row.rid,
+    id: row.id,
+    listId: row.listId,
+    groupId: row.groupId,
+    text: row.text,
+    normalizedKey: row.normalizedKey,
+    quantity: opt(row.quantity),
+    category: opt(row.category),
+    note: opt(row.note),
+    checked: row.checked,
+    checkedByMemberId: opt(row.checkedByMemberId),
+    checkedAt: opt(row.checkedAt),
+    addedByMemberId: opt(row.addedByMemberId),
+    addedVia: row.addedVia,
+    sourceMessageId: opt(row.sourceMessageId),
+    position: row.position,
+    labelId: row.labelId,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+// The mappers for polls, plans, decisions and reminders are **not here yet**. They
 // arrive with their repositories (`M1-T19` continues), because a mapper with no caller is code the
 // per-file coverage thresholds correctly refuse — the same judgement that deleted three uncalled
 // helpers at `M1-T17`. The row shapes are mechanical; what they cost to re-derive is less than

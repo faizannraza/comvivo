@@ -26,6 +26,7 @@ import type {
   DecisionId,
   EventId,
   GroupId,
+  LedgerEntryId,
   ListId,
   ListItemId,
   MemberId,
@@ -61,7 +62,13 @@ import type {
   ReminderFiring,
   ReminderStatus,
 } from '../../../coordination/reminders.js';
-import type { NewTask, Task, TaskStatus } from '../../../coordination/tasks.js';
+import type {
+  LedgerEntry,
+  NewLedgerEntry,
+  NewTask,
+  Task,
+  TaskStatus,
+} from '../../../coordination/tasks.js';
 import type { EligibleLabelSet, Label } from '../../../ifc/eligible.js';
 import type { TxToken, WriteResult } from '../uow.js';
 
@@ -164,6 +171,21 @@ export interface TaskReader {
   }): readonly Task[];
   /** The rotation's task for one turn, through `tasks_rotation_occurrence_uq`. */
   byOccurrence(groupId: GroupId, rotationId: RotationId, occurrenceKey: string): Task | undefined;
+  /**
+   * Q-FAIR-2: a member's ledger entries over a window, through `ledger_group_member_at_idx`.
+   *
+   * **Not label-filtered.** `03` §3.9.3's fairness view is about *load*, not content: an entry
+   * carries points and a kind, and the task it came from may be one the reader cannot see. The
+   * alternative — filtering by the entry's label — would make one member's fairness picture depend
+   * on which chores they happen to be able to read, which is not a fairness picture at all. The
+   * entries carry no title and no notes, which is what makes that safe.
+   */
+  ledgerFor(query: {
+    readonly groupId: GroupId;
+    readonly memberId: MemberId;
+    readonly from: Temporal.Instant;
+    readonly to: Temporal.Instant;
+  }): readonly LedgerEntry[];
 }
 
 export interface TaskRepository {
@@ -186,10 +208,16 @@ export interface TaskRepository {
     },
   ): WriteResult<Task>;
   /**
-   * Complete a task.
+   * Complete a task, **posting the fairness ledger in the same transaction**.
    *
    * `completedByMemberId` is required, not optional: `03`'s ledger charges the completer, and a
    * completion with nobody named is a row the ledger cannot post — so it would silently not count.
+   *
+   * The ledger entry is written here rather than by a caller, and only when `core`'s own
+   * `chargesLedger` says so. Two reasons, and the second is the one that decides it: the *decision*
+   * stays in `core` where one rule serves every caller, and the *write* is atomic with the
+   * completion — a ledger posted in a separate transaction could disagree with the task that
+   * caused it, and `03` §3.9.3 reads the ledger as the record of who carried what.
    */
   complete(
     uow: TxToken,
@@ -200,8 +228,18 @@ export interface TaskRepository {
       readonly completedByMemberId: MemberId;
       readonly at: Temporal.Instant;
       readonly verifiedByMemberId?: MemberId | undefined;
+      /** The id for the ledger entry, when one is posted. Supplied so the caller can trace it. */
+      readonly ledgerEntryId: LedgerEntryId;
     },
   ): WriteResult<Task>;
+  /**
+   * Append a ledger entry directly (`03` §3.9.3).
+   *
+   * For the kinds a task completion does not cause — `coordination`, `baseline_adjust`,
+   * `self_logged`, and the `reversal` that corrects an earlier entry. Append-only: there is no
+   * update and no delete, because a ledger you can edit is a ledger nobody trusts.
+   */
+  postLedger(uow: TxToken, entry: NewLedgerEntry, label: Label): WriteResult<LedgerEntry>;
   setStatus(
     uow: TxToken,
     groupId: GroupId,

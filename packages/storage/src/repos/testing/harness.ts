@@ -28,12 +28,16 @@ import {
   type EntityId,
   type EventId,
   type GroupId,
+  type LedgerEntryId,
+  type ListId,
+  type ListItemId,
   type Logger,
   type MemberId,
   type MemoryId,
   type MessageId,
   type PersonId,
   SystemClock,
+  type TaskId,
   TypeIdGenerator,
   UTC,
 } from '@comvivo/shared';
@@ -281,4 +285,20 @@ export function eventId(tag: string): EventId {
 
 export function subscriptionId(tag: string): CalendarSubscriptionId {
   return `csub_${suffix(tag)}` as CalendarSubscriptionId;
+}
+
+export function listId(tag: string): ListId {
+  return `lst_${suffix(tag)}` as ListId;
+}
+
+export function listItemId(tag: string): ListItemId {
+  return `lsti_${suffix(tag)}` as ListItemId;
+}
+
+export function taskId(tag: string): TaskId {
+  return `tsk_${suffix(tag)}` as TaskId;
+}
+
+export function ledgerEntryId(tag: string): LedgerEntryId {
+  return `lde_${suffix(tag)}` as LedgerEntryId;
 }

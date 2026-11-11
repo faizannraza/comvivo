@@ -244,23 +244,48 @@ describe('createTestDb({ encrypted: true })', { tags: ['db', 'slow'] }, () => {
     expect(() => openWith(Buffer.alloc(32, 0x7f))).toThrow();
   });
 
-  it('is slower than the in-memory clone, which is why it is opt-in', () => {
-    // Recorded rather than asserted tightly: the claim in `11` §3.1.8 is that encryption is off by
-    // default "for speed", and this is the measurement behind it.
-    createTestDb({ encrypted: true }).close();
-    const encrypted = performance.now();
-    createTestDb({ encrypted: true }).close();
-    const encryptedMs = performance.now() - encrypted;
+  it('records what the encrypted clone costs, without asserting an ordering', () => {
+    // `11` §3.1.8's claim is that encryption is off by default "for speed", and this is the
+    // measurement behind it.
+    //
+    // **An earlier version asserted that the encrypted clone is slower, from one sample each, and
+    // it flaked** — a run measured 2.2 ms encrypted against 6.7 ms plain. `M1-T15`'s own STATUS
+    // note had already said why that is wrong ("one sample can be swallowed by a GC pause on a
+    // shared runner, and a flaky perf gate gets deleted rather than fixed"); the lesson was applied
+    // to the clone-timing test in the same file and not to this one. Its comment even said
+    // "recorded rather than asserted tightly" while asserting an ordering tightly.
+    //
+    // So: medians over several samples, **printed**, with the assertion on an absolute budget
+    // rather than on a comparison. The ordering is real on average and is not a per-run fact at
+    // this scale, so it is not something a gate can hold. The number that documents the decision
+    // is the one in the output.
+    const samples = 7;
+    const measure = (make: () => { close(): void }): number => {
+      const times: number[] = [];
+      // One discarded run first: the template is built lazily, and the first caller pays for it.
+      make().close();
+      for (let index = 0; index < samples; index += 1) {
+        const started = performance.now();
+        make().close();
+        times.push(performance.now() - started);
+      }
+      const sorted = times.toSorted((left, right) => left - right);
+      return sorted[Math.floor(sorted.length / 2)] ?? Number.NaN;
+    };
 
-    createTestDb().close();
-    const plain = performance.now();
-    createTestDb().close();
-    const plainMs = performance.now() - plain;
+    const encryptedMs = measure(() => createTestDb({ encrypted: true }));
+    const plainMs = measure(() => createTestDb());
+    const report = `clone medians over ${String(samples)}: encrypted ${encryptedMs.toFixed(2)} ms, plain ${plainMs.toFixed(2)} ms`;
+    console.info(report);
 
-    expect(
-      encryptedMs,
-      `encrypted ${encryptedMs.toFixed(1)}ms vs plain ${plainMs.toFixed(1)}ms`,
-    ).toBeGreaterThan(plainMs);
+    // Both paths stay inside a budget a test suite can afford. `M1-T15`'s AC is 5 ms for the
+    // in-memory clone; the encrypted one copies a file and is allowed more, but not unboundedly —
+    // a regression that made it hundreds of milliseconds would make every encrypted test slow.
+    expect(plainMs, report).toBeLessThan(25);
+    expect(encryptedMs, report).toBeLessThan(100);
+    // Non-vacuity: a measurement of zero would mean the loop did not run.
+    expect(encryptedMs, report).toBeGreaterThan(0);
+    expect(plainMs, report).toBeGreaterThan(0);
   });
 });
 
