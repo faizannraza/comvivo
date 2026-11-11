@@ -51,7 +51,11 @@ export {
 } from './config/precedence.js';
 export { type Config, configSchema, defaultConfig } from './config/schema.js';
 export {
+  CHILD_ENV_ALLOWLIST,
+  childEnv,
+  isSecretEnvName,
   isSecretName,
+  loadSecrets,
   type ResolvedSecret,
   resolveSecret,
   resolveSecrets,
@@ -59,6 +63,7 @@ export {
   type SecretIo,
   type SecretName,
   type SecretSource,
+  scrubSecretsFromEnv,
 } from './config/secrets.js';
 export {
   AppError,
