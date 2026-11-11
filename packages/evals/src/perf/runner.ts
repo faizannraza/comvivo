@@ -55,6 +55,13 @@ export interface BenchDefinition<Ctx = void> {
    * "iterations per second" and the budget is in jobs per second.
    */
   readonly opsPerIteration?: number;
+  /**
+   * The budget this row is checked against, in `unit` (`11` §3.9.1, `02` §3.16.4).
+   *
+   * On the definition, so the number lives next to the thing it constrains and travels into the
+   * result. A row with no budget is a trend row, which is what `11` §3.9.1's µ line is.
+   */
+  readonly budget?: number;
 }
 
 /**
@@ -133,7 +140,7 @@ export async function measure<Ctx>(
         const started = hrtime.bigint();
         await definition.run(context);
         const elapsed = Number(hrtime.bigint() - started);
-        histogram.record(elapsed < 1 ? 1 : elapsed);
+        histogram.record(Math.max(elapsed, 1));
       }
       reps.push(percentilesOf(histogram));
     } finally {
@@ -160,6 +167,7 @@ export async function measure<Ctx>(
     gitSha: options.gitSha,
     repetitions,
     iterations,
+    ...(definition.budget === undefined ? {} : { budget: definition.budget }),
   };
 }
 
@@ -186,6 +194,7 @@ export interface ErasedBench {
   readonly id: BenchResult['id'];
   readonly name: string;
   readonly unit: BenchResult['unit'];
+  readonly budget?: number;
   readonly measure: (options: BenchOptions) => Promise<BenchResult>;
 }
 
@@ -195,6 +204,7 @@ export function defineBench<Ctx>(definition: BenchDefinition<Ctx>): ErasedBench 
     id: definition.id,
     name: definition.name,
     unit: definition.unit,
+    ...(definition.budget === undefined ? {} : { budget: definition.budget }),
     measure: async (options: BenchOptions) => measure(definition, options),
   };
 }

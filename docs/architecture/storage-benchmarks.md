@@ -1,73 +1,187 @@
 # Storage benchmarks
 
-Measured numbers for the `02` §3.16.4 operations. **Every figure here was measured, never
-estimated**, and every table says on what hardware and which Node — a throughput number without
-those is decoration.
+What `packages/storage` actually costs, measured. This replaces the estimates `02` §3.16.2 and
+§3.16.4 carried as **U7** ("to be replaced by measurements"), which is `M1-T33`'s job.
 
-Reproduce with:
+Everything here is reproducible from the repository:
 
-```sh
-pnpm -F @comvivo/storage bench:storage
+```bash
+# the fixture plus every latency row, with each row checked against its budget
+COMVIVO_BENCH_PROFILE=stress-50k-1m pnpm bench --filter storage/bench --gate
+
+# the second KNN row: 50k vectors in one vec0 partition
+COMVIVO_BENCH_PROFILE=knn-50k pnpm bench --filter storage/bench --gate
+
+# `02` §3.16.2's per-row sizes, from `dbstat`
+COMVIVO_BENCH_PROFILE=stress-50k-1m pnpm exec tsx packages/storage/bench/sizes.ts
 ```
 
-The script is `packages/storage/spike/bench.ts`. It is deliberately **not** a test: a benchmark
-that fails CI because a laptop was busy teaches people to ignore CI. `M1-T32` builds the bench
-infrastructure with a recorded baseline and a 20% regression gate; `M1-T33` measures the full
-§3.16.4 table against the seed profiles.
+Each benchmark declares its own budget, so `--gate` exits non-zero when a row misses one and there
+is no table here for the code to drift from. A trend run stays non-gating, which is what `11`
+§3.9.3 asks for: `main` records the series, a PR is gated on the interleaved A/B ratio, and the
+absolute budgets are hard gates on the reference runners at release.
 
-## What M1-T2 measured, and the one result that changed a default
+## The fixture
 
-<!-- BEGIN:BENCH-M1-T2 -->
-**Host:** darwin-arm64 · Apple M1 · 16 GiB · kernel 23.6.0
-**Node:** v26.13.0
+`packages/storage/src/perf/seed.ts` generates it from `02` §3.16.5's distributions — Zipf(1.1)
+vocabulary, lognormal message length (median 8 tokens, σ = 0.8), a diurnal clock with peaks at
+08:00 and 20:00, Zipf senders with one organizer carrying 30%, the 85/10/4/1 label mix, and vectors
+clustered around 64 unit centroids per group with σ = 0.35 noise.
 
-| Metric | Value | Notes |
-|---|---|---|
-| Insert throughput, plain (50000 rows, one transaction) | **1,097,203 rows/s** | 3.3 MiB on disk |
-| Insert throughput, SQLCipher (50000 rows, one transaction) | **741,649 rows/s** | 3.4 MiB on disk · 68% of plain |
-| KNN k=16 over 10,000 vectors (384d, SQLCipher, 8 MiB cache) | **p50 103.0 ms** | p95 105.4 ms · 16 MiB database · 15 queries · label filter applied |
-| KNN k=16 over 10,000 vectors (384d, SQLCipher, 192 MiB cache) | **p50 1.0 ms** | p95 1.3 ms · 16 MiB database · 15 queries · label filter applied |
-| KNN k=16 over 50,000 vectors (384d, SQLCipher, 8 MiB cache) | **p50 508.2 ms** | p95 517.4 ms · 77 MiB database · 15 queries · label filter applied |
-| KNN k=16 over 50,000 vectors (384d, SQLCipher, 192 MiB cache) | **p50 5.0 ms** | p95 5.7 ms · 77 MiB database · 15 queries · label filter applied |
-| FTS5 index build, 135,000 messages | **0.4 s** | 368,889 rows/s, one transaction |
-| FTS5 query over 135,000 messages (scoped, bm25, limit 20) | **p50 13.83 ms** | p95 14.05 ms · 25 queries |
-| libsodium-wrappers secretstream seal (SP-2) | **372.1 MB/s** | 1024 × 64 KiB chunks · gate is ≥ 40 MB/s **on a Pi 5** (owner ask H-10); this machine is not the gate |
-<!-- END:BENCH-M1-T2 -->
+The distributions are the point. A million identical sentences give a different FTS query plan from
+a million Zipf-distributed ones, and uniform random vectors in 384 dimensions are nearly
+equidistant, which would make both KNN timing and recall meaningless.
 
-### The page-cache cliff
+| profile | messages | memories | vectors | generation | rows/s | database |
+|---|---|---|---|---|---|---|
+| `release-small` | 6,000 | 2,000 | 2,000 | 0.40 s | 20,048 | 10.5 MB |
+| `knn-50k` | 5,000 | 50,000 | 50,000 | 6.1 s | 9,084 | 148.0 MB |
+| `stress-50k-1m` | 1,000,000 | 50,000 | 50,000 | **33.7 s** | 31,156 | 686.7 MB |
 
-The first run of this benchmark reported **507 ms p50** for a 50,000-vector KNN query and sent me
-looking for a bug in the measurement. There was none.
+One run each, and the precision to read them at is about ±5%: three runs of the same code on the
+same machine gave 33.3 s, 33.9 s and 33.7 s for the stress profile and 5.7–6.1 s for `knn-50k`.
+The row counts and the database sizes, by contrast, are exact and identical every time — the
+fixture is seeded, and `seed.int.test.ts` pins a fingerprint of its contents.
 
-With SQLCipher and a page cache smaller than the vector index, **every KNN query re-reads and
-re-decrypts the whole partition.** The index is about 1.6 KiB per vector, so 50,000 × 384-d is
-77 MiB — nearly ten times an 8 MiB cache. Raise the cache above the index and the same query takes
-5 ms.
+`knn-50k` is slower per row because almost all of its rows are memories, and a memory costs a
+vector insert and two FTS indexes where a message costs one.
 
-| 50k × 384-d, k=16, eligible-label filter | p50 |
+`02` §3.16.5's target for the stress profile is "≤ 4 min on a GitHub `ubuntu-latest` runner and
+≤ 15 min on a Pi 5". 33.7 s on the machine below leaves ample headroom for a slower runner.
+
+### The machine
+
+| | |
 |---|---|
-| SQLCipher, 8 MiB page cache | **508 ms** |
-| SQLCipher, 192 MiB page cache | **5 ms** |
-| plaintext, either cache | 15 ms |
+| CPU | Apple M1 (arm64) |
+| Node | v26.13.0 |
+| SQLite | 3.53.4 via `better-sqlite3-multiple-ciphers` 13.0.3, `sqlite-vec` 0.1.9 |
+| Pragmas | `cache_size = -196608` (192 MiB), `journal_mode = wal`, `synchronous = NORMAL`, `page_size = 4096` |
+| Encryption | off for these runs — see *What is not measured* |
 
-Three things follow, and they are now in `02` §3.6.2 rather than in this file alone:
+The page cache matters more than anything else in this table. `02` §3.16.4's own note records a
+100× difference on the same KNN query between an 8 MiB and a 192 MiB cache; every figure below is
+on the right side of that cliff, which the pragma line above is evidence of rather than a claim.
 
-1. **`cacheSizeKiB` defaults to 192 MiB.** It is not a tuning knob: the small-cache figure is 8×
-   outside §3.16.4's 60 ms KNN budget, and the large-cache figure is twelve times inside it.
-2. **`comvivo doctor` warns when the cache is smaller than the largest vector partition.** The
-   symptom otherwise is "search feels slow", with nothing in the logs and nothing in a test.
-3. **The encrypted build is *faster* than the plaintext one above the cliff** (5 ms against 15 ms),
-   because a decrypted page stays in SQLite's cache while a plaintext page is re-read through the
-   OS. Encryption at rest costs 32% of insert throughput and nothing at all on this read path.
+## `02` §3.16.4 — latencies
 
-### Substitutions, stated rather than glossed
+Measured on `stress-50k-1m` (1M messages, 50k memories, 5 groups; the largest group holds 600k
+messages and 30k memories), except the 50k-partition KNN row, which is `knn-50k` by definition.
+Five repetitions of 200 iterations each, reporting the median of the repetitions' percentiles —
+`11` §3.9.2's protocol.
 
-- **No Raspberry Pi 5 numbers yet.** `02` §3.16.4's whole table is specified on a Pi 5, and the
-  owner ask is **H-10** in `docs/plan/STATUS.md`. Until then every row here is darwin-arm64, which
-  is faster than the target on single-core work and has far more memory bandwidth — so these
-  numbers are a **ceiling**, not evidence that the budgets hold. `scripts/bench/pi.sh` is the
-  one-command session when the hardware is available.
-- **SP-2's gate is a Pi 5 gate.** The secretstream figure below is from this machine and is
-  therefore not the measurement that decides `libsodium-wrappers` against `sodium-native`
-  (`02` D13). It is recorded because a number three orders of magnitude above the threshold makes
-  the switch unlikely, not because it settles it.
+| Operation | p50 | p95 | Budget | |
+|---|---|---|---|---|
+| Ingestion transaction (insert + FTS trigger + enqueue) | 0.65 ms | **0.93 ms** | ≤ 3 ms of the 20 ms spine budget | ✅ 31% |
+| Recent window, 50 messages (Q-CTX-1) | 0.64 ms | **0.71 ms** | 5 ms | ✅ 14% |
+| Memory FTS (Q-CTX-2), word mode | 0.15 ms | **0.16 ms** | 20 ms | ✅ 1% |
+| Memory FTS, trigram mode | 1.37 ms | **1.49 ms** | 30 ms | ✅ 5% |
+| Message FTS, group-scoped | 0.05 ms | **0.06 ms** | 50 ms (catch-up only) | ✅ <1% |
+| KNN k=64, 384-d, 30k vectors in partition | 12.88 ms | **13.48 ms** | 60 ms | ✅ 22% |
+| KNN k=64, 384-d, 50k vectors in one partition | 20.32 ms | **21.15 ms** | 60 ms | ✅ 35% |
+| Hydrate 200 memories (zod-validated) | 2.30 ms | **3.19 ms** | 15 ms | ✅ 21% |
+| Storage share of a context build | 14.84 ms | **16.14 ms** | ≤ 150 ms total (`01` §11.10) | ✅ 11% |
+| Job claim (1 round), 10k queued | 2.18 ms | **2.39 ms** | 5 ms | ✅ 48% |
+| Retention chunk (1,000 messages + FTS) | 12.19 ms | **20.92 ms** | 50 ms (`slowTxMs`) | ✅ 42% |
+| Cold open + key check + migration check, 687 MB | 1.34 ms | **1.44 ms** | 300 ms of the 3 s cold start | ✅ <1% |
+
+Every row is inside its budget, so there is no deviation to file in `15`. The percentage is the p95
+against the budget. The queue's own round trip, which `11` §3.9.1's `B4` states as a floor, is
+**2,386 ops/s** against ≥ 500 (`micro:queue.roundtrip`), 21% of that floor.
+
+### What the exercise was for: two query plans
+
+Both findings are the same shape, and neither is visible to a correctness test, because the answer
+is identical either way — only the work is different.
+
+**1. A group predicate beats a 200-element id list.** `hydrate` of 200 memories measured 22.5 ms
+p95 against a 15 ms budget on the first run. `EXPLAIN QUERY PLAN`:
+
+```
+WHERE id IN (<200 ids>) AND group_id = ?     → SEARCH USING memory_fingerprint_idx (group_id=?)
+                                               17.0 ms p50
+WHERE id IN (<200 ids>) AND +group_id = ?    → SEARCH USING memory_items_id_unique (id=?)
+                                               0.438 ms p50
+```
+
+SQLite drove the query from the group index and filtered 30,000 rows. The unary `+` makes the group
+term unusable as an index constraint while still evaluating it — so **`I4` is unchanged** and the id
+index drives. 39× on the same 200 rows.
+
+**2. An eligibility list beats the id list too, and the small group is the slow one.** Fixing the
+group term exposed the same contest on the next predicate. Every IFC-filtered read carries
+`label_id IN (<the audience's labels>)`, and how many labels that is depends on how many members
+the group has:
+
+| group | labels | `label_id IN (…)` | `+label_id IN (…)` |
+|---|---|---|---|
+| `knn-50k`, 20 members, 50k memories | 42 | 13.10 ms (`memory_label_idx`) | **0.206 ms** (id index) |
+| `release-small`, 5 members, 2k memories | 12 | 0.415 ms (`memory_label_idx`) | **0.158 ms** (id index) |
+| `stress-50k-1m`, 150 members, 30k memories | 302 | 0.210 ms (id index) | 0.215 ms (id index) |
+
+64× at 50k memories, and the plan flips on **group size**, not data size: a short eligibility list
+looks cheaper to the planner than a 200-element id list, so the fast plan is the one a *large* group
+gets. A family group is the common case and was getting the slow one. A database with no
+`sqlite_stat1` — which is every fresh install — leaves the planner guessing, so this is not a
+pathology of one dataset.
+
+The same pair of hints belongs on the KNN hydration half, where the planner drove from the group
+index on *every* profile: 4.65 ms on `knn-50k` and 2.76 ms on `stress-50k-1m` against **0.034 ms**
+when the 64-element rid list drives. That was a fifth of the KNN row's latency, hidden inside a
+60 ms budget — which is why the row moved from 26.30 ms to 21.15 ms (and 17.09 → 13.48 ms on the
+stress profile) when the hints went in.
+
+`messages.hydrate` has the same shape and needs no hint: measured, it drives from the id index on
+both fixtures (0.137 ms against 0.140 ms with the hint), so there is nothing to steer.
+
+`eqUnindexed` and `inArrayUnindexed` in `db/drizzle.ts` are the two hints, with the measurements on
+them, and `db/plan-hints.int.test.ts` pins the **plan** — including the assertion that the form
+without the hint still picks the index being steered away from, so that a future SQLite making
+these hints unnecessary is noticed rather than carried forever.
+
+This is what a measurement task is for. The estimates in §3.16.4 were 4/8 ms for hydrate and
+12/25 ms for KNN, and nothing in the test suite could have noticed either plan: every correctness
+test hydrates a handful of rows from a fixture of a dozen.
+
+## `02` §3.16.2 — per-row sizes
+
+From `dbstat`, on the same fixture. "Row" is the base table's pages; the rest is what hangs off it.
+
+| | rows | row | indexes | FTS | vector | total | estimate |
+|---|---|---|---|---|---|---|---|
+| Message (avg text ≈ 96 B) | 1,000,000 | 0.33 KB | 0.17 KB | 0.06 KB | — | **0.55 KB** | ≈ 0.7 KB |
+| Active memory | 50,000 | 0.74 KB | 0.17 KB | 0.43 KB | 1.62 KB | **2.97 KB** | ≈ 3.6 KB |
+
+Both estimates were conservative, in the safe direction: the capacity figures in §3.16.3 (13 MB for
+a family-year of messages, 27 MB for a busy year of memories) have about 20% more headroom than the
+plan assumed.
+
+The vector dominates a memory, at 1.62 KB for 384 float32 dimensions plus vec0's chunk metadata —
+55% of the row's total cost. That is the number to remember when `04` §3.8.6 considers a second
+embedding space: a space is a table, so two spaces is two copies.
+
+## What is not measured, and why
+
+- **The Raspberry Pi 5 column.** `14`'s M1 cut-line allows it to slip to M6 ("Pi numbers may slip
+  to M6, but x64 numbers must land"), and `11` §3.9.4 makes the Pi protocol a signed manual
+  attestation at every release candidate from M13. It needs hardware this session does not have.
+  Recorded as a `[human]` item in `STATUS.md` → *Owner asks*. The Pi *budgets* in §3.16.4 stay as
+  estimates until then, clearly marked as such.
+- **x64.** These numbers are arm64 (Apple M1). `.github/workflows/bench.yml` runs the same suite on
+  `ubuntu-24.04` and `ubuntu-24.04-arm` on every push to `main`, so the x64 column fills in from
+  CI's own artefacts the first time this branch merges — in the same format, by the same code.
+- **Encryption on.** `02` §3.6.4 owns the SQLCipher comparison and `M1-T2`'s spike measured it;
+  repeating it here would be a second source of truth for the same number. The fixture is
+  unencrypted so these figures isolate the query plans and the page cache.
+- **`B2`, `B3`, `B5` and `B6` of `11` §3.9.1.** Those are *engine* benchmarks — context build, the
+  full hybrid retrieval, server cold start and RSS — and they need `M6`'s retrieval and `M3`'s
+  server. The storage share of each is in the table above; the whole is measured by the milestone
+  that owns it.
+- **The message FTS reader.** `02` §3.16.4 marks that row "catch-up only", and catch-up is `M8`;
+  the index exists and is trigger-maintained from `M1-T13`, but nothing queries it yet. The row
+  measures the query `02` §3.4 specifies, built with the product's own `scopeToken` and label
+  filter, and is labelled as such in the benchmark.
+- **The attachment share of a retention chunk.** `02` §3.16.4's row says "1,000 messages + FTS +
+  attachments"; `message_attachments` has no repository until `M6`, so the measured chunk is
+  messages and their FTS postings. The attachment delete is a blob unlink per row, which `M1-T25`
+  measured separately in the blob store's own suite.

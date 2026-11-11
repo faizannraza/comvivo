@@ -2748,7 +2748,22 @@ comvivo-export-<groupId|memberId>-<YYYYMMDDTHHmmssZ>/
 | Family (00 §7 cost target) | 5 | 200 | 5 | 30 | 8 × 250 KB |
 | Busy (parents-class / club) | 60 | 1,500 | 25 | 150 | 40 × 250 KB |
 
-#### 3.16.2 Per-row size estimates (SQLCipher page overhead included; to be validated by `dbstat` in M1-T25)
+#### 3.16.2 Per-row sizes — **measured** (`M1-T33`)
+
+> Measured with `dbstat` on the `stress-50k-1m` fixture (1M messages, 50k memories), Apple M1,
+> SQLite 3.53.4, 4 KiB pages. `docs/architecture/storage-benchmarks.md` has the method and the
+> command. Both original estimates were conservative by about 20%, which is the safe direction.
+
+| Item | Row | Indexes | FTS | Vector | Total | Estimate was |
+|---|---|---|---|---|---|---|
+| Message (avg text ≈ 96 B) | 0.33 KB | 0.17 KB | 0.06 KB | — | **0.55 KB** | ≈ 0.7 KB |
+| Active memory | 0.74 KB | 0.17 KB | 0.43 KB | 1.62 KB | **2.97 KB** | ≈ 3.6 KB |
+
+The vector is **55%** of a memory's cost, which is the figure to carry into `04` §3.8.6: an
+embedding space is a *table*, so a second space is a second copy.
+
+The original estimates, kept for the rows `M1-T33` did not measure (a superseded memory, a turn
+trace, an audit event, a usage record and a job all need the milestone that writes them):
 
 | Item | Row + indexes | Index structures | Total |
 |---|---|---|---|
@@ -2775,7 +2790,54 @@ comvivo-export-<groupId|memberId>-<YYYYMMDDTHHmmssZ>/
 
 Audit growth dominates long-run size in busy groups. If it exceeds 25% of the DB, 03 can opt into `audit.compactAfterDays` (fold old events into signed checkpoints); that is not in v1. Stress fixture: 1M messages + 50k memories ≈ 0.7 GB + 0.18 GB ≈ **0.9 GB**.
 
-#### 3.16.4 Expected latencies on Raspberry Pi 5 (8 GB, NVMe; all **estimates, U7**, to be replaced by M1-T25 measurements)
+#### 3.16.4 Latencies — **measured on arm64** (`M1-T33`); the Pi column remains an estimate
+
+> **Measured** on the `stress-50k-1m` fixture, Apple M1 (arm64), Node v26.13.0, `cache_size`
+> 192 MiB, five repetitions of 200 iterations (`11` §3.9.2's protocol).
+> `docs/architecture/storage-benchmarks.md` carries the method, the machine and the reproduction
+> command. **Every row is inside its budget**, so there is no `15` deviation.
+>
+> | Operation | p50 | p95 | Budget | p95 of budget |
+> |---|---|---|---|---|
+> | Ingestion transaction | 0.65 ms | 0.93 ms | ≤ 3 ms | 31% |
+> | Recent window, 50 msgs | 0.64 ms | 0.71 ms | 5 ms | 14% |
+> | Memory FTS, word | 0.15 ms | 0.16 ms | 20 ms | 1% |
+> | Memory FTS, trigram | 1.37 ms | 1.49 ms | 30 ms | 5% |
+> | Message FTS, group-scoped | 0.05 ms | 0.06 ms | 50 ms | <1% |
+> | KNN k=64, 30k in partition | 12.88 ms | 13.48 ms | 60 ms | 22% |
+> | KNN k=64, 50k in one partition | 20.32 ms | 21.15 ms | 60 ms | 35% |
+> | Hydrate 200 memories | 2.30 ms | 3.19 ms | 15 ms | 21% |
+> | Storage share of context build | 14.84 ms | 16.14 ms | ≤ 150 ms total | 11% |
+> | Job claim, 10k queued | 2.18 ms | 2.39 ms | 5 ms | 48% |
+> | Retention chunk, 1,000 msgs | 12.19 ms | 20.92 ms | 50 ms | 42% |
+> | Cold open + checks, 687 MB | 1.34 ms | 1.44 ms | 300 ms | <1% |
+>
+> **Every budget is declared on its benchmark**, not in a table beside it, and `pnpm bench --gate`
+> fails on a miss (`11` §3.9.3). The figures above are what that gate measured.
+>
+> **The findings are two query plans**, both of which a correctness test cannot see, because the
+> rows returned are identical and only the work differs:
+>
+> 1. `id IN (<200>) AND group_id = ?` drives from the group index and filters 30,000 rows — 17.0 ms
+>    p50 against 0.438 ms when `+group_id = ?` sends it to the id index. Hydrate was 22.5 ms p95
+>    against a 15 ms budget until this was found.
+> 2. The eligibility list wins the same contest, and **which plan a group gets depends on how many
+>    members it has**: 42 labels made the planner prefer `memory_label_idx` (13.10 ms against
+>    0.206 ms with `+label_id`), 12 labels likewise (0.415 against 0.158 ms), 302 labels did not.
+>    So the *small* group — the common case — was getting the slow plan. The same pair of hints on
+>    the KNN hydration half is 4.65 ms → 0.034 ms, a fifth of that row's latency.
+>
+> `eqUnindexed` and `inArrayUnindexed` in `db/drizzle.ts` are the hints, with the measurements on
+> them; `db/plan-hints.int.test.ts` pins the plan, including the assertion that the form without
+> the hint still picks the index being steered away from. Both comparisons are still evaluated, so **`I4` is
+> unchanged** — a hint about *how* to find rows, never about which rows may be returned.
+> `messages.hydrate` needs no hint: measured, it drives from the id index on both fixtures.
+>
+> **The Pi 5 column below stays an estimate.** `14`'s M1 cut-line allows the Pi numbers to slip to
+> M6, `11` §3.9.4 makes the Pi run a signed manual attestation from M13, and it needs hardware.
+> Tracked as a `[human]` owner ask in `STATUS.md`.
+
+The original Pi 5 estimates (8 GB, NVMe), unchanged:
 
 > **Every KNN row below assumes a page cache larger than the vector index** (§3.6.2's 192 MiB
 > default). `M1-T2` measured the same query at 508 ms p50 with an 8 MiB cache and 5 ms with 192 MiB
@@ -2814,9 +2876,25 @@ export interface SeedProfile {
 - **Time:** spread over `days` with a diurnal weight curve (peaks at 08:00 and 20:00 local). Senders follow Zipf over members (one "organizer" carrying about 30%).
 - **Labels:** 85% group, 10% DM `{m}`, 4% private-owner `{m}`, 1% subgroup sets. Sensitivity is 90/8/2.
 - **Vectors:** `normalize(centroid_c + N(0, σ))` with 64 random unit centroids per group. Uniform random vectors in high dimensions are nearly equidistant, which would make KNN timing and recall unrealistic.
-- **Write path:** raw prepared statements in 10k-row transactions with triggers enabled (so FTS is realistic) and vec inserts batched. It reports rows per second. Target: stress profile generated in ≤ 4 min on a GitHub `ubuntu-latest` runner and ≤ 15 min on a Pi 5 (estimates).
-- **Caching:** output goes to `.cache/perf-fixtures/<profile>-<hash(params, schemaLastId)>.db` (gitignored) and is reused across runs.
-- **CLI:** `pnpm --filter @comvivo/storage seed --profile stress-50k-1m [--out path] [--seed 42]`.
+- **Write path:** raw prepared statements in 10k-row transactions with triggers enabled (so FTS is realistic) and vec inserts batched. The statements are raw; the **transactions are not** — each batch runs inside `store.write`, because §3.7.2 reserves transaction opening for `SqliteStore` and a raw `connection.transaction` would lose the `IMMEDIATE` lock, the synchronous-callback guard and `afterCommit` ordering (`M1-T33`; the generator's store raises `slowTxMs` to 60 s, since a 10k-row batch is *expected* to take a few hundred milliseconds and a hundred `storage.slow_tx` lines would teach a reader to ignore the log). It reports rows per second. Target: stress profile generated in ≤ 4 min on a GitHub `ubuntu-latest` runner and ≤ 15 min on a Pi 5 (estimates). **Measured** (`M1-T33`): **33.7 s** at 31,156 rows/s (±5% run to run) on an Apple M1 — the 1M messages, 50k memories and 50k vectors in full, into a 686.7 MB database.
+- **A fifth profile, `knn-50k`** (added in `M1-T33`): one group with 50k memories and 5k messages, 6.1 s to generate. §3.16.4 has a row for "KNN k=64 over 50k vectors **in one partition**" and none of the four profiles above produces one — the stress profile's largest group holds 30k memories by this section's own definition, and its 50k total is spread across five groups, which is a different query because a vec0 partition key *is* the group.
+- **The vocabularies are generated in-process from the seed**, not committed as `fixtures/perf/vocab/<lang>.txt` (`M1-T33`). Same guarantee — the same seed gives the same words, so two runs index the same terms — without 40,000 lines of synthetic noise in the repository. `seed.test.ts` pins the first few words per language, so a change to the generator is visible rather than silent. `ja` and `ar` use transliterated syllables: the trigram tokenizer's behaviour on CJK is §3.6.1's own subject and is measured there rather than smuggled into every text benchmark.
+- **Where it lives:** `packages/storage/src/perf/seed.ts` takes an **open, migrated** database rather than opening one. Locating the migrations means reaching for a package's `testing` subpath, which `.dependency-cruiser.cjs` refuses from production code — and the layering is better anyway: a generator that also decided where the database lived could not be pointed at an existing one.
+- **Caching — amended at `M1-T33`: per process, not on disk.** `bench/fixture.ts` builds a
+  file-backed fixture in a temp directory and reuses it for every benchmark in the run, then
+  deletes it. The `.cache/perf-fixtures/<profile>-<hash(params, schemaLastId)>.db` this section
+  originally specified was dropped for a measurement-integrity reason, learned twice in this very
+  task: that hash covers the profile and the schema but **not the generator**, and the generator
+  changed twice while the numbers were being taken (the σ interpretation, then the rid source). A
+  cache keyed that way would have served fixtures from the old generator and published them as
+  measurements of the new one — and a stale measurement is worse than a slow one. 33 s is cheap
+  enough that there is nothing to buy here. If a disk cache ever earns its place, the key must
+  include a hash of `seed.ts` itself.
+- **CLI — deferred to `M13`, with its real caller.** `11` §3.9.4's Pi protocol runs
+  `village bench --profile pi`, which is the thing that genuinely needs to generate a fixture
+  outside a bench run; `pnpm bench` and `bench/sizes.ts` both take `COMVIVO_BENCH_PROFILE` and
+  build their own. A second entry point with no caller today would be a feature `CLAUDE.md` §8
+  requires to be reachable and documented, for a use case that does not exist yet.
 
 ---
 

@@ -48,9 +48,20 @@ const ANY_PACKAGE = '^packages/';
  * threading a key through a helper's signature to satisfy a path regex is the kind of workaround
  * that makes a guard look arbitrary. Nothing under `spike/` ships — `packages/storage`'s `files`
  * list is `["dist"]`, and `tsconfig.json` includes only `src/`.
+ *
+ * A **package-root `bench/`** joins them at `M1-T33`, by the same argument and with the same
+ * evidence: `packages/storage/bench/` holds the fixture builder and the `dbstat` size reader
+ * beside the `*.bench.ts` files that were already test-shaped by suffix, it is outside
+ * `tsconfig.json`'s `include` so it cannot ship, and the fixture legitimately needs
+ * `applyMigrations`, `silentLogger` and `SeededRng` — three imports from a `testing` subpath that
+ * `testing-subpath-only-from-tests` rightly refused while the directory was unclassified. That
+ * refusal is also *why* `src/perf/seed.ts` takes an already-open database rather than opening one:
+ * the generator is production code and must not reach a `testing` subpath, so the test-shaped
+ * half of the pair opens the database and the production half fills it. Anchored to a package
+ * root, so a `bench` directory nested under `src` does not inherit the exemption by accident.
  */
 const TEST_SHAPED =
-  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/spike/|/__fixtures__/|^test/)';
+  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/spike/|^packages/[^/]+/bench/|/__fixtures__/|^test/)';
 
 /**
  * Build tooling that sits at a package root rather than under `src/`.

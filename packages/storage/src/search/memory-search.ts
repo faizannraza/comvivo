@@ -41,8 +41,8 @@ import type {
 } from '@comvivo/core/memory-search';
 import type { MemoryId } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
-import { and, desc, eq, gte, inArray, lte, type SQL, sql } from 'drizzle-orm';
-import type { Db } from '../db/drizzle.js';
+import { and, asc, desc, eq, gte, inArray, lte, type SQL, sql } from 'drizzle-orm';
+import { type Db, eqUnindexed, inArrayUnindexed } from '../db/drizzle.js';
 import { toMemoryItem } from '../repos/rows.js';
 import { memoryItems } from '../schema/index.js';
 import { buildFtsQuery, buildTrigramQuery, MEMORY_BM25_WEIGHTS, scopeToken } from './fts-query.js';
@@ -171,15 +171,20 @@ export class SqliteMemorySearch implements MemorySearchPort {
     // That is not belt-and-braces: the vec row's metadata is a *copy* maintained by a trigger and
     // a repository, so a bug in either would otherwise be a readable leak rather than a stale hit.
     const byRid = new Map(rows.map((row) => [row.rid, row.distance]));
+    // Both hints, measured at `M1-T33`: given a 64-element rid list *and* an indexable group or
+    // label term, SQLite drove this from `memory_fingerprint_idx (group_id=?)` and filtered the
+    // group — 4.6 ms on `knn-50k` and 2.8 ms on `stress-50k-1m`, against **0.034 ms** when the rid
+    // list drives. That was 18% of the KNN row's measured latency, hidden inside a 60 ms budget.
+    // Both predicates are still evaluated, so `I4` and the staleness re-check are unchanged.
     const hydrated = this.#db
       .select({ id: memoryItems.id, rid: memoryItems.rid })
       .from(memoryItems)
       .where(
         and(
           inArray(memoryItems.rid, [...byRid.keys()]),
-          eq(memoryItems.groupId, query.groupId),
+          eqUnindexed(memoryItems.groupId, query.groupId),
           lte(memoryItems.retrievalState, query.maxState),
-          inArray(memoryItems.labelId, [...query.eligible.ids]),
+          inArrayUnindexed(memoryItems.labelId, [...query.eligible.ids]),
         ),
       )
       .all();
@@ -286,6 +291,27 @@ export class SqliteMemorySearch implements MemorySearchPort {
     return rows.map(toMemoryItem);
   }
 
+  /**
+   * Load items by id, for a caller that already has them (`02` §3.3.9: a trace holds ids).
+   *
+   * **Both** eligibility terms are hinted away from the planner, each for a measurement taken at
+   * `M1-T33` on a different fixture:
+   *
+   * - `eqUnindexed` on the group: with a 200-element id list and a plain `group_id = ?`, SQLite
+   *   drove from the group index and filtered 30,000 rows — 17.0 ms p50 on `stress-50k-1m` against
+   *   0.438 ms with the hint.
+   * - `inArrayUnindexed` on the label: with *few* labels the eligibility list looks cheaper than
+   *   the id list, so the planner drove from `memory_label_idx` instead — 13.1 ms on `knn-50k`
+   *   (42 labels, 50k memories) and 0.415 ms on `release-small` (12 labels, 2k memories), against
+   *   0.206 ms and 0.158 ms with the hint. The slow plan lands on **small** groups, which is the
+   *   common case; `db/drizzle.ts` carries the numbers and `db/plan-hints.int.test.ts` pins the
+   *   plan.
+   *
+   * Both comparisons are still evaluated, so `I4` is unchanged. `ORDER BY rid` is explicit because
+   * the driving index decides the order of an unordered query, and a read the dashboard renders
+   * should not reorder itself when a planner changes its mind: 200 rows through a temp b-tree cost
+   * 0.009 ms, measured.
+   */
   hydrate(ids: readonly MemoryId[], eligible: EligibleLabelSet): readonly MemoryItem[] {
     if (ids.length === 0 || eligible.ids.length === 0) return [];
     const rows = this.#db
@@ -294,11 +320,12 @@ export class SqliteMemorySearch implements MemorySearchPort {
       .where(
         and(
           inArray(memoryItems.id, [...ids]),
-          eq(memoryItems.groupId, eligible.groupId),
+          eqUnindexed(memoryItems.groupId, eligible.groupId),
           notRetracted(),
-          inArray(memoryItems.labelId, [...eligible.ids]),
+          inArrayUnindexed(memoryItems.labelId, [...eligible.ids]),
         ),
       )
+      .orderBy(asc(memoryItems.rid))
       .all();
     return rows.map(toMemoryItem);
   }

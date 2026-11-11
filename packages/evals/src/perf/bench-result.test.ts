@@ -10,7 +10,15 @@
  * guarantees is that a result without one does not parse.
  */
 import { describe, expect, it } from 'vitest';
-import { type BenchEnv, type BenchResult, BenchResultSchema, currentEnv } from './bench-result.js';
+import {
+  type BenchEnv,
+  type BenchResult,
+  BenchResultSchema,
+  budgetShare,
+  budgetVerdict,
+  currentEnv,
+  largerIsBetter,
+} from './bench-result.js';
 
 const ENV: BenchEnv = {
   runner: 'ubuntu-24.04',
@@ -64,6 +72,48 @@ describe('the schema (11 §4.5)', () => {
     expect(
       BenchResultSchema.safeParse({ ...RESULT, env: { ...ENV, arch: 'riscv64' } }).success,
     ).toBe(false);
+  });
+});
+
+describe('the budget verdict (11 §3.9.3)', () => {
+  it('reads a latency budget as a ceiling and a throughput budget as a floor', () => {
+    expect(budgetVerdict({ ...RESULT, value: 2.4, budget: 5 })).toBe('pass');
+    expect(budgetVerdict({ ...RESULT, value: 5, budget: 5 })).toBe('pass');
+    expect(budgetVerdict({ ...RESULT, value: 16.8, budget: 15 })).toBe('miss');
+    // `ops/s` is the one unit where bigger is better, and `11` §3.9.1's `B4` is stated that way.
+    // A pass-through would have the gate congratulate a throughput collapse.
+    expect(largerIsBetter('ops/s')).toBe(true);
+    expect(largerIsBetter('ms')).toBe(false);
+    const throughput = { ...RESULT, unit: 'ops/s' as const, budget: 500 };
+    expect(budgetVerdict({ ...throughput, value: 2_386 })).toBe('pass');
+    expect(budgetVerdict({ ...throughput, value: 480 })).toBe('miss');
+  });
+
+  it('has no verdict for a row with no budget, which is what a trend row is', () => {
+    expect(budgetVerdict(RESULT)).toBe('none');
+    expect(budgetShare(RESULT)).toBeUndefined();
+  });
+
+  it('reports the share of the budget used, so smaller is always more headroom', () => {
+    // The column `02` §3.16.4 publishes: 0.812 ms against 3 ms is 27% of the budget.
+    expect(budgetShare({ ...RESULT, value: 0.812, budget: 3 })).toBe(27);
+    expect(budgetShare({ ...RESULT, value: 16.843, budget: 15 })).toBe(112);
+    // Inverted for throughput: 2,386 ops/s against a 500 ops/s floor uses 21% of the budget, the
+    // same direction as a latency row rather than the reciprocal reading.
+    expect(budgetShare({ ...RESULT, unit: 'ops/s', value: 2_386, budget: 500 })).toBe(21);
+  });
+
+  it('survives a zero measurement without dividing by it', () => {
+    // A throughput of zero is what `runner.ts` reports for an iteration faster than the clock, and
+    // a share of `Infinity` would print as `Infinity%` rather than failing the gate.
+    expect(budgetShare({ ...RESULT, unit: 'ops/s', value: 0, budget: 500 })).toBeGreaterThan(0);
+    expect(budgetVerdict({ ...RESULT, unit: 'ops/s', value: 0, budget: 500 })).toBe('miss');
+  });
+
+  it('refuses a budget of zero or less, which would make every row pass', () => {
+    expect(BenchResultSchema.safeParse({ ...RESULT, budget: 15 }).success).toBe(true);
+    expect(BenchResultSchema.safeParse({ ...RESULT, budget: 0 }).success).toBe(false);
+    expect(BenchResultSchema.safeParse({ ...RESULT, budget: -1 }).success).toBe(false);
   });
 });
 

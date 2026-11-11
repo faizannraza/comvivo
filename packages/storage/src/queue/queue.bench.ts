@@ -122,6 +122,11 @@ const benchmarks: readonly ErasedBench[] = [
     id: 'micro:queue.roundtrip',
     name: 'enqueue, claim and complete one job',
     unit: 'ops/s',
+    // `11` §3.9.1's `B4` floor, applied one layer down: the whole queue — worker loop, handler
+    // dispatch, retries — has to deliver 500 jobs/s, so the storage round trip underneath it must
+    // clear at least that. `B4` itself arrives with `M3`'s worker; this keeps the floor honest
+    // until then rather than leaving the fastest part of the path unchecked.
+    budget: 500,
     setup: openContext,
     teardown: (context) => {
       context.close();

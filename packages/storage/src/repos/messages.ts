@@ -37,7 +37,7 @@ import { type ConversationId, type GroupId, type MessageId, StorageError } from 
 import { sha256 } from '@comvivo/shared/crypto';
 import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, type SQL, sql } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
-import { type Db, exactlyOne, maybeOne } from '../db/drizzle.js';
+import { type Db, eqUnindexed, exactlyOne, maybeOne } from '../db/drizzle.js';
 import { isUniqueViolation } from '../db/errors.js';
 import type { LabelStore } from '../ifc/label-store.js';
 import { conversations, messages } from '../schema/index.js';
@@ -166,7 +166,10 @@ export class SqliteMessageRepository implements MessageReader, MessageRepository
       .where(
         and(
           inArray(messages.id, [...ids]),
-          eq(messages.groupId, eligible.groupId),
+          // `eqUnindexed`, for the reason measured at `M1-T33` and recorded on that helper: with a
+          // long id list, a plain group equality sends the planner to the group index and makes it
+          // filter the whole group. The comparison still happens, so `I4` is unchanged.
+          eqUnindexed(messages.groupId, eligible.groupId),
           eligibleFilter(eligible),
         ),
       )

@@ -3,7 +3,7 @@
  *
  * | Module | What |
  * |---|---|
- * | `bench-result` | The result shape, its zod schema, and the machine and commit it came from |
+ * | `bench-result` | The result shape, its zod schema, its budget verdict, and the machine and commit it came from |
  * | `runner` | The warm-up → N iterations → 5 repetitions protocol, over an HDR histogram |
  * | `to-gab` | The converter to github-action-benchmark's `customSmallerIsBetter` JSON |
  *
@@ -18,8 +18,11 @@ export {
   BenchProfileSchema,
   type BenchResult,
   BenchResultSchema,
+  budgetShare,
+  budgetVerdict,
   currentEnv,
   type EnvSources,
+  largerIsBetter,
 } from './bench-result.js';
 export {
   type BenchDefinition,

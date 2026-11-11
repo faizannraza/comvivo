@@ -62,8 +62,51 @@ export const BenchResultSchema = z.strictObject({
   /** How many repetitions the median was taken over (`11` §3.9.2: five). */
   repetitions: z.int().positive().optional(),
   iterations: z.int().positive().optional(),
+  /**
+   * The budget this row is checked against, in the row's own unit, when it has one.
+   *
+   * Recorded *with* the measurement rather than kept in a table beside it, because the pair is
+   * what a reader of `.bench/results.json` needs and because a budget that lives only in prose
+   * goes stale silently — which is what `02` §3.16.4's estimates did until `M1-T33` measured them.
+   * Direction follows the unit: `ops/s` is a floor, everything else a ceiling.
+   */
+  budget: z.number().positive().optional(),
 });
 export type BenchResult = z.infer<typeof BenchResultSchema>;
+
+/** Whether a row's budget is a floor (throughput) or a ceiling (everything else). */
+export function largerIsBetter(unit: BenchResult['unit']): boolean {
+  return unit === 'ops/s';
+}
+
+/**
+ * A row against its budget: `pass`, `miss`, or `none` for a row that has no budget.
+ *
+ * `11` §3.9.3 makes the absolute budgets hard gates on the reference runners at release, and
+ * `pnpm bench --gate` is that check. A trend run stays non-gating, so this is a verdict the caller
+ * decides what to do about rather than a throw.
+ */
+export function budgetVerdict(result: BenchResult): 'pass' | 'miss' | 'none' {
+  if (result.budget === undefined) return 'none';
+  const met = largerIsBetter(result.unit)
+    ? result.value >= result.budget
+    : result.value <= result.budget;
+  return met ? 'pass' : 'miss';
+}
+
+/**
+ * How much of its budget a row used, as a percentage — 28 for a 0.83 ms row against 3 ms.
+ *
+ * Inverted for throughput, so "used 28% of the budget" reads the same way on every row: a smaller
+ * number is always more headroom.
+ */
+export function budgetShare(result: BenchResult): number | undefined {
+  if (result.budget === undefined) return undefined;
+  const share = largerIsBetter(result.unit)
+    ? result.budget / Math.max(result.value, Number.EPSILON)
+    : result.value / result.budget;
+  return Math.round(share * 100);
+}
 
 /**
  * Where the facts about this machine come from.

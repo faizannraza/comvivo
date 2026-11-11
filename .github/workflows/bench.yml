@@ -1,9 +1,17 @@
 # The benchmark suite (`11` §3.9.3).
 #
 # Runs `pnpm bench` on both reference architectures and keeps the results as artefacts. It is
-# **non-gating**, deliberately: `14`'s `M1-T32` records a baseline, and the budgets in `11` §3.9.1
-# become hard gates at `M1-T33`, which is the task that produces the datasets they are stated over.
-# A gate on numbers nobody has a baseline for is a gate that fails for the wrong reasons.
+# **non-gating**, deliberately, and stays that way: `11` §3.9.3 makes `main` a trend series
+# (`fail-on-alert: false`), gates a PR on the interleaved A/B ratio instead, and makes the absolute
+# budgets hard gates at release. Each benchmark declares its own budget (`M1-T33`), so the job
+# summary shows the share of budget every row used and `pnpm bench --gate` is the release check —
+# a run that misses a budget says so here without failing the push.
+#
+# **Two profiles.** The trend needs a fixture small enough to run on every push; `02` §3.16.4's
+# rows are stated over `stress-50k-1m` (1M messages, 50k memories), which is what fills the x64
+# column of that table — `14`'s M1 cut-line allows the Pi numbers to slip but requires the x64
+# ones. So the matrix is {x64, arm64} × {the whole suite on `release-small`, the storage suite on
+# `stress-50k-1m`}, and each benchmark id appears once per architecture rather than twice.
 #
 # ## What is not here yet
 #
@@ -14,8 +22,11 @@
 # the job summary, and keeps the artefact for 90 days. When H-6 lands, the store step is one `uses:`
 # away and every run before it is already in a comparable format.
 #
-# The PR-tier interleaved A/B of §3.9.3 also waits for `M1-T33`: it compares a merge base against a
-# head, which needs macro benchmarks whose variance is known.
+# The PR-tier interleaved A/B of §3.9.3 is `14`'s **`M13-T18`**, which owns the A/B runner and the
+# regression gate: it compares a merge base against a head ×10, and the variance it needs is the
+# variance of `B1`–`B6`, whose macro benchmarks arrive with `M3` and `M6`. The storage rows here are
+# comparable across runs today — same fixture, same seed, same protocol — which is what makes that
+# runner possible later.
 name: bench
 
 on:
@@ -40,9 +51,12 @@ env:
 
 jobs:
   bench:
-    name: bench (${{ matrix.arch }})
+    name: bench (${{ matrix.arch }}, ${{ matrix.profile }})
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    # The stress fixture is 1M rows: `02` §3.16.5 targets ≤ 4 min to generate on a hosted runner,
+    # and the suite itself took about two minutes locally. Generous, because a benchmark killed
+    # halfway is worth less than one that took a while.
+    timeout-minutes: 45
     permissions:
       contents: read
     strategy:
@@ -53,8 +67,20 @@ jobs:
         include:
           - arch: x64
             runner: ubuntu-24.04
+            profile: release-small
+            filter: ""
           - arch: arm64
             runner: ubuntu-24.04-arm
+            profile: release-small
+            filter: ""
+          - arch: x64
+            runner: ubuntu-24.04
+            profile: stress-50k-1m
+            filter: storage/bench
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            profile: stress-50k-1m
+            filter: storage/bench
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -63,19 +89,32 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Run the benchmarks
-        run: pnpm bench --out ".bench/${{ matrix.arch }}.json"
+        env:
+          COMVIVO_BENCH_PROFILE: ${{ matrix.profile }}
+          BENCH_FILTER: ${{ matrix.filter }}
+          BENCH_LABEL: ${{ matrix.arch }}-${{ matrix.profile }}
+        run: |
+          pnpm bench --out ".bench/$BENCH_LABEL.json" --summary ".bench/$BENCH_LABEL.md" \
+            ${BENCH_FILTER:+--filter "$BENCH_FILTER"}
 
-      # The table in the job summary, so a result is visible without downloading anything. `11`
-      # §3.9.3's dashboard is the long-term view; this is the one a person reads on the day.
+      # The table in the job summary, so a result is visible without downloading anything. The
+      # markdown is written by the runner itself (`scripts/bench/run.ts`), which is the one place
+      # that knows the columns — a shell script rebuilding the table is a second place to get them
+      # wrong. `11` §3.9.3's dashboard is the long-term view; this is the one a person reads on the
+      # day a push lands.
       - name: Summarise
         env:
-          BENCH_ARCH: ${{ matrix.arch }}
-        run: scripts/bench/summary.sh "$BENCH_ARCH" >> "$GITHUB_STEP_SUMMARY"
+          BENCH_LABEL: ${{ matrix.arch }}-${{ matrix.profile }}
+        run: |
+          {
+            printf '## %s\n\n' "$BENCH_LABEL"
+            cat ".bench/$BENCH_LABEL.md"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: bench-${{ matrix.arch }}
-          path: .bench/${{ matrix.arch }}.json
+          name: bench-${{ matrix.arch }}-${{ matrix.profile }}
+          path: .bench/${{ matrix.arch }}-${{ matrix.profile }}.*
           # Long enough to compare against the previous month's runs by hand while the
           # github-action-benchmark store waits on H-6.
           retention-days: 90

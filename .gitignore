@@ -35,6 +35,12 @@ packages/storage/.dev/
 coverage/
 # `pnpm bench` output. The results that matter are the ones CI uploads (`11` §3.9.3).
 .bench/
+# What `scripts/bench/pi.sh` leaves behind for the owner to paste back (ask H-10): a Pi session
+# should not hand them a dirty tree to explain.
+pi-storage.json
+pi-storage.md
+pi-knn.json
+pi-knn.md
 reports/
 *.tsbuildinfo
 .eslintcache

@@ -16,10 +16,14 @@
  *     pnpm bench --profile pi          # label the results as a Pi run (`11` §3.9.4)
  *     pnpm bench --scale 0.05          # a smoke run, for checking the plumbing
  *     pnpm bench --sha <commit>        # attribute the results to another commit
+ *     pnpm bench --gate                # exit 1 if a row misses the budget it declares
  *
- * Non-gating by design (`14`'s `M1-T32`): it prints a table and writes JSON. The budgets in
- * `11` §3.9.1 become a gate at `M1-T33`, which is the task that produces the dataset they are
- * stated over.
+ * **Gating is opt-in**, which is what `11` §3.9.3 asks for: a push to `main` records a trend and
+ * never fails on it (`fail-on-alert: false`), a PR is gated on the interleaved A/B ratio rather
+ * than on an absolute number, and the absolute budgets in `11` §3.9.1 and `02` §3.16.4 are hard
+ * gates **on the reference runners at release**. `--gate` is that check, added with the dataset
+ * those budgets are stated over (`M1-T33`); each row carries its own budget, so there is no table
+ * here to drift from the benchmarks.
  */
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -30,8 +34,11 @@ import {
   type BenchProfile,
   BenchProfileSchema,
   type BenchResult,
+  budgetShare,
+  budgetVerdict,
   currentEnv,
   type ErasedBench,
+  largerIsBetter,
   runSuite,
   toGab,
 } from '../../packages/evals/src/perf/index.js';
@@ -67,6 +74,8 @@ interface Options {
   readonly filter: string | undefined;
   readonly profile: BenchProfile | undefined;
   readonly scale: number | undefined;
+  /** Fail the process when a row misses its budget (`11` §3.9.3's release gate). */
+  readonly gate: boolean;
 }
 
 function parseArgs(args: readonly string[]): Options {
@@ -83,6 +92,7 @@ function parseArgs(args: readonly string[]): Options {
     filter: value('filter'),
     profile: profile === undefined ? undefined : BenchProfileSchema.parse(profile),
     scale: scale === undefined ? undefined : Number(scale),
+    gate: args.includes('--gate'),
   };
 }
 
@@ -147,6 +157,36 @@ async function main(): Promise<void> {
     `bench: ${String(results.length)} result(s) → ${relative(ROOT, outPath)} ` +
       `(${machine.profile} on ${machine.runner}, ${machine.arch})\n`,
   );
+
+  const missed = results.filter((result) => budgetVerdict(result) === 'miss');
+  if (missed.length > 0) {
+    // Printed whether or not `--gate` is set: a row over budget is worth saying out loud on a
+    // laptop too, and `02` §3.16.4's own rule is that a miss becomes a deviation filed in `15`
+    // rather than a budget quietly raised.
+    for (const result of missed) {
+      stdout.write(
+        `bench: ${result.id} missed its budget — ${String(round(result.value))} ${result.unit} ` +
+          `against ${largerIsBetter(result.unit) ? '≥' : '≤'} ${String(result.budget ?? 0)} ` +
+          `${result.unit} (${String(budgetShare(result) ?? 0)}%)\n`,
+      );
+    }
+    if (options.gate) exit(1);
+  }
+}
+
+function round(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+/** A row's budget as a cell: the limit and the share of it used, or empty for a trend row. */
+function budgetCell(result: BenchResult): string {
+  if (result.budget === undefined) return '';
+  const verdict = budgetVerdict(result);
+  const limit = `${largerIsBetter(result.unit) ? '≥' : '≤'} ${String(result.budget)} ${result.unit}`;
+  // `<1%` rather than `0%`: three of `02` §3.16.4's rows use a fraction of a percent of their
+  // budget, and printing that as zero reads like a row that did not run.
+  const share = budgetShare(result) ?? 0;
+  return `${verdict === 'miss' ? '✗' : '✓'} ${limit} (${share === 0 ? '<1' : String(share)}%)`;
 }
 
 /**
@@ -158,16 +198,22 @@ async function main(): Promise<void> {
 function markdown(results: readonly BenchResult[], arch: string): string {
   const rows = results.map(
     (result) =>
-      `| ${result.id} | ${result.name} | ${String(Math.round(result.value * 1000) / 1000)} ${result.unit} | ${result.range ?? ''} |`,
+      `| ${result.id} | ${result.name} | ${String(round(result.value))} ${result.unit} | ` +
+      `${result.range ?? ''} | ${budgetCell(result)} |`,
   );
+  const missed = results.filter((result) => budgetVerdict(result) === 'miss').length;
   return [
     `### Benchmarks (${arch})`,
     '',
-    '| id | name | value | spread |',
-    '|---|---|---|---|',
+    '| id | name | value | spread | budget |',
+    '|---|---|---|---|---|',
     ...rows,
     '',
-    'Non-gating (`14` M1-T32). Budgets become gates at M1-T33.',
+    missed === 0
+      ? 'Every row with a budget is inside it. A trend run does not gate (`11` §3.9.3); ' +
+        '`pnpm bench --gate` is the release check.'
+      : `**${String(missed)} row(s) over budget.** \`02\` §3.16.4: a miss is a deviation filed in ` +
+        '`15` and `STATUS.md`, not a budget raised.',
     '',
   ].join('\n');
 }
@@ -177,10 +223,11 @@ function table(results: readonly BenchResult[]): string {
   const rows = results.map((result) => [
     result.id,
     result.name,
-    `${String(Math.round(result.value * 1000) / 1000)} ${result.unit}`,
+    `${String(round(result.value))} ${result.unit}`,
     result.range ?? '',
+    budgetCell(result),
   ]);
-  const widths = [0, 1, 2, 3].map((column) =>
+  const widths = [0, 1, 2, 3, 4].map((column) =>
     Math.max(...rows.map((row) => (row[column] ?? '').length), 0),
   );
   return rows

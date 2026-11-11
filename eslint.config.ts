@@ -179,6 +179,9 @@ export default defineConfig(
       // Spike helpers live outside `src/`, so the project service cannot type them either. See
       // `comvivo/spike-helpers` below, which names `tsconfig.test.json` explicitly.
       'packages/*/spike/**/*.ts',
+      // The same for a benchmark's helpers — the fixture builder and the `dbstat` size reader
+      // beside the `*.bench.ts` files. See `comvivo/bench-helpers`.
+      'packages/*/bench/**/*.ts',
     ],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
@@ -353,6 +356,35 @@ export default defineConfig(
       '@typescript-eslint/no-unsafe-argument': 'off',
       '@typescript-eslint/no-unsafe-call': 'off',
       '@typescript-eslint/no-unsafe-return': 'off',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
+      '@typescript-eslint/switch-exhaustiveness-check': [
+        'error',
+        {
+          allowDefaultCaseForExhaustiveSwitch: false,
+          considerDefaultExhaustiveForUnions: false,
+          requireDefaultForNonUnion: true,
+        },
+      ],
+    },
+  },
+  {
+    // A benchmark's helpers (`11` §3.9, `M1-T33`). `packages/*/bench/` holds the fixture builder
+    // and the `dbstat` size reader beside the `*.bench.ts` files, and it is outside the package's
+    // `include` for the same reason `spike/` is: it must not ship. Same consequence, too — the
+    // **fifth** directory in this project where `projectService` reported "not found" and left
+    // every type-aware rule inert, which is why `tsconfig.test.json` is named here explicitly.
+    name: 'comvivo/bench-helpers',
+    files: ['packages/*/bench/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
       '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-promises': 'error',
       '@typescript-eslint/switch-exhaustiveness-check': [

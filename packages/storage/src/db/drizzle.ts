@@ -20,7 +20,9 @@
  */
 import { StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
+import { type SQL, sql } from 'drizzle-orm';
 import { type BetterSQLite3Database, drizzle } from 'drizzle-orm/better-sqlite3';
+import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 import * as schema from '../schema/index.js';
 
 /** The typed handle a repository holds. */
@@ -71,6 +73,63 @@ export function makeDb(connection: Database.Database): Db {
  * behaviour. `CLAUDE.md` §2 — fix the design rather than weaken the rule — and the design fix for
  * a library type that under-reports its own nullability is to narrow it once at the boundary.
  */
+/**
+ * `column = value`, with the query planner told **not** to use an index on `column`.
+ *
+ * SQLite's unary `+` on a column reference in a `WHERE` term makes that term unusable as an index
+ * constraint while leaving the comparison itself intact. It exists for exactly the case `M1-T33`
+ * measured on the 1M-message fixture:
+ *
+ * ```
+ * WHERE id IN (<200 ids>) AND group_id = ?     → SEARCH USING memory_fingerprint_idx (group_id=?)
+ *                                                17.0 ms p50
+ * WHERE id IN (<200 ids>) AND +group_id = ?    → SEARCH USING memory_items_id_unique (id=?)
+ *                                                0.438 ms p50
+ * ```
+ *
+ * Same 200 rows, 39× apart. Given a group predicate *and* a 200-element id list, the planner
+ * prefers the group index and then filters 30,000 rows; with the hint it does 200 primary-key
+ * lookups. The group equality is still evaluated, so **I4 is unchanged** — this is a hint about
+ * *how* to find the rows, not about which rows are allowed.
+ *
+ * Use it only where a more selective term exists in the same `WHERE`. On a query whose only
+ * predicate is the group, this would turn an index scan into a table scan.
+ */
+export function eqUnindexed(column: AnySQLiteColumn, value: unknown): SQL {
+  return sql`+${column} = ${value}`;
+}
+
+/**
+ * `column IN (values)`, with the query planner told **not** to use an index on `column`.
+ *
+ * The companion to `eqUnindexed`, and needed for the same reason on a second term. Every
+ * IFC-filtered read carries an eligibility list — `label_id IN (<the audience's labels>)` — and on
+ * a read that *also* has an id list, the planner has two indexable candidates and picks by
+ * guesswork, because a fresh database has no `sqlite_stat1`. Which one it picks depends on how
+ * many labels the group has, so the fast plan and the slow plan differ by **group size**:
+ *
+ * ```
+ * 42 labels  (20 members):  id IN (<200>) AND  label_id IN (…) → memory_label_idx      13.1 ms
+ *                           id IN (<200>) AND +label_id IN (…) → memory_items_id_unique 0.206 ms
+ * 302 labels (150 members): either way                         → memory_items_id_unique 0.21 ms
+ * ```
+ *
+ * 64× on the same 200 rows, and the *small* group is the slow one — which is the common case and
+ * the one no correctness test can see. Measured in `M1-T33` on the `knn-50k` and `stress-50k-1m`
+ * fixtures; `storage-benchmarks.md` carries the method.
+ *
+ * The list is still evaluated, so eligibility is unchanged (`I4`): this says *how* to find the
+ * rows, never which rows may be returned. Use it only where a more selective term — an id or rid
+ * list — exists in the same `WHERE`. On a read whose only predicate is the eligibility list,
+ * driving from the label index is the right plan and this would force a table scan.
+ */
+export function inArrayUnindexed(column: AnySQLiteColumn, values: readonly unknown[]): SQL {
+  // An empty list is `1 = 0`, matching what `inArray` does — and the callers all return early on
+  // an empty eligibility set, so this is the belt rather than the braces.
+  if (values.length === 0) return sql`1 = 0`;
+  return sql`+${column} IN ${values}`;
+}
+
 export function maybeOne<T>(query: { get(): T }): T | undefined {
   return query.get();
 }
