@@ -1,0 +1,223 @@
+#!/usr/bin/env tsx
+/**
+ * Generate `docs/architecture/schema.md` from the schema itself (`02` §3.3.13, §4; `M1-T35`).
+ *
+ * A hand-written schema reference is wrong within a month: a column gets added, the document does
+ * not, and the next reader trusts it anyway. So this one is generated from the Drizzle
+ * declarations and the migration SQL, and `--check` fails CI when the committed file no longer
+ * matches — the same contract the OpenAPI client and the guard triggers already have in this
+ * repository.
+ *
+ * It also owns `02` §3.3.13's audit, which that section assigns to this script by name: every
+ * entity the `01` §14 A7 audit listed must have a table, be scheduled for a named later
+ * milestone, or be an explicit "no table" decision. `scripts/schema/checklist.ts` holds the part
+ * the test shares.
+ *
+ * Usage:
+ *
+ *     pnpm run schema:doc     # write docs/architecture/schema.md
+ *     pnpm run schema:check   # fail if it is stale, or if the §3.3.13 audit finds a problem
+ */
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
+import { argv, exit, stdout } from 'node:process';
+import { auditChecklist, checklistOf, NO_TABLE, SCHEDULED_LATER } from './schema/checklist.js';
+import { migrations, sqlObjects, type TableInfo, tables } from './schema/introspect.js';
+
+const ROOT = resolve(import.meta.dirname, '..');
+const OUT = 'docs/architecture/schema.md';
+
+/** A column's row in the reference. */
+function columnRow(column: TableInfo['columns'][number]): string {
+  const flags = [
+    column.primary ? 'primary key' : '',
+    column.notNull ? 'not null' : 'nullable',
+    column.hasDefault ? 'has default' : '',
+  ].filter(Boolean);
+  const target = column.references === undefined ? '' : `→ \`${column.references}\``;
+  return `| \`${column.name}\` | \`${column.type}\` | ${flags.join(', ')} | ${target} |`;
+}
+
+function tableSection(table: TableInfo): string {
+  const lines: string[] = [`### \`${table.name}\``, ''];
+  lines.push('| column | type | | references |', '|---|---|---|---|');
+  for (const column of table.columns) lines.push(columnRow(column));
+  lines.push('');
+  if (table.primaryKey.length > 0) {
+    lines.push(`Composite primary key: ${table.primaryKey.map((c) => `\`${c}\``).join(', ')}.`, '');
+  }
+  if (table.indexes.length > 0) {
+    lines.push('| index | | columns |', '|---|---|---|');
+    for (const index of table.indexes) {
+      const kind = [index.unique ? 'unique' : '', index.partial ? 'partial' : ''].filter(Boolean);
+      lines.push(
+        `| \`${index.name}\` | ${kind.join(', ')} | ${index.columns.map((c) => `\`${c}\``).join(', ')} |`,
+      );
+    }
+    lines.push('');
+  }
+  if (table.checks.length > 0) {
+    lines.push(`Check constraints: ${table.checks.map((c) => `\`${c}\``).join(', ')}.`, '');
+  }
+  return lines.join('\n');
+}
+
+/** `02` §3.3.13's audit, as a section of the reference. */
+function checklistSection(known: ReadonlyMap<string, ReadonlySet<string>>): string {
+  const references = checklistOf(ROOT);
+  const named = [...new Set(references.map((reference) => reference.table))].toSorted();
+  const present = named.filter((table) => known.has(table));
+  const pending = named.filter((table) => !known.has(table));
+  const lines = [
+    '## `02` §3.3.13 — the entity checklist',
+    '',
+    'The `01` §14 A7 audit found entities in the other subsystem specs with no table. §3.3.13 is',
+    'the list, and this script is what fails CI when one of them has neither a table, a named',
+    'milestone, nor an explicit decision not to have one.',
+    '',
+    `- **${String(present.length)} of ${String(named.length)}** tables the checklist names exist today.`,
+    `- **${String(pending.length)}** are scheduled for a later milestone, below.`,
+    `- **${String(Object.keys(NO_TABLE).length)}** entities resolve with no table at all.`,
+    '',
+  ];
+  if (pending.length > 0) {
+    lines.push('| table | arrives in |', '|---|---|');
+    for (const table of pending) {
+      lines.push(`| \`${table}\` | ${SCHEDULED_LATER[table] ?? 'unscheduled'} |`);
+    }
+    lines.push('');
+  }
+  lines.push('| entity | decided instead |', '|---|---|');
+  for (const [entity, reason] of Object.entries(NO_TABLE)) {
+    lines.push(`| ${entity} | ${reason} |`);
+  }
+  lines.push('');
+  return lines.join('\n');
+}
+
+function render(): string {
+  const all = tables(ROOT);
+  const objects = sqlObjects(ROOT);
+  const virtual = objects.filter((object) => object.kind === 'virtual table');
+  const triggers = objects.filter((object) => object.kind === 'trigger');
+  const known = new Map<string, ReadonlySet<string>>(
+    all.map((table) => [table.name, new Set(table.columns.map((column) => column.name))]),
+  );
+  const byModule = new Map<string, TableInfo[]>();
+  for (const table of all) {
+    const list = byModule.get(table.module) ?? [];
+    list.push(table);
+    byModule.set(table.module, list);
+  }
+
+  const lines: string[] = [
+    '<!-- Generated by scripts/schema-doc.ts. Do not edit: run `pnpm run schema:doc`. -->',
+    '',
+    '# Database schema',
+    '',
+    'Generated from `packages/storage/src/schema/*.ts` and the migration SQL, so it cannot drift:',
+    '`pnpm run schema:check` fails CI when this file no longer matches the schema it describes.',
+    '',
+    `**${String(all.length)} tables**, ${String(all.reduce((sum, table) => sum + table.columns.length, 0))} columns, ` +
+      `${String(all.reduce((sum, table) => sum + table.indexes.length, 0))} indexes, ` +
+      `${String(virtual.length)} virtual tables and ${String(triggers.length)} triggers, ` +
+      `created by ${String(migrations(ROOT).length)} migrations.`,
+    '',
+    'What this is **not**: the design. `docs/plan/02-domain-model-and-storage.md` §3.3 says why each',
+    'table looks the way it does, `docs/architecture/storage.md` covers the module layout, and',
+    '`packages/storage/MIGRATIONS.md` is the rule set for changing any of it.',
+    '',
+    '## Tables by module',
+    '',
+    '| module | tables |',
+    '|---|---|',
+  ];
+  for (const [module, list] of [...byModule.entries()].toSorted((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    lines.push(
+      `| \`src/schema/${module}\` | ${list.map((table) => `\`${table.name}\``).join(', ')} |`,
+    );
+  }
+  lines.push('');
+
+  for (const [module, list] of [...byModule.entries()].toSorted((a, b) =>
+    a[0].localeCompare(b[0]),
+  )) {
+    lines.push(`## \`src/schema/${module}\``, '');
+    for (const table of list) lines.push(tableSection(table));
+  }
+
+  lines.push(
+    '## Virtual tables',
+    '',
+    'Drizzle cannot describe a virtual table, so these are raw SQL in `src/schema/search.sql.ts`',
+    'and created by a custom migration (`02` §3.4, §3.5).',
+    '',
+    'The **vec0** tables are not here because they do not exist until a space does:',
+    '`EmbeddingSpaceManager` creates `vec_memory_<slug>` when a group first embeds something, one',
+    'table per embedding space (`02` §3.5). `search/vec0.ts` holds the `CREATE VIRTUAL TABLE`.',
+    '',
+    '| table | using | migration |',
+    '|---|---|---|',
+  );
+  for (const object of virtual) {
+    lines.push(`| \`${object.name}\` | \`${object.using ?? ''}\` | \`${object.migration}\` |`);
+  }
+  lines.push(
+    '',
+    '## Triggers',
+    '',
+    'Three kinds, all generated or hand-written SQL: the triggers that keep FTS and vec0 in step',
+    'with their tables (`02` §3.4, §3.5), the `I4` guards that refuse a cross-group or mislabelled',
+    'write (`02` §3.7.5), and the audit-chain guards.',
+    '`pnpm --filter @comvivo/storage db:guards` regenerates the guard triggers from the schema, so',
+    'a new table gets them without anyone remembering to write them.',
+    '',
+    '| trigger | fires | on | migration |',
+    '|---|---|---|---|',
+  );
+  for (const object of triggers) {
+    lines.push(
+      `| \`${object.name}\` | ${object.when ?? ''} | \`${object.on ?? ''}\` | \`${object.migration}\` |`,
+    );
+  }
+  lines.push('');
+  lines.push(checklistSection(known));
+  return `${lines.join('\n').trimEnd()}\n`;
+}
+
+const check = argv.includes('--check');
+const generated = render();
+const path = join(ROOT, OUT);
+
+const known = new Map<string, ReadonlySet<string>>(
+  tables(ROOT).map((table) => [table.name, new Set(table.columns.map((column) => column.name))]),
+);
+const problems = auditChecklist(checklistOf(ROOT), known);
+for (const problem of problems) stdout.write(`schema: [${problem.kind}] ${problem.message}\n`);
+
+if (!check) {
+  writeFileSync(path, generated);
+  stdout.write(`schema: wrote ${OUT} (${String(known.size)} tables)\n`);
+  if (problems.length > 0) exit(1);
+  exit(0);
+}
+
+let current = '';
+try {
+  current = readFileSync(path, 'utf8');
+} catch {
+  stdout.write(`schema: ${OUT} does not exist. Run \`pnpm run schema:doc\`.\n`);
+  exit(1);
+}
+
+if (current !== generated) {
+  stdout.write(
+    `schema: ${OUT} is stale — the schema changed and the reference did not. ` +
+      'Run `pnpm run schema:doc` and commit the result.\n',
+  );
+  exit(1);
+}
+stdout.write(`schema: ${OUT} matches the schema (${String(known.size)} tables).\n`);
+exit(problems.length > 0 ? 1 : 0);

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { type Label, parseLabels, planSync } from './label-policy.js';
+import { checkExitCode, type Label, parseLabels, planSync } from './label-policy.js';
 
 const FILE = new URL('../../.github/labels.yml', import.meta.url);
 
@@ -144,5 +144,36 @@ describe('planSync', () => {
       { name: 'docs', color: '455A64', description: 'Documentation' },
     ]);
     expect(plan.update.map((label) => label.name)).toEqual(['bug']);
+  });
+});
+
+describe('checkExitCode', () => {
+  it('fails on drift and not on a label the file introduces', () => {
+    // The distinction the check rests on. A label edited in the web UI is drift from the source of
+    // truth and must fail; a label the file adds cannot exist yet, because the sync runs on a push
+    // to `main` — so failing there would redden every pull request that adds one.
+    expect(checkExitCode({ create: [], update: [], extra: [], unchanged: 3 })).toBe(0);
+    expect(
+      checkExitCode({
+        create: [{ name: 'new', color: '546E7A', description: 'a new label' }],
+        update: [],
+        extra: [],
+        unchanged: 3,
+      }),
+    ).toBe(0);
+    expect(
+      checkExitCode({
+        create: [],
+        update: [{ name: 'bug', color: 'D32F2F', description: 'edited in the UI' }],
+        extra: [],
+        unchanged: 3,
+      }),
+    ).toBe(1);
+  });
+
+  it('never fails for an extra label, because none is ever deleted', () => {
+    expect(
+      checkExitCode({ create: [], update: [], extra: ['someones-triage'], unchanged: 3 }),
+    ).toBe(0);
   });
 });

@@ -65,6 +65,15 @@ jobs:
 
       - uses: ./.github/actions/setup
 
+      # Stryker's TypeScript checker typechecks `packages/core/tsconfig.json`, which resolves
+      # `@comvivo/shared` through a project reference into `packages/shared/dist`. On a clean
+      # checkout that does not exist, and every mutant fails to compile with *Cannot find module
+      # `@comvivo/shared`* — which is how the first CI run of this workflow failed. The same shape
+      # as the `tsconfig.scripts.json` defect found the hour before: a tool that works on a machine
+      # that has built, and not on one that has not.
+      - name: Build the type declarations Stryker's checker needs
+        run: pnpm -w exec tsc -b packages/core
+
       # `11` §3.1.5: the previous incremental report comes from `main`, so only changed mutants and
       # tests are re-run. A miss costs a full run, which is the current behaviour anyway.
       - name: Restore the incremental report
@@ -130,6 +139,15 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup
+
+      # Stryker's TypeScript checker typechecks `packages/core/tsconfig.json`, which resolves
+      # `@comvivo/shared` through a project reference into `packages/shared/dist`. On a clean
+      # checkout that does not exist, and every mutant fails to compile with *Cannot find module
+      # `@comvivo/shared`* — which is how the first CI run of this workflow failed. The same shape
+      # as the `tsconfig.scripts.json` defect found the hour before: a tool that works on a machine
+      # that has built, and not on one that has not.
+      - name: Build the type declarations Stryker's checker needs
+        run: pnpm -w exec tsc -b packages/core
 
       # `--force`: incremental mode does not detect a dependency change (`11` §3.1.5), so the
       # weekly run is the one that would notice a test helper that stopped killing anything.

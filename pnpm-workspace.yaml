@@ -101,6 +101,17 @@ overrides:
   # generation for no additional security. The cross-checks in `deterministic-ids.test.ts` parse
   # our ids with typeid-js's own parser, so a behavioural change fails the suite rather than ships.
   uuid: ^11.1.1
+  # GHSA-4mjr-xmp4-gh2g, GHSA-6pq8-jhm2-2vcw, GHSA-q8mj-m7cp-5q26, GHSA-x5fp-wj9c-mxmx - four
+  # medium (CVSS 6.3) prototype-pollution and parsing issues in `qs < 6.16.1`, all four fixed by
+  # 6.16.1. Reached through `typed-rest-client@2.3.1`, which Stryker's dashboard reporter depends
+  # on and which pins `qs: ^6.9.1`; `typed-rest-client` 3.x exists but Stryker has not moved to it.
+  #
+  # This one does NOT ship: Stryker is a root devDependency (`11` §3.1.5), so the code never
+  # reaches a host. It is overridden anyway, because `osv.yml` is a gate and an exception for a
+  # devDependency is an exception somebody has to remember - and `qs` is a parser, which is the
+  # category where "it only runs in CI" stops being reassuring. `^6.16.1` rather than the current
+  # 6.17.1 so the range covers every patched release without pinning us to today's.
+  qs: ^6.16.1
   # GHSA-g3hv-75wg-m249 - denial of service via glob-parts amplification. Vulnerable `< 11.0.1`.
   # Reached only through the eslint toolchain, so it is dev-only: a linter that can be slowed down
   # by a crafted glob is not a product risk. Fixed anyway, because the fix is a version bump.

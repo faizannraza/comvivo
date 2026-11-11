@@ -9,7 +9,7 @@
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { argv, exit, stdout } from 'node:process';
-import { type Label, parseLabels, planSync } from './label-policy.js';
+import { checkExitCode, type Label, parseLabels, planSync } from './label-policy.js';
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 const dryRun = argv.includes('--check');
@@ -64,6 +64,12 @@ stdout.write(
     `${String(plan.unchanged)} unchanged, ${String(plan.extra.length)} extra.\n`,
 );
 
-// `--check` is for CI: the file is the source of truth, so a drift is a failure there even though
-// it is only a report locally.
-exit(dryRun && (plan.create.length > 0 || plan.update.length > 0) ? 1 : 0);
+// `--check` fails on drift — a label edited in the web UI — and not on a label the file
+// introduces, which the push to `main` applies. `checkExitCode` holds that policy and its reasons.
+if (dryRun && plan.create.length > 0) {
+  stdout.write(
+    'labels: the creations above are applied by the push to `main`, so they are not a failure ' +
+      'here.\n',
+  );
+}
+exit(dryRun ? checkExitCode(plan) : 0);

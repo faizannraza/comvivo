@@ -26,7 +26,7 @@
     }
   },
   "scripts": {
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:test && pnpm run plan:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run depcruise && pnpm run brand:check && pnpm run names:check && pnpm run supply:check && pnpm run secrets:check && pnpm run hygiene:check && pnpm run renovate:check && pnpm run prose && pnpm run plan:test && pnpm run plan:check && pnpm run schema:check && pnpm run test && pnpm run coverage && pnpm run build && pnpm run docs:build && pnpm run evals:smoke",
     "lint": "biome ci . --colors=off && eslint . --max-warnings 0",
     "lint:fix": "biome check --write . && eslint . --fix",
     "format": "biome format --write .",
@@ -45,6 +45,8 @@
     "test:contract": "vitest run --project contract",
     "test:scenario": "vitest run --project scenario",
     "test:guards": "vitest run --project unit --project integration test/boundaries test/docs-ia scripts/ packages/shared/src/logger/scrub.test.ts",
+    "schema:doc": "tsx scripts/schema-doc.ts",
+    "schema:check": "tsx scripts/schema-doc.ts --check",
     "mutation": "stryker run packages/core/stryker.config.json",
     "mutation:ifc": "stryker run packages/core/stryker.ifc-policy.config.json",
     "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run .prop.",
@@ -82,6 +84,7 @@
     "@types/node": "^24.9",
     "@vitest/coverage-v8": "^5.0",
     "dependency-cruiser": "^18.7",
+    "drizzle-orm": "catalog:",
     "eslint": "^10.13",
     "globals": "^17.13.0",
     "jiti": "^2.7.0",

@@ -91,6 +91,13 @@ jobs:
       - name: Plan consistency
         run: pnpm run plan:check
 
+      # `02` §3.3.13 and `M1-T35`: the generated schema reference must match the schema, and every
+      # entity the `01` §14 A7 audit listed must have a table, a named milestone, or a recorded
+      # decision not to have one. Here as well as in `pnpm verify`, because the two have to agree
+      # in both directions (the `names:check` note above).
+      - name: Schema reference
+        run: pnpm run schema:check
+
   unit:
     name: unit (${{ matrix.shard }}/3)
     runs-on: ubuntu-24.04

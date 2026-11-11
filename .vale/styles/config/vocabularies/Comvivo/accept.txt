@@ -137,3 +137,6 @@ dotenv
 Temporal
 Zipf
 lognormal
+# `01` §7's own term for the member a tool acts on behalf of (invariant: requester authority).
+requester
+requester's

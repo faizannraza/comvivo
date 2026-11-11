@@ -84,3 +84,21 @@ export function planSync(wanted: readonly Label[], existing: readonly Label[]): 
   const extra = existing.map((label) => label.name).filter((name) => !wantedNames.has(name));
   return { create, update, extra, unchanged };
 }
+
+/**
+ * What `--check` should exit with, given a plan.
+ *
+ * A **policy**, not an implementation detail, so it lives next to the plan it reads and has its
+ * own cases: the drift this check exists for is somebody editing a label in the web UI, which
+ * shows up as an `update`. A `create` is the file introducing a label the repository has not been
+ * told about yet — which is every pull request that adds one, since the sync runs on a push to
+ * `main`. Failing there made the check red for exactly the change it was meant to review
+ * (`M1-T35`, adding `mutation-survivor`), and a check that cannot be satisfied is a check people
+ * learn to ignore.
+ *
+ * An `extra` label is never deleted and never a failure: a label applied to a hundred old issues
+ * is somebody's triage work.
+ */
+export function checkExitCode(plan: Plan): number {
+  return plan.update.length > 0 ? 1 : 0;
+}
