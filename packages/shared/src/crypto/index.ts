@@ -27,7 +27,15 @@
 
 export { secureEqual, secureEqualDigest } from './equal.js';
 export { derivePurposeKey, hkdfSha256, KEY_BYTES } from './hkdf.js';
-export { blobAddress, hmacSha256, hmacSha256Base64Url, sha256, sha256Hex } from './hmac.js';
+export {
+  blobAddress,
+  hmacSha256,
+  hmacSha256Base64Url,
+  type IncrementalHash,
+  sha256,
+  sha256Hex,
+  sha256Stream,
+} from './hmac.js';
 export {
   AAD,
   DOMAIN_SEPARATOR_PARTS,

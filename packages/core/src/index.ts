@@ -425,6 +425,12 @@ export {
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
 export type {
+  BlobInfo,
+  BlobPutArgs,
+  BlobPutResult,
+  BlobStorePort,
+} from './ports/storage/blobs.js';
+export type {
   ClaimedJob,
   ClaimRequest,
   DebounceArgs,

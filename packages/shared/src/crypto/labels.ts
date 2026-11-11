@@ -85,7 +85,17 @@ export const KEYRING_FORMAT = `${DOMAIN}-keyring/1`;
  * read it. These strings are what make that fail.
  */
 export const AAD = {
-  /** A blob body's first chunk (`08` §3.7.10). */
+  /**
+   * A blob body's first chunk (`08` §3.7.10).
+   *
+   * **Not used by the blob store**, and `M1-T25` found out why: the address depends on the
+   * plaintext hash, which a streaming writer only knows at EOF, while a secretstream's additional
+   * data must be supplied with the first push. `02` §3.11's write path therefore binds the 8-byte
+   * file prefix in chunk 0 and the address in the **wrapped DEK's** AAD (`blobDek` below), which
+   * it can compute. Kept because these separators are frozen (see the header) and because a
+   * future blob whose address is known before its content — a pre-assigned upload slot — would
+   * want exactly this.
+   */
   blobBody: (blobAddr: string, mime: string): string =>
     `${DOMAIN}/blob/${VERSION}|${blobAddr}|${mime}`,
 

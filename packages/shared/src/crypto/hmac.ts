@@ -21,6 +21,33 @@ export function sha256(data: Uint8Array | string): Buffer {
   return createHash('sha256').update(data).digest();
 }
 
+/**
+ * An incremental SHA-256, for content that is never held whole.
+ *
+ * `02` §3.11's blob write path and `02` §3.14's backup both hash while streaming, because the
+ * alternative is buffering a 50 MiB attachment to hash it — which on a Pi with 1 GiB is the
+ * difference between working and not. A narrow interface rather than the `Hash` object, so a
+ * caller cannot reach `copy()` or `digest()` twice and get a surprise: `digest` finalises, and
+ * node's `Hash` throws on a second call.
+ */
+export interface IncrementalHash {
+  update(data: Uint8Array): void;
+  /** Finalises. Calling it twice throws, which is node's behaviour and not worth hiding. */
+  digest(): Buffer;
+}
+
+export function sha256Stream(): IncrementalHash {
+  const hash = createHash('sha256');
+  return {
+    update(data) {
+      hash.update(data);
+    },
+    digest() {
+      return hash.digest();
+    },
+  };
+}
+
 /** SHA-256 as lowercase hex, which is what `02`'s `sha256` columns hold. */
 export function sha256Hex(data: Uint8Array | string): string {
   return createHash('sha256').update(data).digest('hex');

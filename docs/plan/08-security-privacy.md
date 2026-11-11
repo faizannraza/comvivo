@@ -436,9 +436,9 @@ Compromise playbook (host-facing doc): `rotate-master` → `rotate-data --reencr
 
 #### 3.7.10 Blob encryption
 - **Per blob:** a random 32-byte DEK; the body is a secretstream with the header in the file.
-  - First-chunk AD = `"comvivo/blob/v1|" + blobAddr + "|" + mime`.
-  - Last chunk is `TAG_FINAL`, so truncation is detected.
-- **File:** `VBL1` magic (4 bytes) ‖ secretstream header (24 bytes) ‖ chunks (64 KiB + 17-byte ABYTES each).
+  - First-chunk AD = the file's own 8-byte prefix (`02` §3.11), **not** `"comvivo/blob/v1|" + blobAddr + "|" + mime`. Corrected at M1-T25: `blobAddr` is `HMAC(K_blobid, groupId ‖ 0 ‖ sha256)`, so it depends on the plaintext hash — known only at EOF — while a secretstream's additional data must be supplied with the first push. Buffering the whole attachment to hash it first, or a second pass over a network stream, are the only alternatives and `02` §3.11 refuses both. The **address** binding therefore lives in the wrapped DEK's AAD (below), where it can be computed, and the EOF hash check is the third layer.
+  - Last chunk is `TAG_FINAL`, so truncation is detected — and it is a **data** chunk, not an empty trailing one, so the bytes match `shared`'s `sealBuffer` for every length (M1-T25).
+- **File:** `VBL1` magic (4 bytes) ‖ version (1) ‖ reserved (3, checked zero) ‖ secretstream header (24 bytes) ‖ chunks (64 KiB + 17-byte ABYTES each). `02` §3.11's layout, with the version field: a format with no version cannot be changed without a heuristic, and `12`'s upgrade story needs to be able to say "this is a v1 blob".
 - **DB row (`02`):** `blobAddr`, `dekWrapped` (AES-256-GCM under the blob KEK, AAD = `"comvivo/blob-dek/v1|"+blobAddr+"|gen="+g`), `kekGen`, `label`, `size`, `mime`.
 - **Deleting** the row's `dekWrapped` crypto-shreds the blob even if file deletion fails. Retention sweeps delete both (`02`).
 - **Dedup** works within an instance via the keyed address. Two blobs with different labels and the same content share bytes but have separate rows and labels (`02` resolves label semantics).
