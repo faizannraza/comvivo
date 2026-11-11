@@ -53,6 +53,7 @@ import {
   derivePurposeKey,
   KEY_PURPOSE,
   type SecretStream,
+  secureEqual,
   sha256Stream,
 } from '@comvivo/shared/crypto';
 import { extract as tarExtract } from 'tar-stream';
@@ -326,7 +327,11 @@ async function verifySnapshot(
   const hash = sha256Stream();
   for await (const piece of createReadStream(path)) hash.update(piece as Uint8Array);
   const digest = hash.digest().toString('hex');
-  if (digest !== manifest.db.sha256) {
+  // `secureEqual`, not `!==`: `comvivo/no-secret-equality` reported this, and converting it is the
+  // right answer rather than a suppression. The timing of an integrity check on a file the caller
+  // already holds leaks nothing, but the rule is not asked to know that — and a constant-time
+  // comparison of two 64-character hex strings costs one SHA-256 per restore.
+  if (!secureEqual(digest, manifest.db.sha256)) {
     // The body authenticated and the file still is not the one that was written: a tar entry that
     // unpacked short, or a filesystem that lied about a write. The AEAD cannot see either.
     throw integrity(

@@ -45,6 +45,7 @@ import {
   // there. The rule caught the direct import rather than being weakened for it (`CLAUDE.md` §2).
   randomBytes,
   type SecretStream,
+  secureEqual,
   sha256Stream,
   unwrap,
   wrap,
@@ -194,7 +195,10 @@ export class BlobStore implements BlobStorePort {
       dek.fill(0);
     }
     const digest = hash.digest().toString('hex');
-    if (digest !== row.sha256) {
+    // Constant-time, per `comvivo/no-secret-equality`. A blob's address is an HMAC under the
+    // blob-id key (`02` D14), so comparing what the file hashes to against what the row claims is
+    // adjacent enough to a keyed comparison that the uniform answer is the right one.
+    if (!secureEqual(digest, row.sha256)) {
       // The last line of defence, and the only one that catches a file whose **row** was rewritten
       // wholesale: a consistent file under a consistent DEK, wrapped under a consistent address,
       // whose contents are simply not what the row says they are.

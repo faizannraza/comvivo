@@ -16,6 +16,7 @@ import { ESLint } from 'eslint';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
+import { comvivoPlugin, namesASecret, words } from '../../scripts/lint/no-secret-equality.js';
 import {
   CORE_PURITY_RULES,
   FETCH_ALLOWED_GLOBS,
@@ -564,5 +565,89 @@ describe('the four no-restricted-syntax classes get exactly their own union', {
     ]) {
       expect(await selectorsFor(file), `${file} must keep the security bans`).toContain(security);
     }
+  });
+});
+
+describe('the secret-comparison ban (08 §3.7.13)', { tags: ['slow'] }, () => {
+  /** Lint a snippet with the plugin rule, and return whether it fired. */
+  const fires = async (
+    code: string,
+    filePath = 'packages/engine/src/planted.ts',
+  ): Promise<boolean> => {
+    const eslint = new ESLint({
+      cwd: REPO,
+      overrideConfigFile: true,
+      overrideConfig: [
+        {
+          files: ['**/*.{ts,tsx}'],
+          languageOptions: { parser: tseslint.parser },
+          plugins: { comvivo: comvivoPlugin },
+          rules: { 'comvivo/no-secret-equality': 'error' },
+        },
+      ],
+    });
+    const [result] = await eslint.lintText(code, { filePath: `${REPO}/${filePath}` });
+    const messages = result?.messages ?? [];
+    const fatal = messages.find((message) => message.fatal === true);
+    if (fatal !== undefined) throw new Error(`the snippet did not parse: ${fatal.message}`);
+    return messages.some((message) => message.ruleId === 'comvivo/no-secret-equality');
+  };
+
+  it.each([
+    [
+      'a session token',
+      'export const f = (a: string, b: string) => a === b || sessionToken === b;',
+    ],
+    ['a member expression', 'export const f = (r: {token: string}) => r.token === "x";'],
+    ['a digest', 'export const f = (digest: string, other: string) => digest !== other;'],
+    ['a MAC', 'export const f = (mac: string, other: string) => mac === other;'],
+    ['a pairing code', 'export const f = (pairingCode: string, o: string) => pairingCode === o;'],
+    ['a data key', 'export const f = (dataKey: string, o: string) => dataKey === o;'],
+    ['a hard-coded secret', 'export const f = (apiSecret: string) => apiSecret === "hunter2";'],
+    ['loose equality', 'export const f = (claimCode: string, o: string) => claimCode == o;'],
+  ])('fires on %s', async (_label, code) => {
+    expect(await fires(code)).toBe(true);
+  });
+
+  it.each([
+    // The 23 comparisons on this tree that the spec's literal regex would have caught, in shape.
+    ['an errno', 'export const f = (e: {code: string}) => e.code === "ENOENT";'],
+    ['an exit code', 'export const f = (exitCode: number) => exitCode === 0;'],
+    ['a map key', 'export const f = (key: string) => key === "labelId";'],
+    [
+      'a partition key',
+      'export const f = (partitionKey: string, o: string) => partitionKey === o;',
+    ],
+    ['a key length', 'export const f = (k: Uint8Array) => k.length !== KEY_BYTES;'],
+    ['a presence check', 'export const f = (token?: string) => token === undefined;'],
+    ['a null check', 'export const f = (token: string | null) => token !== null;'],
+    ['an emptiness check', 'export const f = (mac: string) => mac === "";'],
+    ['a machine name', 'export const f = (machineId: string, o: string) => machineId === o;'],
+  ])('stays quiet on %s', async (_label, code) => {
+    expect(await fires(code)).toBe(false);
+  });
+
+  it('is wired everywhere except the two directories that implement the comparison', async () => {
+    const applies = async (file: string): Promise<boolean> =>
+      Object.hasOwn(await configuredRulesFor(file), 'comvivo/no-secret-equality');
+    expect(await applies('packages/engine/src/index.ts')).toBe(true);
+    expect(await applies('apps/server/src/index.ts')).toBe(true);
+    expect(await applies('packages/shared/src/tokens/mac.ts')).toBe(true);
+    expect(await applies('scripts/lint/rules.ts')).toBe(true);
+    // `08` PSC-8's two crypto directories are where `secureEqual` and `timingSafeEqual` live, so
+    // they are the two that cannot be told to use them.
+    expect(await applies('packages/shared/src/crypto/equal.ts')).toBe(false);
+    expect(await applies('packages/storage/src/crypto/key-service.ts')).toBe(false);
+  });
+
+  it('splits names into words, which is what keeps `machine` out of `mac`', () => {
+    expect(words('sessionDigest')).toEqual(['session', 'digest']);
+    expect(words('HMACKey')).toEqual(['hmac', 'key']);
+    expect(words('token_digest')).toEqual(['token', 'digest']);
+    expect(namesASecret('machineId')).toBe(false);
+    expect(namesASecret('hashtag')).toBe(false);
+    expect(namesASecret('code')).toBe(false);
+    expect(namesASecret('claimCode')).toBe(true);
+    expect(namesASecret('rootDataKey')).toBe(true);
   });
 });

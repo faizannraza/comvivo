@@ -25,6 +25,7 @@ import type { Linter } from 'eslint';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { comvivoPlugin } from './scripts/lint/no-secret-equality.js';
 import {
   CORE_PURITY_RULES,
   FETCH_ALLOWED_GLOBS,
@@ -255,6 +256,19 @@ export default defineConfig(
     // the exit gate caught by planting `new Date()` in core and finding `pnpm lint` green.
     ignores: ['packages/core/**', ...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
     rules: FETCH_BAN,
+  },
+  {
+    // `08` §3.7.13: a secret is compared in constant time, or not at all. Its own rule id rather
+    // than another `no-restricted-syntax` selector, because this ban has an exemption of its own
+    // and flat config **replaces** a rule's options — four selector blocks would have become
+    // eight. The rule explains the narrowed name pattern and why (`scripts/lint/`).
+    name: 'comvivo/no-secret-equality',
+    files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}', 'scripts/**/*.ts'],
+    // The two directories allowed to touch `node:crypto` (`08` PSC-8) are the two that implement
+    // the comparison, so they are the two that cannot use it.
+    ignores: ['packages/shared/src/crypto/**', 'packages/storage/src/crypto/**'],
+    plugins: { comvivo: comvivoPlugin },
+    rules: { 'comvivo/no-secret-equality': 'error' },
   },
   ...restrictedSyntaxBlocks(),
   {

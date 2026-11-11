@@ -499,6 +499,29 @@ refused *before* anything is allocated: four corrupt bytes can ask for 4 GiB.
 | Control token | `vctl_<b64u 32B>` in `dataDir/keys/control.token` (0600) | 256 b | Until rotated (rotated on restore) | File only; constant-time compare | CLI → `/control/v1` bearer (`09` D-04); never accepted with a session cookie |
 | Plugin IPC | per-process random, never persisted | 256 b | Process lifetime | — | Authenticates the broker channel |
 
+**Implementation note (`M1-T29`).** Every shape above is `packages/shared/src/tokens/*`:
+`format.ts` (the prefixed random tokens, the cookie names, the CSRF header), `codes.ts` (the
+Crockford typed codes) and `mac.ts` (the two derived tokens). Four decisions were taken there and
+belong with the table:
+
+- **The `v…` prefixes are format tags and are not renamed.** `vs1_`, `vlp_`, `vctl_`, `vics_`,
+  `vmcp_` and `vml1.` stay as written — the same decision `M1-T2` recorded for the `VBL1` and
+  `VBK1` magic bytes. A tag needs uniqueness and stability, and stability is what a *stored* token
+  depends on: renaming a prefix would invalidate every session, every member's calendar
+  subscription and every configured MCP client, to nobody's benefit.
+- **The names a host sees are derived from `BRAND`.** The cookies are
+  `[__Host-|__Secure-]<slug>_session` and `…_pending`, the CSRF header is `X-<DisplayName>-CSRF`,
+  and the typed claim code's prefix is the brand's three-letter short code — drop the vowels,
+  collapse runs of the same letter, take three, which gives `VLG` from `village` (the spelling this
+  table was written with) and `CMV` from `comvivo`. A literal would be a rename bug waiting in M9.
+- **The stored digest covers the whole token, prefix included.** It binds a digest to its kind, so
+  a row stored for one kind cannot be matched by a token of another, and a host stores the digest
+  of exactly the string the holder has. Pinned by a known-answer test.
+- **A typed code is canonicalised before it is hashed** — uppercased, separators dropped,
+  Crockford's `I`/`L` → `1` and `O` → `0` applied — so `cmv-k3m9-0p2t` and `K3M90P2T` are one
+  code. A claim code is accepted with or without its prefix: the prefix carries no entropy, and the
+  code's safety is its 30-minute TTL, its single use and its ten-attempt limit.
+
 **Login flows** (UX in `09`):
 - **Pairing (default in every mode; the only browser login outside loopback unless HTTPS magic links are enabled).**
   1. The browser gets a pending secret and a code.
@@ -516,7 +539,10 @@ refused *before* anything is allocated: four corrupt bytes can ask for 4 GiB.
 
 #### 3.7.13 Randomness, comparison and memory hygiene
 - All secrets come from `crypto.randomBytes`. Base64url without padding, Crockford base32 for human-typed values.
-- `secureEqual(a, b)` = `timingSafeEqual(sha256(a), sha256(b))`. Lint bans `===`/`!==` on identifiers matching `/token|secret|code|hash|mac/i` outside `shared/crypto`.
+- `secureEqual(a, b)` = `timingSafeEqual(sha256(a), sha256(b))`. Lint bans `===`/`!==` on secret-named identifiers outside `shared/crypto` and `storage/crypto`, as the ESLint rule `comvivo/no-secret-equality` (`scripts/lint/no-secret-equality.ts`).
+  - **The name pattern is narrower than `/token|secret|code|hash|mac/i`**, which `M1-T29` measured against this tree: 26 comparisons match that regex and 23 of them are an errno (`error.code === 'ENOENT'`), an exit code or a map key. A security rule that fires 23 times on correct code is a rule people switch off. So the rule matches *words* — `token`, `secret`, `passphrase`, `digest`, `hash`, `hmac`, `mac`, `otp` — and treats `code` and `key` as secrets only when a qualifier precedes them (`claimCode`, `recoveryCode`, `dataKey`, `masterKey`). `machineId` is not a MAC and `partitionKey` is not a key.
+  - **Presence checks are allowed**: `=== undefined`, `!== null` and `=== ''` have no secret on the other side. Every other literal is a finding, because `token === 'let-me-in'` is the worst case the rule exists for.
+  - Its own rule id rather than another `no-restricted-syntax` selector: flat config *replaces* a rule's options, so a fifth selector with its own exemption would have doubled four composition blocks to eight. `test/boundaries/lint-bans.int.test.ts` proves it bites, proves it stays quiet on all nine false-positive shapes, and proves it is wired everywhere but the two crypto directories that implement the comparison.
 - Secrets travel as `SecretString` / `SecretKey` (§4): `toString`, `toJSON` and `util.inspect` return `[REDACTED]`. Key buffers are zeroed on lock/shutdown (best effort; the GC may have copied them, as documented).
 - No security decision depends on wall-clock comparisons finer than 1 s. Token `exp` allows 60 s skew; doctor checks NTP skew.
 
