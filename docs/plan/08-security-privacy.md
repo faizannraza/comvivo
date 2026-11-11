@@ -452,8 +452,31 @@ header = { format, instanceId, createdAt, dataGen,
            keyringSnapshot: { generations: [ { gen, slots: [master, recovery] } ],   // RDK_g wrapped by MK and RK only
                               static: { blobId } },                              // blob-id key wrapped by RDK_g: restored blob addresses stay stable
            body: { chunkSize: 65536 } }
-first-chunk AD = SHA-256(header bytes)    // any header edit breaks decryption
+first-chunk AD = SHA-256(canonical JSON of {format, instanceId, createdAt, dataGen, body})   // M1-T27
 ```
+**The AD covers the header's immutable core, not the whole header** (corrected at `M1-T27`). As
+written, this section said `SHA-256(header bytes)` and, three lines below, that `backup rewrap`
+"rewrites only the header". **Both cannot hold**: a rewrap replaces the `slots` — that is what it is
+for, after a recovery-key rotation — so an AD over the whole header would make every rewrapped
+archive undecryptable, and the rewrap would be a command that quietly destroys a host's backups.
+
+Nothing is lost by excluding the mutable parts, because each is already authenticated on its own:
+every slot is an AES-256-GCM wrap of the DEK under `AAD.backupDek` (which binds the instance, the
+creation time, the route and the key within it), and every `keyringSnapshot` wrap uses
+`AAD.keyringSlot` — byte-identical to `keyring.json`'s, which is what lets a restore reuse
+`openSlot` unchanged. A slot swapped in from another archive therefore yields a different DEK and
+the body fails its own authentication. The core still binds the body to *this* archive, so a body
+cannot be moved between two archives of one instance.
+
+What an attacker with write access gains is the ability to edit the plaintext `createdAt` of an
+archive they cannot decrypt, and so make it fail to decrypt. That is vandalism of a file they can
+already delete, not an attack.
+
+`format` is `comvivo-backup/1`, frozen in `shared/src/crypto/labels.ts` beside `KEYRING_FORMAT` —
+it is part of the core the AD covers and of every `backupDek` AAD, so a rename codemod must not
+touch it. A header is capped at **64 KiB** on both the write and the read side (the same number, so
+a writer cannot produce a file no reader accepts), and a declared length outside 1…64 KiB is
+refused *before* anything is allocated: four corrupt bytes can ask for 4 GiB.
 - `keyringSnapshot.static.blobId` is **required**: without it a restore could not recompute `HMAC-SHA256(blob-id key, …)` addresses (SD-06, `02` D14). Restoring with the recovery key alone unwraps `RDK_g`, then `static.blobId` (A10).
 - The body contains the encrypted DB snapshot, encrypted blob files as-is, the encrypted vault, `secrets.enc` if present (A29) and a manifest. **No plaintext ever touches disk during backup or restore.**
 - Archives use the `.vbak` extension with the `VBK1` magic. Filenames carry no sensitive metadata (pattern owned by `02` §3.14 and `12` §3.9, e.g. `village-<first 6 chars of instanceId>-<UTC timestamp>.vbak`).

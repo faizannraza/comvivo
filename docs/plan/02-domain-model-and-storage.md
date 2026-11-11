@@ -2653,8 +2653,11 @@ header = { format, instanceId, createdAt, dataGen,
                     {kind:"passphrase", kdf:"scrypt", N, r, p, salt, nonce, ct}? ],   // optional (backups.passphraseSlot)
            keyringSnapshot: { generations: [ { gen, slots: [master, recovery] } ], static: { blobId } },  // wraps RDK_g
            body: { chunkSize: 65536 } }
-first-chunk AD = SHA-256(header bytes)
+first-chunk AD = SHA-256(canonical JSON of {format, instanceId, createdAt, dataGen, body})   // M1-T27
 ```
+The AD covers the header's **immutable core** rather than the whole header, because a rewrap
+rewrites the slots and an AD over all of it would make every rewrapped archive undecryptable.
+`08` §3.7.11 has the full reasoning and the reasons nothing is lost.
 - **Restore with the recovery key alone** (the A10 guarantee): RK unwraps the DEK (recovery slot) → decrypts the body; RK also unwraps `RDK_g` from `keyringSnapshot` → derives `db_key`, `blob_kek_g` and unwraps `K_blobid`. With MK the same works through the `backup-kek` slot and the master slots.
 - `village backup rewrap` (08) rewrites only the header (e.g. after recovery-key rotation).
 - `keyringSnapshot.static.blobId` is required so a restored instance keeps stable blob addresses (08 §3.7.11 defines it in the `VBK1` header).
