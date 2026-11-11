@@ -22,6 +22,7 @@ import {
   type NewPerson,
 } from '@comvivo/core';
 import {
+  type AuditId,
   type CalendarSubscriptionId,
   type ChannelIdentityId,
   type ConfirmationId,
@@ -40,6 +41,7 @@ import {
   type MemberId,
   type MemoryId,
   type MessageId,
+  type OutboxId,
   type PersonId,
   type PlanId,
   type PlanStepId,
@@ -50,7 +52,11 @@ import {
   type StandingApprovalId,
   SystemClock,
   type TaskId,
+  type TurnEffectId,
+  type TurnId,
+  type TurnTraceId,
   TypeIdGenerator,
+  type UsageId,
   UTC,
 } from '@comvivo/shared';
 import { sha256 } from '@comvivo/shared/crypto';
@@ -361,4 +367,28 @@ export function taskId(tag: string): TaskId {
 
 export function ledgerEntryId(tag: string): LedgerEntryId {
   return `lde_${suffix(tag)}` as LedgerEntryId;
+}
+
+export function turnId(tag: string): TurnId {
+  return `trn_${suffix(tag)}` as TurnId;
+}
+
+export function effectId(tag: string): TurnEffectId {
+  return `tfx_${suffix(tag)}` as TurnEffectId;
+}
+
+export function traceId(tag: string): TurnTraceId {
+  return `trc_${suffix(tag)}` as TurnTraceId;
+}
+
+export function auditId(tag: string): AuditId {
+  return `aud_${suffix(tag)}` as AuditId;
+}
+
+export function usageId(tag: string): UsageId {
+  return `use_${suffix(tag)}` as UsageId;
+}
+
+export function outboxId(tag: string): OutboxId {
+  return `obx_${suffix(tag)}` as OutboxId;
 }

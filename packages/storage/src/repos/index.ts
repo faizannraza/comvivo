@@ -19,6 +19,7 @@ import { LabelStore } from '../ifc/label-store.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
+import { SqliteAuditLog } from './audit.js';
 import { SqliteCalendarRepository } from './calendar.js';
 import { SqliteConversationRepository } from './conversations.js';
 import {
@@ -36,7 +37,10 @@ import { SqliteMessageRepository } from './messages.js';
 import { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 import { SqliteSettingsRepository } from './settings.js';
 import { SqliteTaskRepository } from './tasks.js';
+import { SqliteTraceRepository } from './traces.js';
+import { SqliteTurnJournal } from './turns.js';
 import { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';
+import { SqliteUsageRepository } from './usage.js';
 
 /**
  * Every repository, built once per connection.
@@ -92,6 +96,24 @@ export interface Repositories {
   readonly decisions: SqliteDecisionRepository;
   readonly reminders: SqliteReminderRepository;
   readonly governance: SqliteGovernanceRepository;
+  /**
+   * The turn journal (`02` §3.8).
+   *
+   * `UnitOfWork` names it `journal` and `ReadScope` names the reader `turns`; one instance is both,
+   * like every other aggregate here. It holds the label store because an effect carries a label —
+   * a tool result is a datum, and who may read it is not the turn's audience.
+   */
+  readonly journal: SqliteTurnJournal;
+  readonly traces: SqliteTraceRepository;
+  /**
+   * The audit chain (`02` §3.3.7).
+   *
+   * `UnitOfWork` names the writer `auditW`. No label store: an audit row holds ids and enums only
+   * (`02` §3.3.9), so there is nothing in it an audience could be wrong about — the row's
+   * visibility is `09`'s host-or-admin question, not an IFC one.
+   */
+  readonly audit: SqliteAuditLog;
+  readonly usage: SqliteUsageRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
    * `02` §3.7.3's context read model.
@@ -155,12 +177,17 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     decisions: new SqliteDecisionRepository(db, labels),
     reminders: new SqliteReminderRepository(db, labels),
     governance: new SqliteGovernanceRepository(db, labels),
+    journal: new SqliteTurnJournal(db, labels),
+    traces: new SqliteTraceRepository(db, labels),
+    audit: new SqliteAuditLog(db),
+    usage: new SqliteUsageRepository(db),
     embeddingSpaces: spaces,
   };
   return { ...set, context: new SqliteContextReadModel(set) };
 }
 
 export { SqliteContextReadModel } from '../readmodels/context.js';
+export { auditHash, DEFAULT_VERIFY_LIMIT, GENESIS_HASH, SqliteAuditLog } from './audit.js';
 export { SqliteCalendarRepository } from './calendar.js';
 export { SqliteConversationRepository } from './conversations.js';
 export {
@@ -178,4 +205,11 @@ export { dedupeKey, SqliteMessageRepository } from './messages.js';
 export { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 export { SqliteSettingsRepository } from './settings.js';
 export { SqliteTaskRepository } from './tasks.js';
+export { SqliteTraceRepository } from './traces.js';
+export {
+  effectIdempotencyKey,
+  ORPHANED_NO_EFFECTS,
+  SqliteTurnJournal,
+} from './turns.js';
 export { SqliteMessageReaderUnfiltered } from './unfiltered/messages.js';
+export { SqliteUsageRepository } from './usage.js';

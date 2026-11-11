@@ -184,7 +184,9 @@ export function traceRowBytes(row: Partial<Record<TraceJsonColumn, unknown>>): n
  * Returns the overage rather than throwing, because the caller's right response is to **drop
  * detail and keep the trace**, not to fail the turn: `05` §3.10 makes the trace an observability
  * artefact, and a turn that failed because its own trace was too big would be the worst possible
- * trade. The writer (`M1-T22`) truncates the longest list and records that it did.
+ * trade. The writer (`M1-T21`'s `SqliteTraceRepository`) halves the longest list until the row
+ * fits and returns what it dropped, so a caller cannot lose half its tool calls silently.
+ * `M1-T22` is the outbox, not the trace — a mis-reference corrected when the writer landed.
  */
 export function traceBudgetOverage(row: Partial<Record<TraceJsonColumn, unknown>>): number {
   return Math.max(0, traceRowBytes(row) - TRACE_TOTAL_BUDGET_BYTES);

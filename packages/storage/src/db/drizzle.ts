@@ -78,22 +78,33 @@ export function maybeOne<T>(query: { get(): T }): T | undefined {
 /**
  * `.get()` where a row is **guaranteed**, with a loud failure if it is not.
  *
- * For `INSERT … RETURNING`: SQLite yields a row when the insert succeeds and throws when it does
- * not, so there is no third outcome. `maybeOne` would be wrong here — not because the check is
- * unnecessary, but because the only honest response to its `undefined` is to stop. Returning it
- * would push an impossible state into the caller, which is how a `TypeError` ends up three frames
- * away from the statement that caused it.
+ * Two statement shapes qualify, and `02` has both:
+ *
+ *  - **`INSERT … RETURNING`** — SQLite yields a row when the insert succeeds and throws when it
+ *    does not, so there is no third outcome.
+ *  - **an aggregate with no `GROUP BY`** — `SELECT coalesce(sum(x), 0) …` yields exactly one row
+ *    whether or not anything matched, which is what makes `UsageReader.spend` read an empty window
+ *    as zeros (`M1-T21`).
+ *
+ * `maybeOne` would be wrong for either — not because the check is unnecessary, but because the
+ * only honest response to its `undefined` is to stop. Returning it would push an impossible state
+ * into the caller, which is how a `TypeError` ends up three frames away from the statement that
+ * caused it; and a `?? ZERO` fallback at the call site would be a branch no test can reach.
+ *
+ * `NonNullable<T>` because drizzle types `.get()` differently for the two shapes: non-optional
+ * after `.returning()` and `Row | undefined` after `.select()`. Stripping it here means one helper
+ * serves both rather than each call site narrowing in its own way.
  *
  * The same guard `LabelStore.intern` already carries in longhand ("`INSERT … RETURNING id` always
  * yields a row when it succeeds"), in one place so every repository words it identically.
  */
-export function exactlyOne<T>(query: { get(): T }, what: string): T {
+export function exactlyOne<T>(query: { get(): T }, what: string): NonNullable<T> {
   const row = query.get() as T | undefined;
   if (row === undefined) {
-    throw new StorageError('STORAGE_IO', `writing ${what} returned no row`, {
-      hint: 'This is a bug: `INSERT … RETURNING` always yields a row when it succeeds.',
+    throw new StorageError('STORAGE_IO', `reading or writing ${what} returned no row`, {
+      hint: 'This is a bug: `INSERT … RETURNING` and an aggregate without `GROUP BY` both always yield a row.',
       category: 'bug',
     });
   }
-  return row;
+  return row as NonNullable<T>;
 }

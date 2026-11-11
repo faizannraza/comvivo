@@ -424,6 +424,7 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+export type { AuditLog, AuditReader } from './ports/storage/repos/audit.js';
 export type {
   CalendarReader,
   CalendarRepository,
@@ -478,6 +479,14 @@ export {
   settingScope,
   unpersistableSettingReason,
 } from './ports/storage/repos/settings.js';
+export type {
+  TraceReader,
+  TraceRepository,
+  TraceTruncation,
+  TurnJournal,
+  TurnJournalReader,
+} from './ports/storage/repos/turns.js';
+export type { Spend, UsageReader, UsageRepository } from './ports/storage/repos/usage.js';
 // --- Ports: storage (M1-T9) ---------------------------------------------------------------------
 export type {
   LabelInterner,
@@ -500,12 +509,56 @@ export {
   writeOk,
 } from './ports/storage/write-result.js';
 export {
+  type AuditEvent,
+  type ChainVerification,
+  chainKeyFor,
+  EFFECT_STATUSES,
+  type EffectStatus,
+  INSTANCE_CHAIN_KEY,
+  isOrphaned,
+  type NewAuditEvent,
+  type NewTurn,
+  type NewTurnEffect,
+  type NewTurnTrace,
+  type NewUsageRecord,
+  TURN_EFFORTS,
+  TURN_KINDS,
+  TURN_PHASES,
+  TURN_STATUSES,
+  type Turn,
+  type TurnEffect,
+  type TurnEffort,
+  type TurnKind,
+  type TurnPhase,
+  type TurnStatus,
+  type TurnTrace,
+  USAGE_KINDS,
+  USAGE_VIA,
+  type UsageDailyRow,
+  type UsageKind,
+  type UsageRecord,
+  type UsageVia,
+  usageGroupKey,
+} from './runtime/aggregates.js';
+export {
   type AuditDecision,
   AuditDecisionSchema,
   type AuditDetails,
   AuditDetailsSchema,
 } from './runtime/audit.js';
-export { OutboundPayloadSchema } from './runtime/outbox.js';
+export {
+  EXPIRY_CLASSES,
+  type ExpiryClass,
+  MESSAGE_CLASSES,
+  type MessageClass,
+  type NewOutboxMessage,
+  OUTBOX_STATUSES,
+  OutboundPayloadSchema,
+  type OutboxMessage,
+  type OutboxStatus,
+  SEND_PRIORITIES,
+  type SendPriority,
+} from './runtime/outbox.js';
 export {
   CRON_PATTERN,
   CronExprSchema,

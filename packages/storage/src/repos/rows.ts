@@ -18,6 +18,7 @@
  */
 
 import type {
+  AuditEvent,
   ChannelIdentity,
   ConfirmationRequest,
   ConsentEvent,
@@ -36,6 +37,7 @@ import type {
   MemorySource,
   MemorySubject,
   Message,
+  OutboxMessage,
   Person,
   Plan,
   PlanStep,
@@ -48,9 +50,15 @@ import type {
   Setting,
   StandingApproval,
   Task,
+  Turn,
+  TurnEffect,
+  TurnTrace,
+  UsageDailyRow,
+  UsageRecord,
 } from '@comvivo/core';
 import { internedId } from '@comvivo/shared';
 import type {
+  auditEvents,
   channelIdentities,
   confirmationRequests,
   consentEvents,
@@ -69,6 +77,7 @@ import type {
   memorySources,
   memorySubjects,
   messages,
+  outboxMessages,
   persons,
   planSteps,
   plans,
@@ -80,6 +89,11 @@ import type {
   settings,
   standingApprovals,
   tasks,
+  turnEffects,
+  turns,
+  turnTraces,
+  usageDaily,
+  usageRecords,
 } from '../schema/index.js';
 
 /** `null` → `undefined`, the only transformation these mappers perform. */
@@ -722,5 +736,163 @@ export function toConfirmationRequest(
     labelId: row.labelId,
     createdAt: row.createdAt,
     version: row.version,
+  };
+}
+
+/* ───────────────────────── Runtime (`M1-T21`, `02` §3.3.7) ───────────────────────── */
+
+export function toTurn(row: typeof turns.$inferSelect): Turn {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    conversationId: row.conversationId,
+    kind: row.kind,
+    triggerMessageIds: row.triggerMessageIds,
+    requesterMemberId: opt(row.requesterMemberId),
+    audienceReaderSetId: internedId(row.audienceReaderSetId, 'reader_sets'),
+    status: row.status,
+    phase: opt(row.phase),
+    phaseStep: opt(row.phaseStep),
+    effort: opt(row.effort),
+    bootId: row.bootId,
+    rootTurnId: row.rootTurnId,
+    parentTurnId: opt(row.parentTurnId),
+    retryOfTurnId: opt(row.retryOfTurnId),
+    restarts: row.restarts,
+    recoveryDone: row.recoveryDone,
+    startedAt: row.startedAt,
+    deadlineAt: row.deadlineAt,
+    timedOutAt: opt(row.timedOutAt),
+    completedAt: opt(row.completedAt),
+    failure: opt(row.failure),
+  };
+}
+
+export function toTurnEffect(row: typeof turnEffects.$inferSelect): TurnEffect {
+  return {
+    id: row.id,
+    turnId: row.turnId,
+    rootTurnId: row.rootTurnId,
+    groupId: row.groupId,
+    seq: row.seq,
+    toolName: row.toolName,
+    idempotencyKey: row.idempotencyKey,
+    status: row.status,
+    resultCiphertext: opt(row.resultCiphertext),
+    summaryKey: row.summaryKey,
+    summaryParams: row.summaryParams,
+    entityRefs: row.entityRefs,
+    labelId: row.labelId,
+    committedAt: opt(row.committedAt),
+    ackOutboxId: opt(row.ackOutboxId),
+  };
+}
+
+export function toTurnTrace(row: typeof turnTraces.$inferSelect): TurnTrace {
+  return {
+    id: row.id,
+    turnId: row.turnId,
+    groupId: row.groupId,
+    conversationId: row.conversationId,
+    labelId: row.labelId,
+    trigger: row.trigger,
+    disposition: row.disposition,
+    contextManifest: row.contextManifest,
+    modelCalls: row.modelCalls,
+    toolCalls: row.toolCalls,
+    policyDecisions: row.policyDecisions,
+    guardResults: row.guardResults,
+    costMicros: row.costMicros,
+    latency: row.latency,
+    replay: row.replay,
+    createdAt: row.createdAt,
+    expiresAt: row.expiresAt,
+  };
+}
+
+export function toAuditEvent(row: typeof auditEvents.$inferSelect): AuditEvent {
+  return {
+    id: row.id,
+    chainKey: row.chainKey,
+    seq: row.seq,
+    groupId: opt(row.groupId),
+    actor: row.actor,
+    action: row.action,
+    target: opt(row.target),
+    decision: row.decision,
+    details: row.details,
+    prevHash: row.prevHash,
+    hash: row.hash,
+    at: row.at,
+  };
+}
+
+export function toUsageRecord(row: typeof usageRecords.$inferSelect): UsageRecord {
+  return {
+    id: row.id,
+    groupId: opt(row.groupId),
+    turnId: opt(row.turnId),
+    jobId: opt(row.jobId),
+    route: row.route,
+    provider: row.provider,
+    model: row.model,
+    servedModel: row.servedModel,
+    purpose: row.purpose,
+    via: row.via,
+    effort: opt(row.effort),
+    kind: row.kind,
+    inputTokens: row.inputTokens,
+    cachedReadTokens: row.cachedReadTokens,
+    cacheWrite5mTokens: row.cacheWrite5mTokens,
+    cacheWrite1hTokens: row.cacheWrite1hTokens,
+    outputTokens: row.outputTokens,
+    costMicros: row.costMicros,
+    priceTableVersion: row.priceTableVersion,
+    batch: row.batch,
+    at: row.at,
+  };
+}
+
+export function toUsageDailyRow(row: typeof usageDaily.$inferSelect): UsageDailyRow {
+  return {
+    groupKey: row.groupKey,
+    dayLocal: row.dayLocal,
+    route: row.route,
+    calls: row.calls,
+    costMicros: row.costMicros,
+    inputTokens: row.inputTokens,
+    outputTokens: row.outputTokens,
+    cachedReadTokens: row.cachedReadTokens,
+  };
+}
+
+export function toOutboxMessage(row: typeof outboxMessages.$inferSelect): OutboxMessage {
+  return {
+    id: row.id,
+    groupId: opt(row.groupId),
+    conversationId: row.conversationId,
+    turnId: opt(row.turnId),
+    seq: row.seq,
+    idempotencyKey: row.idempotencyKey,
+    messageClass: row.messageClass,
+    priority: row.priority,
+    expiryClass: row.expiryClass,
+    payload: row.payload,
+    parts: row.parts,
+    contentHash: row.contentHash,
+    audienceReaderSetId: internedId(row.audienceReaderSetId, 'reader_sets'),
+    labelId: opt(row.labelId),
+    guardRef: row.guardRef,
+    manifestLabelIds: row.manifestLabelIds.map((id) => internedId(id, 'labels')),
+    status: row.status,
+    maybeSent: row.maybeSent,
+    inFlightSince: opt(row.inFlightSince),
+    attempts: row.attempts,
+    nextAttemptAt: row.nextAttemptAt,
+    leaseUntil: opt(row.leaseUntil),
+    platformMessageId: opt(row.platformMessageId),
+    lastError: opt(row.lastError),
+    createdAt: row.createdAt,
+    sentAt: opt(row.sentAt),
   };
 }

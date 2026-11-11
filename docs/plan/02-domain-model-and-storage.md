@@ -1239,6 +1239,22 @@ export const auditEvents = sqliteTable('audit_events', {
 }, (t) => [uniqueIndex('audit_chain_seq_uq').on(t.chainKey, t.seq),                           // Q-AUD-1 head
            index('audit_group_at_idx').on(t.groupId, t.at)]);                                 // Q-DASH-3
 // trg_audit_events_append_only: BEFORE UPDATE → RAISE(ABORT,'AUDIT_APPEND_ONLY')
+// `seq`, `prev_hash` and `hash` are assigned by the repository from the chain head, never supplied
+// (M1-T21): a caller-supplied hash is derived from whatever that caller had, so a forged row with a
+// matching forged hash would verify. `chain_key` is derived from `group_id` for the same reason —
+// a row whose chain_key disagreed with its group_id would be removed by the purge cascade while
+// still belonging to another chain, which is a gap that looks exactly like tampering.
+//
+// `verifyChain` checks THREE things, and the third is the one a link-by-link implementation leaves
+// out (M1-T21): (a) every row's hash recomputes; (b) every prev_hash equals its predecessor's hash,
+// which catches a row removed from the middle; (c) **the chain starts at seq 1 with the genesis
+// prev_hash**, which catches the oldest rows being removed — T-T02's literal threat, and a case
+// where the survivors all link to each other perfectly. (c) is skipped when the read was bounded by
+// `limit` (11 §1116's 10 000), because then the earlier rows exist and were not examined.
+// Consequence: a retention purge MUST re-anchor (08 §895) or the chain reads as broken. The
+// mechanism is M1-T26's — rewriting the first survivor's prev_hash does not work, because that
+// row's own hash covers it, so the whole surviving chain would need rehashing; the alternative is a
+// stored purged-up-to (seq, hash) that verifyChain accepts as a continuation.
 
 export const outboxMessages = sqliteTable('outbox_messages', {
   id: tid('obx')('id').primaryKey(),
@@ -1300,6 +1316,16 @@ export const usageDaily = sqliteTable('usage_daily', {   // rollup maintained in
   cachedReadTokens: integer('cached_read_tokens').notNull(),
 }, (t) => [primaryKey({ columns: [t.groupKey, t.dayLocal, t.route] })]);                       // Q-USE-1 budget guard
 ```
+The rollup is written **in the same transaction** as the record, with additive SQL (`calls = calls + 1`,
+and so on) rather than read-modify-write — one class implements both halves of an aggregate, so a
+read-then-write would be correct inside one transaction and wrong the moment two of `01` §8's worker
+slots record at once. A retried record (`duplicate`) must not touch the rollup. `day_local` is
+**supplied** by the caller rather than derived here: it is a date in the group's timezone, and `05`
+has the zone while the repository has only the instant (M1-T21).
+
+`UsageReader`'s accessor is **`byId`**, not `record`: §4.1 names the writer `record`, one class
+implements both halves, and two methods of the same name with different arities are not expressible
+— nor would a method whose meaning depended on its argument count be safe for callers (M1-T21).
 
 #### 3.3.8 Jobs, blobs, settings, tombstones — `jobs.ts`, `blobs.ts`, `system.ts`
 ```ts
@@ -2964,7 +2990,7 @@ All tests use Vitest. Property tests use fast-check 4 with `numRuns` 200 locally
 - `store.tx-async-guard.test`: an `async` callback throws `STORAGE_TX_ASYNC_CALLBACK`, nothing is committed, and `afterCommit` hooks do not run.
 - `store.nested-savepoint.test`: an inner failure rolls back only the inner work when caught.
 - `repos.<aggregate>.contract.test` (one per repository): CRUD, optimistic-concurrency conflict, `not_found`, and label interning. These contract tests are reusable later by a Postgres implementation (`describeRepositoryContract(factory)`).
-- `turn-journal.recovery.test`: effects without completion → recovery query finds them → `recover()` acks all → I7 query empty.
+- `turn-journal.recovery.test`: effects without completion → recovery query finds them → `recover()` acks all → I7 query empty. Realised as `repos/turn-journal.recovery.contract.test.ts`: the names in this section are **shorthand**, and the file needs the pool-selecting infix, since `vitest.config.ts` runs the `unit` project on `threads` (reserved for pure code) and `contract`/`integration` on `forks` because they load native modules. Same realisation as `store.tx-async-guard.test` → `db/tx.int.test.ts` (M1-T21).
 - `outbox.crash.test` (child process `kill -9` at 5 injected points: after enqueue, after claim, after send-before-receipt, after receipt) → no logical duplicate and no loss across 50 iterations.
 - `migrations.*` (§3.12.6).
 - `encryption.at-rest.canary.test`: the canary is absent from `comvivo.db`, `-wal`, `-shm`, blob files and `.vbak` (raw bytes, UTF-16 and lowercase forms).
