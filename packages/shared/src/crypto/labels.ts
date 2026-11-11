@@ -78,6 +78,17 @@ export function tokenMacPurpose(epoch: number): string {
 export const KEYRING_FORMAT = `${DOMAIN}-keyring/1`;
 
 /**
+ * The `format` field of a `VBK1` backup header (`08` §3.7.11).
+ *
+ * Here beside `KEYRING_FORMAT` and equally frozen: it is the `format` an archive declares, it is
+ * part of the header core the body's chunk-0 additional data covers, and it is part of every
+ * `backupDek` AAD below. Change it and no existing archive opens — which is also why it lives in
+ * this file rather than as a string literal in `storage`, where the brand guard would be right to
+ * object and a rename codemod would be wrong to touch it.
+ */
+export const BACKUP_FORMAT = `${DOMAIN}-backup/1`;
+
+/**
  * AEAD additional data, which binds a ciphertext to its context.
  *
  * Without AAD, a wrapped key lifted from one row and pasted into another would decrypt fine — so
@@ -116,6 +127,22 @@ export const AAD = {
    */
   keyringSlot: (instanceId: string, generation: number, slotId: string, kind: string): string =>
     `${KEYRING_FORMAT}|${instanceId}|gen=${String(generation)}|slot=${slotId}|kind=${kind}`,
+
+  /**
+   * A `VBK1` archive's wrapped per-backup DEK (`08` §3.7.11).
+   *
+   * Binds **four** things, for the same reason `keyringSlot` binds four: the archive's identity
+   * (instance and creation time), the unlock route, and which key of that route. So a slot cannot
+   * be moved between two archives of one instance, and a recovery slot cannot be passed off as a
+   * master one.
+   *
+   * `ref` is what identifies the key within the route — the keyring generation for `backup-kek`,
+   * the recovery key's slot id for `recovery`, the scrypt salt for `passphrase`. The salt is the
+   * right choice for the last one because it is what the stretching is bound to: the same
+   * passphrase with a different salt is a different key, and the AAD should say so.
+   */
+  backupDek: (instanceId: string, createdAt: string, kind: string, ref: string): string =>
+    `${BACKUP_FORMAT}|${instanceId}|${createdAt}|kind=${kind}|ref=${ref}`,
 
   /** A vault entry, bound to its key path (`08` §3.7.2). */
   vaultEntry: (path: string): string => `${DOMAIN}/vault/${VERSION}|${path}`,
