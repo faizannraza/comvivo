@@ -43,6 +43,7 @@ import {
   StreamOpenFailed,
   StreamTruncated,
 } from '@comvivo/shared/crypto';
+import { FRAMED_CHUNK_BYTES, openFramed, sealFramed } from './stream-format.js';
 
 /** `02` §3.11's prefix: magic(4) ‖ version(1) ‖ reserved(3). */
 export const BLOB_PREFIX_BYTES = 8;
@@ -53,8 +54,13 @@ export const BLOB_HEAD_BYTES = BLOB_PREFIX_BYTES + HEADER_BYTES;
 /** `02` §3.11's `format version = 1`. */
 export const BLOB_FORMAT_VERSION = 1;
 
-/** One ciphertext chunk on the wire: 64 KiB of plaintext plus the 17-byte tag. */
-export const BLOB_CHUNK_BYTES = CHUNK_BYTES + ABYTES;
+/**
+ * One ciphertext chunk on the wire: 64 KiB of plaintext plus the 17-byte tag.
+ *
+ * Re-exported from `stream-format.ts` rather than recomputed, so the two formats cannot drift on
+ * the one number the framing depends on.
+ */
+export const BLOB_CHUNK_BYTES = FRAMED_CHUNK_BYTES;
 
 /** Build the 8-byte prefix. Exported so a test can assert the layout byte by byte. */
 export function blobPrefix(): Buffer {
@@ -132,69 +138,27 @@ export interface SealBlobOptions {
  * Returns the plaintext size. The caller owns the hash, because it also needs it for the address.
  */
 export async function sealBlob(options: SealBlobOptions): Promise<{ readonly sizeBytes: number }> {
-  await options.stream.ready();
-  const push = options.stream.initPush(options.dek);
-  await options.write(Buffer.concat([blobPrefix(), Buffer.from(push.header)]));
-
-  // One reusable buffer. Allocating per chunk would make a 50 MiB upload 800 allocations of 64 KiB,
-  // which on a Pi is enough garbage to matter.
-  const buffer = Buffer.alloc(CHUNK_BYTES);
-  let filled = 0;
-  let total = 0;
-  let first = true;
-
-  const flush = async (tag: 'message' | 'final'): Promise<void> => {
-    const sealed = push.push(
-      buffer.subarray(0, filled),
-      tag,
-      // Only the first chunk carries the AD; the chaining carries it from there, so a later chunk
-      // cannot be moved to the front without failing.
-      first ? options.additionalData : undefined,
-    );
-    first = false;
-    filled = 0;
-    await options.write(sealed);
-  };
-
-  for await (const piece of options.source) {
-    total += piece.length;
-    if (total > options.maxBytes) {
-      throw new StorageError(
-        'BLOB_TOO_LARGE',
-        `that attachment is over the ${String(options.maxBytes)}-byte limit`,
-        {
-          hint: 'Raise `blobs.maxBytes` if the host wants larger attachments, or ask the sender for a smaller file.',
-          category: 'validation.failed',
-        },
-      );
-    }
-    options.hash.update(piece);
-    let offset = 0;
-    while (offset < piece.length) {
-      // **One chunk is held back.** A full buffer is flushed only once more data has arrived to put
-      // in it, so the last data chunk is the one that carries `TAG_FINAL` — rather than a full
-      // `message` chunk followed by an empty `final` one.
-      //
-      // `02` §3.11's write path says "push(remaining **or empty**, TAG_FINAL)", which is the
-      // obvious streaming form and produces that extra 17-byte chunk whenever the plaintext is an
-      // exact multiple of 64 KiB. It is also **not what `shared`'s `sealBuffer` produces** — it
-      // knows the whole plaintext and tags the last data chunk — so the two code paths disagreed
-      // on the wire format for exactly-aligned content, while `sealBuffer`'s own comment claimed
-      // they could not. One chunk of lookahead costs 64 KiB and makes that claim true, which is
-      // worth more than literal fidelity to a parenthetical: a file format that differs between
-      // two paths in the same codebase surfaces later as "backups one version wrote, another
-      // cannot read". `02` §3.11 amended.
-      if (filled === CHUNK_BYTES) await flush('message');
-      const take = Math.min(CHUNK_BYTES - filled, piece.length - offset);
-      buffer.set(piece.subarray(offset, offset + take), filled);
-      filled += take;
-      offset += take;
-    }
-  }
-  // Always a final chunk, even for empty input: `TAG_FINAL` is what makes truncation detectable,
-  // so a file without one is not valid.
-  await flush('final');
-  return { sizeBytes: total };
+  return sealFramed({
+    stream: options.stream,
+    dek: options.dek,
+    head: blobPrefix(),
+    additionalData: options.additionalData,
+    source: options.source,
+    limit: {
+      maxBytes: options.maxBytes,
+      error: () =>
+        new StorageError(
+          'BLOB_TOO_LARGE',
+          `that attachment is over the ${String(options.maxBytes)}-byte limit`,
+          {
+            hint: 'Raise `blobs.maxBytes` if the host wants larger attachments, or ask the sender for a smaller file.',
+            category: 'validation.failed',
+          },
+        ),
+    },
+    write: options.write,
+    hash: options.hash,
+  });
 }
 
 export interface OpenBlobOptions {
@@ -214,139 +178,23 @@ export interface OpenBlobOptions {
  * chunk after it.
  */
 export async function* openBlob(options: OpenBlobOptions): AsyncGenerator<Uint8Array> {
-  await options.stream.ready();
-  const framer = new BlobFramer(options);
-  for await (const piece of options.source) {
-    for (const message of framer.accept(piece)) yield message;
-  }
-  for (const message of framer.finish()) yield message;
+  yield* openFramed({
+    stream: options.stream,
+    dek: options.dek,
+    additionalData: options.additionalData,
+    source: options.source,
+    maxHeadBytes: BLOB_HEAD_BYTES,
+    formatName: 'blob',
+    // The head is fixed-length, so "enough bytes" is a length check — but it still goes through
+    // `readBlobHead`, which names a wrong magic, an unsupported version and a set reserved byte as
+    // three different failures rather than collapsing them into an authentication error.
+    readHead: (pending) =>
+      pending.length < BLOB_HEAD_BYTES
+        ? undefined
+        : { consumed: BLOB_HEAD_BYTES, streamHeader: readBlobHead(pending) },
+    integrity,
+  });
 }
-
-/**
- * The framing half of `openBlob`, extracted because the loop was doing three things at once.
- *
- * Reading a `VBL1` file is: find the head, then cut the rest into chunk-sized pieces, then handle
- * whatever is left when the source ends. Those three are easy to read separately and were not
- * together — Biome's complexity score was right, and the hard part is the one this makes visible.
- *
- * **A chunk is only complete when a whole `BLOB_CHUNK_BYTES` has arrived.** A shorter tail may be
- * the final chunk or may be a partial read, and the two are indistinguishable until the source
- * ends — a filesystem returns whatever it likes. Decrypting early would reject a perfectly good
- * file that arrived in small reads, which is why the loop holds one chunk back.
- *
- * ## Why the pending bytes live in one fixed buffer
- *
- * The obvious accumulator is `pending = concat(pending, piece)`, and it is **quadratic in the
- * number of reads**: every piece recopies everything already waiting, so a file arriving in
- * one-byte reads copies about `bytes × chunk / 2`. A 1 MiB blob read a byte at a time is 34 GiB of
- * `memcpy` and takes half a minute; CI found this as a 6-second unit test on the slower of the two
- * Node legs, which is the only reason it was not shipped. A blob source is not always a 64 KiB
- * file read — `02` §3.11's fetch path hands over whatever the network produced — so the shape of
- * the reads is not ours to assume.
- *
- * So the pending bytes live in **one buffer of a fixed capacity**, with a start and an end index:
- * appending is a copy of the piece alone, taking a chunk advances `start`, and the buffer is
- * compacted in place only when `end` reaches the capacity. Every byte is copied exactly once on
- * the way in, plus at most one chunk per capacity-worth of input for the compaction — linear, with
- * no allocation per chunk. The capacity is two chunks plus a head, which is the most that can be
- * waiting: the drain loop holds one chunk back, and `#append` never takes more than fits.
- *
- * Copying on the way in rather than holding the caller's piece is also what makes the contract
- * safe. `sealBlob` copies each piece into its chunk buffer immediately, so a source that reuses
- * one buffer across reads works there; a framer that kept references would work with
- * `fs.createReadStream` and corrupt data for a source that recycles its buffer, and that
- * asymmetry between the two halves of one file format is exactly the kind of trap that is found
- * years later.
- */
-class BlobFramer {
-  readonly #options: OpenBlobOptions;
-  #pull: ReturnType<SecretStream['initPull']> | undefined;
-  /** The most that can be pending: the head, plus the chunk held back, plus one being filled. */
-  static readonly #CAPACITY = BLOB_HEAD_BYTES + 2 * BLOB_CHUNK_BYTES;
-  readonly #pending = Buffer.allocUnsafe(BlobFramer.#CAPACITY);
-  #start = 0;
-  #end = 0;
-  #first = true;
-  #sawFinal = false;
-
-  constructor(options: OpenBlobOptions) {
-    this.#options = options;
-  }
-
-  /** Take a piece of the file, yielding whatever complete chunks it completed. */
-  *accept(piece: Uint8Array): Generator<Uint8Array> {
-    let offset = 0;
-    do {
-      offset += this.#append(piece, offset);
-      yield* this.#drain();
-      // `#append` always takes at least one byte — `#drain` leaves at most one chunk pending and
-      // the capacity is two — so this terminates. A `do` rather than a `while`, because an empty
-      // piece must still get a chance to complete the head: a source may legitimately yield one.
-    } while (offset < piece.length);
-  }
-
-  /** The source has ended: the remainder is the last chunk, and there must have been one. */
-  *finish(): Generator<Uint8Array> {
-    if (this.#pull === undefined) {
-      throw integrity('the file is shorter than a blob header', 'It was truncated during a copy.');
-    }
-    // Possibly an empty-plaintext chunk, which is still `ABYTES` long — that is what an empty blob
-    // looks like, and it still has to authenticate.
-    if (this.#end > this.#start) yield this.#take(this.#end - this.#start);
-    if (!this.#sawFinal) {
-      throw new StorageError('BLOB_INTEGRITY', 'that blob file ends without a final chunk', {
-        hint: 'The file was truncated. Restore it from a backup, or delete the row so the attachment is re-fetched.',
-        category: 'io.failed',
-      });
-    }
-  }
-
-  /** Copy as much of `piece` from `offset` as fits, compacting first if it must. Returns how much. */
-  #append(piece: Uint8Array, offset: number): number {
-    if (this.#end === BlobFramer.#CAPACITY) {
-      this.#pending.copyWithin(0, this.#start, this.#end);
-      this.#end -= this.#start;
-      this.#start = 0;
-    }
-    const take = Math.min(BlobFramer.#CAPACITY - this.#end, piece.length - offset);
-    this.#pending.set(piece.subarray(offset, offset + take), this.#end);
-    this.#end += take;
-    return take;
-  }
-
-  /** Read the head once it has arrived, then yield every chunk that is certainly complete. */
-  *#drain(): Generator<Uint8Array> {
-    if (this.#pull === undefined) {
-      if (this.#end - this.#start < BLOB_HEAD_BYTES) return;
-      this.#pull = this.#options.stream.initPull(
-        readBlobHead(this.#pending.subarray(this.#start, this.#start + BLOB_HEAD_BYTES)),
-        this.#options.dek,
-      );
-      this.#start += BLOB_HEAD_BYTES;
-    }
-    while (this.#end - this.#start > BLOB_CHUNK_BYTES) {
-      yield this.#take(BLOB_CHUNK_BYTES);
-    }
-  }
-
-  #take(length: number): Uint8Array {
-    if (this.#sawFinal) throw integrity('there are bytes after the final chunk', AFTER_FINAL_HINT);
-    if (this.#pull === undefined) {
-      throw integrity('the file is shorter than a blob header', 'It was truncated during a copy.');
-    }
-    const { message, tag } = this.#pull.pull(
-      this.#pending.subarray(this.#start, this.#start + length),
-      this.#first ? this.#options.additionalData : undefined,
-    );
-    this.#first = false;
-    this.#start += length;
-    if (tag === 'final') this.#sawFinal = true;
-    return message;
-  }
-}
-
-const AFTER_FINAL_HINT =
-  'Something appended to the file. Restore it from a backup rather than trusting the prefix.';
 
 function integrity(message: string, hint: string): StorageError {
   return new StorageError('BLOB_INTEGRITY', message, { hint, category: 'io.failed' });

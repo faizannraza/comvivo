@@ -77,12 +77,3 @@ export function deleteByColumnChunk(
 ): number {
   return deleteGroupChunk(db, { table, column, virtual: false }, value, limit);
 }
-
-/** How many rows of `table` still match `column = value`. For an assertion, not a loop. */
-export function countByColumn(db: Db, table: string, column: string, value: string): number {
-  const rows = db.all<{ n: number }>(
-    sql`SELECT count(*) AS n FROM ${sql.identifier(table)}
-        WHERE ${sql.identifier(column)} = ${value}`,
-  );
-  return rows[0]?.n ?? 0;
-}
