@@ -20,6 +20,8 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import {
   AAD,
+  BACKUP_ENTRY,
+  BACKUP_FORMAT,
   DOMAIN_SEPARATOR_PARTS,
   KEY_PURPOSE,
   KEYRING_FORMAT,
@@ -99,6 +101,18 @@ describe('AEAD additional data (08 §3.7.4, §3.7.10)', () => {
     // field and the AAD prefix — and a mismatch would make a keyring written by one version
     // unreadable by another.
     expect(KEYRING_FORMAT).toBe('comvivo-keyring/1');
+    // The backup format and the archive's internal entry paths, pinned here with the other frozen
+    // strings because this file is the one the brand guard exempts — and because a test that
+    // derived them from `BRAND` would prove the opposite of what it is for. `db/comvivo.db` is a
+    // path **inside a container format**: the file in `data/db` follows a rename and an archive
+    // written last year must still restore (`M1-T27`).
+    expect(BACKUP_FORMAT).toBe('comvivo-backup/1');
+    expect(BACKUP_ENTRY.db).toBe('db/comvivo.db');
+    expect(BACKUP_ENTRY.manifest).toBe('manifest.json');
+    expect(BACKUP_ENTRY.blobIndex).toBe('blobs.jsonl');
+    expect(AAD.backupDek('i', 't', 'recovery', 'rk1')).toBe(
+      'comvivo-backup/1|i|t|kind=recovery|ref=rk1',
+    );
     expect(AAD.keyringSlot('i', 1, 's', 'k').startsWith(`${KEYRING_FORMAT}|`)).toBe(true);
   });
 

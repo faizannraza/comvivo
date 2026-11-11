@@ -38,6 +38,7 @@ export {
 } from './hmac.js';
 export {
   AAD,
+  BACKUP_ENTRY,
   BACKUP_FORMAT,
   DOMAIN_SEPARATOR_PARTS,
   KEY_PURPOSE,

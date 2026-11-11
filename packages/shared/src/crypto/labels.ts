@@ -89,6 +89,27 @@ export const KEYRING_FORMAT = `${DOMAIN}-keyring/1`;
 export const BACKUP_FORMAT = `${DOMAIN}-backup/1`;
 
 /**
+ * The entry paths inside a `VBK1` archive's tar (`02` §3.14.3).
+ *
+ * Frozen for the same reason the magic and the domain separators are, and the file's header
+ * explains the bar: a string whose change destroys existing data belongs here rather than being
+ * derived from `BRAND`. `db/comvivo.db` is a path **inside a container format**, not a path on a
+ * host's disk — the file in `data/db` is `${'${BRAND.slug}'}.db` and will follow a rename, while an
+ * archive written last year still says `comvivo.db` and must still restore. Deriving this from
+ * `BRAND` would make every existing archive unreadable at the next rename, with no migration
+ * available because the archives are already off-site.
+ *
+ * `manifest.json` and `blobs.jsonl` carry no brand at all. They are here with the third because
+ * the three are one format's layout, and a reader looking for "what is inside an archive" should
+ * find them together rather than two in one file and one in another.
+ */
+export const BACKUP_ENTRY = Object.freeze({
+  manifest: 'manifest.json',
+  blobIndex: 'blobs.jsonl',
+  db: `db/${DOMAIN}.db`,
+});
+
+/**
  * AEAD additional data, which binds a ciphertext to its context.
  *
  * Without AAD, a wrapped key lifted from one row and pasted into another would decrypt fine — so

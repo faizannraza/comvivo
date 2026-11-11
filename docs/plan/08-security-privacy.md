@@ -449,7 +449,7 @@ Compromise playbook (host-facing doc): `rotate-master` → `rotate-data --reencr
 header = { format, instanceId, createdAt, dataGen,
            slots: [ {kind:"backup-kek", gen, nonce, ct}, {kind:"recovery", rkId, nonce, ct},
                     {kind:"passphrase", kdf:{alg:"scrypt",N,r,p,salt}, nonce, ct}? ],   // each wraps the per-backup DEK; passphrase slot optional (A10)
-           keyringSnapshot: { generations: [ { gen, slots: [master, recovery] } ],   // RDK_g wrapped by MK and RK only
+           keyringSnapshot: { generations: [ { gen, slots: [...the generation's own slots] } ],   // M1-T27
                               static: { blobId } },                              // blob-id key wrapped by RDK_g: restored blob addresses stay stable
            body: { chunkSize: 65536 } }
 first-chunk AD = SHA-256(canonical JSON of {format, instanceId, createdAt, dataGen, body})   // M1-T27
@@ -478,6 +478,8 @@ touch it. A header is capped at **64 KiB** on both the write and the read side (
 a writer cannot produce a file no reader accepts), and a declared length outside 1…64 KiB is
 refused *before* anything is allocated: four corrupt bytes can ask for 4 GiB.
 - `keyringSnapshot.static.blobId` is **required**: without it a restore could not recompute `HMAC-SHA256(blob-id key, …)` addresses (SD-06, `02` D14). Restoring with the recovery key alone unwraps `RDK_g`, then `static.blobId` (A10).
+- **The snapshot carries the generation's own slots, the passphrase one included.** This line said "RDK_g wrapped by MK and RK **only**", and that contradicted §3.7.4's own keyring: `keys add-passphrase` gives it a `kind: 'passphrase'` slot wrapping exactly `RDK_g` under a scrypt-stretched passphrase, so wrapping the root key under a passphrase is already an accepted property of the product rather than a line a backup crosses. It also made the passphrase slot useless — a passphrase that opens the body and not the *database* leaves a host with a decrypted tar and an unopenable file, while `02` §9.3 requires that "a passphrase-slot restore succeeds when the slot exists". Corrected at `M1-T27`, found by the test for that criterion.
+- A snapshot is **not** the live keyring: `wrapCount` and `current` are host state rather than facts about an archive, so they are not in it. Every wrap is byte-identical to `keyring.json`'s, with the same `AAD.keyringSlot`, which is what lets a restore read them with `openSlot` unchanged.
 - The body contains the encrypted DB snapshot, encrypted blob files as-is, the encrypted vault, `secrets.enc` if present (A29) and a manifest. **No plaintext ever touches disk during backup or restore.**
 - Archives use the `.vbak` extension with the `VBK1` magic. Filenames carry no sensitive metadata (pattern owned by `02` §3.14 and `12` §3.9, e.g. `village-<first 6 chars of instanceId>-<UTC timestamp>.vbak`).
 - Safe to copy to cloud storage. Docs still recommend the host's own storage.

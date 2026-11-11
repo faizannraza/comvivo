@@ -2699,7 +2699,13 @@ export const BackupManifestSchema = z.object({
    - move the restored DB in;
    - copy or link blobs into `data/blobs/`;
    - write `keyring.json`. If the archive's `RDK_g`/`instanceId` differ from the current keyring, the restored DB is **rekeyed** to the current `db_key` (offline `PRAGMA rekey` in DELETE journal mode), and blob DEKs are re-wrapped (`blob.rewrap`). Otherwise the archive's keyring generations are imported. On a fresh host restored with RK only, the user sets a new MK slot (08).
-8. Write `app_meta('restored_from')` and an `_instance` audit event at next boot.
+8. Write `app_meta('restored_from')` and an `_instance` audit event at next boot. **Written before step 7**, into the extracted database rather than the swapped-in one (`M1-T27`): the effect is identical because it is the same file, and a failure here — a database with no `app_meta`, a disk that filled — then aborts with nothing moved. Writing it after the swap would leave a host holding a restored database *and* an error, which is the one outcome a restore must not produce.
+
+**Two clarifications from `M1-T27`'s implementation.**
+
+*Tar entry names are checked before any path is joined.* An archive is a file a host may have fetched from anywhere, and a `../` or absolute entry name is how one overwrites files outside itself. The entry's body is discarded, nothing is extracted, and the refusal is a `BACKUP_INTEGRITY` after the stream ends — not an error thrown from the entry handler, which `tar-stream` turns into an uncaught exception on a later tick than the `await` that was meant to catch it.
+
+*Step 7's **rekey** is deferred to `M8-T25`.* When the archive's `RDK_g` differs from the current keyring, this step is specified to rekey the restored database to the host's `db_key` and re-wrap the blob DEKs — which is `08` §3.7.7's `rotate-data` driven backwards, needs a live `KeyService` and a `blob.rewrap` job, and leaves a database nobody can open if it goes wrong. `M1-T27` therefore writes the archive's keyring as the host's **only when the host has none**, which is correct for the two cases M1 has — a restore onto the same host, and a restore onto a fresh one with the recovery key (`01` §14 A10) — and never overwrites an existing `keyring.json`, because silently replacing the file a host can unlock is the one failure from which there is no recovery. `restoreBackup` reports `keyringImported` so a caller can see which case it got.
 
 `village backup verify <file>` runs steps 2–5 into a temp directory and deletes it. The `backup.verify` job (weekly) runs this against the newest archive (M14).
 

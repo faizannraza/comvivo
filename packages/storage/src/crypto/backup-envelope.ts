@@ -113,10 +113,22 @@ export type BackupSlot = z.infer<typeof BackupSlotSchema>;
  * The keyring, as it travels inside a backup.
  *
  * Deliberately **not** the `Keyring` type: a keyring also holds `wrapCount` and a `current`
- * pointer, which are live host state rather than facts about this archive, and a passphrase slot,
- * which `08` §3.7.11 excludes ("RDK_g wrapped by MK and RK **only**") because a host's chosen
- * passphrase is not something a backup should carry off-site. The shape is the subset a restore
- * needs, and the wraps are byte-identical to the keyring's so `openSlot` reads them unchanged.
+ * pointer, which are live host state rather than facts about this archive. The shape is the subset
+ * a restore needs, and the wraps are byte-identical to the keyring's — same `AAD.keyringSlot`,
+ * same `A256GCM` — so a restore reads them with `openSlot` unchanged.
+ *
+ * ## The passphrase slot is included, and `08` §3.7.11 said it was not
+ *
+ * That section says `RDK_g` is "wrapped by MK and RK **only**". It contradicts `08` §3.7.4's own
+ * keyring, which `addPassphrase` gives a `kind: 'passphrase'` slot wrapping exactly `RDK_g` under
+ * a scrypt-stretched passphrase — so wrapping the root key under a passphrase is already an
+ * accepted property of this product, not a line a backup crosses.
+ *
+ * It also made the passphrase slot useless. A passphrase that opens the body and cannot open the
+ * *database* leaves a host with a decrypted tar and an unopenable file, and `02` §9.3 requires that
+ * "a passphrase-slot restore succeeds when the slot exists". Found at `M1-T27` by the test for
+ * that criterion, which failed at `rootDataKeyFor`. `08` §3.7.11 amended; a snapshot carries
+ * whatever slots its generation has.
  */
 export const KeyringSnapshotSchema = z.object({
   generations: z
@@ -127,8 +139,19 @@ export const KeyringSnapshotSchema = z.object({
           .array(
             z.object({
               id: z.string().regex(/^[a-z][a-z0-9]{0,15}$/),
-              kind: z.enum(['master', 'recovery']),
-              kdf: z.object({ alg: z.literal('hkdf-sha256'), info: z.string().min(1) }).optional(),
+              kind: z.enum(['master', 'recovery', 'passphrase']),
+              kdf: z
+                .union([
+                  z.object({ alg: z.literal('hkdf-sha256'), info: z.string().min(1) }),
+                  z.object({
+                    alg: z.literal('scrypt'),
+                    N: z.number().int().positive(),
+                    r: z.number().int().positive(),
+                    p: z.number().int().positive(),
+                    salt: base64url,
+                  }),
+                ])
+                .optional(),
               wrap: z.object({ alg: z.literal('A256GCM'), sealed: sealedDek }),
             }),
           )
