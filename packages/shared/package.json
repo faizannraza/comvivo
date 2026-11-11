@@ -19,6 +19,10 @@
       "types": "./dist/crypto/index.d.ts",
       "default": "./dist/crypto/index.js"
     },
+    "./net": {
+      "types": "./dist/net/index.d.ts",
+      "default": "./dist/net/index.js"
+    },
     "./observability": {
       "types": "./dist/observability/index.d.ts",
       "default": "./dist/observability/index.js"

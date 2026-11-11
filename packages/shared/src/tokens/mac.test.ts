@@ -118,9 +118,14 @@ describe('the magic link (08 §3.7.12)', () => {
     expect(bothWrong.ok).toBe(false);
     if (!bothWrong.ok) expect(bothWrong.error.reason).toBe('bad-mac');
 
-    // And the untouched payload with a flipped signature is refused the same way.
+    // And the untouched payload with a flipped signature is refused the same way. The replacement
+    // character is chosen against the signature's own last character — **again**, after the same
+    // mistake in the CSRF test above. There it was deterministic (a fixed key, so the signature is
+    // always the same) and here the `jti` is random, which made it a one-in-sixty-four flake that
+    // passed locally and failed in the coverage run.
+    const signed = signature ?? '';
     const flipped = mac.verifyMagicLink(
-      `${MAGIC_LINK_TAG}.${payload ?? ''}.${(signature ?? '').slice(0, -1)}A`,
+      `${MAGIC_LINK_TAG}.${payload ?? ''}.${signed.slice(0, -1)}${signed.endsWith('A') ? 'B' : 'A'}`,
       NOW,
     );
     expect(flipped.ok).toBe(false);

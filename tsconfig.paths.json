@@ -65,6 +65,7 @@
       "@comvivo/server": ["./apps/server/src/index.ts"],
       "@comvivo/shared": ["./packages/shared/src/index.ts"],
       "@comvivo/shared/crypto": ["./packages/shared/src/crypto/index.ts"],
+      "@comvivo/shared/net": ["./packages/shared/src/net/index.ts"],
       "@comvivo/shared/observability": ["./packages/shared/src/observability/index.ts"],
       "@comvivo/shared/testing": ["./packages/shared/src/testing/index.ts"],
       "@comvivo/storage": ["./packages/storage/src/index.ts"],

@@ -599,7 +599,7 @@ SafeFetch lives in `@comvivo/shared/net`. It is used by `ctx.http`, the MCP clie
 3. **DNS pinning.**
    - Resolve all A/AAAA records via `dns.lookup({all:true})` and reject the call if **any** resolved address falls in a blocked range unless private access is granted for that host.
    - Blocked ranges: loopback, RFC 1918, link-local incl. 169.254.169.254, CGNAT 100.64/10, ULA fc00::/7, IPv4-mapped IPv6, 0.0.0.0/8, multicast, and broadcast.
-   - Connect to the pinned IP with SNI and `Host` set to the hostname. This uses an undici `Agent` with a custom `connect.lookup` that returns the pre-validated address.
+   - Connect to the pinned IP with SNI and `Host` set to the hostname, through a custom `lookup` that returns the pre-validated address. Implemented on `node:https` rather than undici, for the reasons `08` §3.9 rule 3 records (the decoded-byte and compression-ratio guards need the raw stream).
 4. **Redirects.** Manual, max 3. Each hop is re-validated through steps 1–3. `Authorization` and secret-ref headers are dropped on cross-origin redirects.
 5. **Limits.**
    - Response body ≤ 2 MiB by default (manifest `network.maxResponseBytes` ≤ 10 MiB), streamed and aborted at the cap.
