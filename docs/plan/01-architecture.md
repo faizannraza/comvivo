@@ -525,7 +525,7 @@ observability:                   # off by default; a collector YOU run, never us
 ## 11. Engineering standards (apply to every milestone)
 
 1. **TypeScript strict** plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. No `any` outside tests; use `unknown` and parse.
-2. **Every boundary is validated with zod**: config, HTTP, adapters, tool I/O, LLM structured output, DB JSON columns.
+2. **Every boundary is validated with zod**: config, HTTP, adapters, tool I/O, LLM structured output, DB JSON columns. **Closed objects, at every depth** (`z.strictObject`): an unknown key is an error, not a silently stripped one. zod's `z.object` *strips* — measured on 4.6 — so this has to be spelled out rather than assumed, and `M1-T30` found the config schema strict at its top level only, which accepted and discarded `network.egress.allowPrivte`, `dashboard.auth.magicLinkz` and `privacy.auditRetentionDayz`. The exception is a **published** format, where additive evolution is the contract: `02` §3.15's export records pass unknown keys through on purpose, and say so.
 3. **Exhaustive `switch`** over discriminated unions, with a `never` assertion.
 4. **Pure core**: deterministic and side-effect-free. Clock, ID generator and RNG are injected.
 5. **Tests with the code**:

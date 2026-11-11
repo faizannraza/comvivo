@@ -146,6 +146,24 @@ describe('reading the file', () => {
     if (!result.ok) expect(result.error[0]?.message).toContain('dashbord');
   });
 
+  it.each([
+    ['one level down', 'network:\n  egres:\n    allowPrivate: []\n', 'egres'],
+    ['two levels down', 'network:\n  egress:\n    allowPrivte: ["nas.local:443"]\n', 'allowPrivte'],
+    ['three levels down', 'dashboard:\n  auth:\n    magicLinkz: https\n', 'magicLinkz'],
+    ['a privacy floor', 'privacy:\n  auditRetentionDayz: 3650\n', 'auditRetentionDayz'],
+  ])('rejects a typo %s, not only at the top level', (_label, yaml, typo) => {
+    // The defect this closes: `.strict()` was on the outermost object only, and zod 4's `z.object`
+    // **strips** unknown keys rather than refusing them — so every one of these was accepted and
+    // discarded. Each is a host changing a security or privacy setting and being told nothing:
+    // `allowPrivte` is an egress allowlist that does not exist, `magicLinkz` is a login mode that
+    // never takes effect, `auditRetentionDayz` is a retention floor that stays at its default.
+    const result = load({ [CONFIG]: yaml });
+    expect(result.ok, yaml).toBe(false);
+    if (!result.ok) {
+      expect(result.error.map((problem) => problem.message).join(' ')).toContain(typo);
+    }
+  });
+
   it('rejects a value outside its range, naming the path', () => {
     const result = load({ [CONFIG]: 'dashboard:\n  port: 99999\n' });
     expect(result.ok).toBe(false);

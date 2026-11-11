@@ -31,8 +31,14 @@ export const ERASE_JOB_KIND = 'privacy.erase_person';
 /** `02` §3.10.1's `retention.sweep`. */
 export const SWEEP_JOB_KIND = 'retention.sweep';
 
-/** Both long deletions take the same payload: which `deletions` row to work on. */
-export const DeletionJobPayloadSchema = z.object({ deletionId: idSchema('del') });
+/**
+ * Both long deletions take the same payload: which `deletions` row to work on.
+ *
+ * `strictObject`, so a payload carrying a field this version does not know fails on **claim**
+ * rather than being silently discarded. A purge is irreversible; a field that was meant to narrow
+ * it and was ignored is the worst possible outcome.
+ */
+export const DeletionJobPayloadSchema = z.strictObject({ deletionId: idSchema('del') });
 
 export interface DeletionJobPayload {
   readonly deletionId: DeletionId;
@@ -42,11 +48,15 @@ export interface DeletionJobPayload {
  * The daily sweep takes no payload at all.
  *
  * An empty object rather than `z.void()`: `02` §3.10.1 stores a payload as text and a schedule tick
- * enqueues `{}`, so the schema has to accept that. `.strict()` by `z.object`'s default here means a
- * payload that grew a field — a table name, a limit — fails on claim rather than being ignored,
- * which is the right direction for a job whose whole contract is "sweep everything".
+ * enqueues `{}`, so the schema has to accept that. **`z.strictObject`**, so a payload that grew a
+ * field — a table name, a limit — fails on claim rather than being ignored, which is the right
+ * direction for a job whose whole contract is "sweep everything".
+ *
+ * It said `.strict()` and used `z.object`, which in zod 4.6 **strips** unknown keys and succeeds —
+ * measured while writing `M1-T29`'s export schemas. The comment described the behaviour it wanted
+ * and the code did the opposite.
  */
-export const SweepJobPayloadSchema = z.object({});
+export const SweepJobPayloadSchema = z.strictObject({});
 
 export interface RetentionJobKinds {
   readonly purge: JobKindDef<{ deletionId: DeletionId }>;
