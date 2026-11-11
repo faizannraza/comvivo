@@ -16,10 +16,17 @@ import type { IdGenerator } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
+import { SqliteContextReadModel } from '../readmodels/context.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
 import { SqliteCalendarRepository } from './calendar.js';
 import { SqliteConversationRepository } from './conversations.js';
+import {
+  SqliteDecisionRepository,
+  SqlitePlanRepository,
+  SqlitePollRepository,
+  SqliteReminderRepository,
+} from './coordination.js';
 import { SqliteGroupRepository } from './groups.js';
 import { SqliteListRepository } from './lists.js';
 import { SqliteMemberRepository } from './members.js';
@@ -79,7 +86,20 @@ export interface Repositories {
   readonly calendar: SqliteCalendarRepository;
   readonly tasks: SqliteTaskRepository;
   readonly lists: SqliteListRepository;
+  readonly polls: SqlitePollRepository;
+  readonly plans: SqlitePlanRepository;
+  readonly decisions: SqliteDecisionRepository;
+  readonly reminders: SqliteReminderRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
+  /**
+   * `02` §3.7.3's context read model.
+   *
+   * Built last and given the whole set, because it is a **façade**: every method delegates to the
+   * repository that owns the aggregate. A read model with its own SQL would be a second place an
+   * eligibility filter could be forgotten, and `labels.eligibility-equivalence.property` would
+   * then be proving it about the wrong code.
+   */
+  readonly context: SqliteContextReadModel;
 }
 
 export interface RepositoriesOptions {
@@ -113,7 +133,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
   // require a migrated database, and `SqliteStore` is built at boot around the migration rather
   // than after it — see the note on `MemoryRepositoryOptions.activeSpaceSlug`.
   const activeSpaceSlug = () => spaces.activeSpace()?.slug;
-  return {
+  const set = {
     groups,
     persons: new SqlitePersonRepository(db),
     identities: new SqliteChannelIdentityRepository(db),
@@ -128,12 +148,24 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     calendar: new SqliteCalendarRepository(db, labels),
     tasks: new SqliteTaskRepository(db, labels),
     lists: new SqliteListRepository(db, labels),
+    polls: new SqlitePollRepository(db, labels),
+    plans: new SqlitePlanRepository(db, labels),
+    decisions: new SqliteDecisionRepository(db, labels),
+    reminders: new SqliteReminderRepository(db, labels),
     embeddingSpaces: spaces,
   };
+  return { ...set, context: new SqliteContextReadModel(set) };
 }
 
+export { SqliteContextReadModel } from '../readmodels/context.js';
 export { SqliteCalendarRepository } from './calendar.js';
 export { SqliteConversationRepository } from './conversations.js';
+export {
+  SqliteDecisionRepository,
+  SqlitePlanRepository,
+  SqlitePollRepository,
+  SqliteReminderRepository,
+} from './coordination.js';
 export { SqliteGroupRepository } from './groups.js';
 export { after, midpoint, SqliteListRepository } from './lists.js';
 export { SqliteMemberRepository } from './members.js';

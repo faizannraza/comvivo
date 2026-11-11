@@ -1,7 +1,15 @@
 /**
  * Reminder JSON columns (`02` §3.3.5; `07` §3.2.1).
  */
-import type { GroupId, LabelId, MemberId, ReminderFiringId, ReminderId } from '@comvivo/shared';
+import type {
+  GroupId,
+  LabelId,
+  MemberId,
+  OutboxId,
+  ReaderSetId,
+  ReminderFiringId,
+  ReminderId,
+} from '@comvivo/shared';
 import { idSchema, timeZoneIdSchema, z } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { DurationSchema, RecurrenceSchema } from './when.js';
@@ -118,7 +126,14 @@ export interface Reminder {
   readonly anchor: ReminderAnchor;
   /** What it is about — an event or task id — for `reminders_about_idx`. */
   readonly aboutRef: string | undefined;
-  readonly audienceReaderSetId: number | undefined;
+  /**
+   * Who may see this reminder, **frozen at creation** (`02` §3.3.5).
+   *
+   * `NOT NULL`, and that is the point: a reminder's audience is decided when it is created and does
+   * not follow membership changes afterwards. A reminder set up for "the parents" keeps firing to
+   * the people who were the parents, rather than silently widening when somebody joins.
+   */
+  readonly audienceReaderSetId: ReaderSetId;
   readonly labelId: LabelId;
   readonly createdByMemberId: MemberId | undefined;
   /** `02` D3's derived instant. `undefined` when nothing is scheduled (paused, done). */
@@ -142,7 +157,7 @@ export interface NewReminder {
   readonly schedule: ReminderSchedule;
   readonly anchor: ReminderAnchor;
   readonly aboutRef?: string | undefined;
-  readonly audienceReaderSetId?: number | undefined;
+  readonly audienceReaderSetId: ReaderSetId;
   readonly createdByMemberId?: MemberId | undefined;
   /** The first fire time, derived by `07` from `schedule` and `anchor`. */
   readonly nextFireAt?: Temporal.Instant | undefined;
@@ -178,7 +193,7 @@ export interface ReminderFiring {
   readonly scheduledFor: Temporal.Instant;
   readonly firedAt: Temporal.Instant;
   readonly outcome: FiringOutcome;
-  readonly outboxIds: readonly string[];
+  readonly outboxIds: readonly OutboxId[];
   readonly ackedByMemberId: MemberId | undefined;
   readonly ackAt: Temporal.Instant | undefined;
 }

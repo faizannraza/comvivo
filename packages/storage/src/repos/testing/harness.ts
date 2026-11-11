@@ -25,6 +25,7 @@ import {
   type CalendarSubscriptionId,
   type ChannelIdentityId,
   type ConversationId,
+  type DecisionId,
   type EntityId,
   type EventId,
   type GroupId,
@@ -36,6 +37,11 @@ import {
   type MemoryId,
   type MessageId,
   type PersonId,
+  type PlanId,
+  type PlanStepId,
+  type PollId,
+  type ReminderFiringId,
+  type ReminderId,
   SystemClock,
   type TaskId,
   TypeIdGenerator,
@@ -293,6 +299,30 @@ export function listId(tag: string): ListId {
 
 export function listItemId(tag: string): ListItemId {
   return `lsti_${suffix(tag)}` as ListItemId;
+}
+
+export function pollId(tag: string): PollId {
+  return `pol_${suffix(tag)}` as PollId;
+}
+
+export function planId(tag: string): PlanId {
+  return `pln_${suffix(tag)}` as PlanId;
+}
+
+export function planStepId(tag: string): PlanStepId {
+  return `plns_${suffix(tag)}` as PlanStepId;
+}
+
+export function decisionId(tag: string): DecisionId {
+  return `dec_${suffix(tag)}` as DecisionId;
+}
+
+export function reminderId(tag: string): ReminderId {
+  return `rem_${suffix(tag)}` as ReminderId;
+}
+
+export function firingId(tag: string): ReminderFiringId {
+  return `rfr_${suffix(tag)}` as ReminderFiringId;
 }
 
 export function taskId(tag: string): TaskId {

@@ -94,6 +94,17 @@ export function labelCanonicalKey(readerSetId: ReaderSetId, label: Label): strin
   ].join('|');
 }
 
+/** One row of `labels`, as `groupLabels` selects it. */
+interface LabelRow {
+  readonly id: number;
+  readonly readerSetId: number;
+  readonly owner: MemberId | null;
+  readonly coOwners: string;
+  readonly sensitivity: Label['sensitivity'];
+  readonly influence: Label['influence'];
+  readonly untrusted: number;
+}
+
 /** What `intern` put in the caches, once the transaction committed. */
 interface PendingIntern {
   readonly labelId: LabelId;
@@ -251,6 +262,126 @@ export class LabelStore {
     for (const seat of seats) seatStatement.run(readerSetId, seat);
 
     return readerSetId;
+  }
+
+  /**
+   * Q-IFC-2: every label of a group, as the map `computeEligible` takes.
+   *
+   * **This is what makes `computeEligible` usable at all.** `M1-T16` built the function and the
+   * interning, and nothing could produce its `ReadonlyMap<LabelId, Label>` from the database —
+   * found when `M1-T19`'s context read model needed it for `04` §3.6.3's `eligibleFor`. A pure
+   * function whose input nothing constructs is a function with no callers.
+   *
+   * Three statements rather than a join, and the reason is the shape: a join across
+   * `reader_set_members` and `reader_set_seats` repeats every label row once per member *and* once
+   * per seat, so a group with 200 labels over a 10-member reader set returns 2 000 rows to build
+   * 200 objects. `02` §3.3.10 sizes this at "10–500 labels per group", read once per audience per
+   * membership epoch and cached by `04` §3.6.3 — so three small reads beat one wide one.
+   *
+   * Unfiltered by design: it *is* the input to the eligibility computation, so filtering it by
+   * eligibility would be circular.
+   */
+  groupLabels(groupId: GroupId): ReadonlyMap<LabelId, Label> {
+    const kinds = this.#readerSetKinds(groupId);
+    const membersBySet = this.#readerSetMembers(groupId);
+    const seatsBySet = this.#readerSetSeats(groupId);
+
+    const labels = new Map<LabelId, Label>();
+    for (const row of this.#db
+      .prepare(
+        `SELECT id, reader_set_id AS readerSetId, owner_member_id AS owner,
+                co_owner_member_ids AS coOwners, sensitivity, influence, untrusted
+           FROM labels WHERE group_id = ? ORDER BY id`,
+      )
+      .all(groupId) as LabelRow[]) {
+      const setId = internedId(row.readerSetId, 'reader_sets');
+      const kind = kinds.get(setId);
+      if (kind === undefined) {
+        // A label pointing at a reader set that is not in this group. The foreign key makes it
+        // impossible, so this is corruption rather than a case to handle quietly — and a label
+        // silently dropped here would narrow somebody's eligible set with no error at all.
+        throw new StorageError(
+          'STORAGE_CORRUPT',
+          `label ${String(row.id)} points at reader set ${String(row.readerSetId)}, which is not in ${groupId}`,
+          {
+            hint: 'The `labels.reader_set_id` foreign key should make this impossible; run `doctor`.',
+          },
+        );
+      }
+      const seats = seatsBySet.get(setId) ?? [];
+      const readers: Audience =
+        kind === 'group'
+          ? { groupId, kind: 'group', ...(seats.length === 0 ? {} : { seats }) }
+          : {
+              groupId,
+              kind: 'members',
+              memberIds: membersBySet.get(setId) ?? [],
+              ...(seats.length === 0 ? {} : { seats }),
+            };
+      labels.set(internedId(row.id, 'labels'), {
+        groupId,
+        readers,
+        // `NULL` is core's `'group'` sentinel — the mapping `labelCanonicalKey`'s docstring
+        // describes, read in the other direction.
+        owner: row.owner ?? 'group',
+        coOwners: JSON.parse(row.coOwners) as MemberId[],
+        sensitivity: row.sensitivity,
+        influence: row.influence,
+        untrusted: row.untrusted === 1,
+      });
+    }
+    return labels;
+  }
+
+  /** `reader_sets.kind` by id, for this group. */
+  #readerSetKinds(groupId: GroupId): ReadonlyMap<ReaderSetId, 'group' | 'members'> {
+    const kinds = new Map<ReaderSetId, 'group' | 'members'>();
+    for (const row of this.#db
+      .prepare('SELECT id, kind FROM reader_sets WHERE group_id = ?')
+      .all(groupId) as { id: number; kind: 'group' | 'members' }[]) {
+      kinds.set(internedId(row.id, 'reader_sets'), row.kind);
+    }
+    return kinds;
+  }
+
+  /** The member list of each of this group's reader sets, sorted. */
+  #readerSetMembers(groupId: GroupId): ReadonlyMap<ReaderSetId, MemberId[]> {
+    const bySet = new Map<ReaderSetId, MemberId[]>();
+    for (const row of this.#db
+      .prepare(
+        `SELECT m.reader_set_id AS setId, m.member_id AS memberId
+           FROM reader_set_members m
+           JOIN reader_sets s ON s.id = m.reader_set_id
+          WHERE s.group_id = ?
+          ORDER BY m.reader_set_id, m.member_id`,
+      )
+      .all(groupId) as { setId: number; memberId: MemberId }[]) {
+      const key = internedId(row.setId, 'reader_sets');
+      const list = bySet.get(key);
+      if (list === undefined) bySet.set(key, [row.memberId]);
+      else list.push(row.memberId);
+    }
+    return bySet;
+  }
+
+  /** The outsider seats of each of this group's reader sets (A5), sorted. */
+  #readerSetSeats(groupId: GroupId): ReadonlyMap<ReaderSetId, string[]> {
+    const bySet = new Map<ReaderSetId, string[]>();
+    for (const row of this.#db
+      .prepare(
+        `SELECT t.reader_set_id AS setId, t.conversation_id AS conversationId
+           FROM reader_set_seats t
+           JOIN reader_sets s ON s.id = t.reader_set_id
+          WHERE s.group_id = ?
+          ORDER BY t.reader_set_id, t.conversation_id`,
+      )
+      .all(groupId) as { setId: number; conversationId: string }[]) {
+      const key = internedId(row.setId, 'reader_sets');
+      const list = bySet.get(key);
+      if (list === undefined) bySet.set(key, [row.conversationId]);
+      else list.push(row.conversationId);
+    }
+    return bySet;
   }
 
   /** Drop the caches. For a test, and for `maintenance.labels_gc`, which deletes rows. */

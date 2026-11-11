@@ -30,6 +30,7 @@ import type {
   ListId,
   ListItemId,
   MemberId,
+  OutboxId,
   PlanId,
   PlanStepId,
   PollId,
@@ -445,12 +446,21 @@ export interface ReminderReader {
   /**
    * Q-COO-1: reminders due to fire, through `reminders_due_idx`.
    *
-   * **Instance-wide, not group-scoped**, and that is deliberate: the scheduler sweeps every group
-   * on one tick, and a per-group sweep would mean one query per group per minute. Not an `I4` hole
-   * — the scheduler is not an audience, and it hands each firing to `07` within the firing's own
-   * group. Named `dueUnscoped` so the exception is visible at the call site.
+   * **Group-scoped**, and that is a correction. The first version took no group and swept the
+   * whole instance in one query, on the reasoning that a scheduler tick should not need one query
+   * per group. But `reminders_due_idx` is `(group_id, next_fire_at) WHERE status IN
+   * ('scheduled','snoozed')` — a composite index whose **leading column is the group** — so an
+   * unscoped query cannot use it, and the method `02` §3.3.10 names Q-COO-1 for would have been
+   * the one query that could not reach its own index.
+   *
+   * Scoping it costs one query per group per tick, which for a self-hosted instance with a handful
+   * of groups is nothing, and buys three things: the index is used, there is no `I4` exception to
+   * justify, and each sweep is already inside the group whose reminders it will fire. The
+   * scheduler gets the group list from `GroupReader.list({ status: 'active' })`.
+   *
+   * `02` §3.3.10 amended; see STATUS → Plan changes.
    */
-  dueUnscoped(at: Temporal.Instant, limit: number): readonly Reminder[];
+  due(groupId: GroupId, at: Temporal.Instant, limit: number): readonly Reminder[];
   /** Q-COO-2: reminders about an event or task, through `reminders_about_idx`. */
   about(groupId: GroupId, aboutRef: string, eligible: EligibleLabelSet): readonly Reminder[];
   firingsOf(groupId: GroupId, id: ReminderId, limit: number): readonly ReminderFiring[];
@@ -476,7 +486,7 @@ export interface ReminderRepository {
       readonly scheduledFor: Temporal.Instant;
       readonly firedAt: Temporal.Instant;
       readonly outcome: ReminderFiring['outcome'];
-      readonly outboxIds?: readonly string[] | undefined;
+      readonly outboxIds?: readonly OutboxId[] | undefined;
     },
     nextFireAt: Temporal.Instant | null,
   ): WriteResult<ReminderFiring>;

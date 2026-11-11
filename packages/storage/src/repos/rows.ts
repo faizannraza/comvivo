@@ -16,9 +16,11 @@
  * `02` §3.12.1's `checksumOf` finding named as a test that proves nothing. If a value is wrong, it
  * is wrong because a column mapper let it through, and that is where the guard belongs.
  */
+
 import type {
   ChannelIdentity,
   Conversation,
+  Decision,
   Event,
   EventAttendee,
   Group,
@@ -31,13 +33,20 @@ import type {
   MemorySubject,
   Message,
   Person,
+  Plan,
+  PlanStep,
+  Poll,
+  Reminder,
+  ReminderFiring,
   RetrievalState,
   Setting,
   Task,
 } from '@comvivo/core';
+import { internedId } from '@comvivo/shared';
 import type {
   channelIdentities,
   conversations,
+  decisions,
   eventAttendees,
   events,
   groups,
@@ -50,6 +59,11 @@ import type {
   memorySubjects,
   messages,
   persons,
+  planSteps,
+  plans,
+  polls,
+  reminderFirings,
+  reminders,
   settings,
   tasks,
 } from '../schema/index.js';
@@ -406,8 +420,147 @@ export function toListItem(row: typeof listItems.$inferSelect): ListItem {
   };
 }
 
-// The mappers for polls, plans, decisions and reminders are **not here yet**. They
-// arrive with their repositories (`M1-T19` continues), because a mapper with no caller is code the
-// per-file coverage thresholds correctly refuse — the same judgement that deleted three uncalled
-// helpers at `M1-T17`. The row shapes are mechanical; what they cost to re-derive is less than
-// what an unused export costs to carry.
+export function toPoll(row: typeof polls.$inferSelect): Poll {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    conversationId: row.conversationId,
+    purpose: row.purpose,
+    proposalId: opt(row.proposalId),
+    question: row.question,
+    options: row.options,
+    allowMultiple: row.allowMultiple,
+    rule: row.rule,
+    quorum: row.quorum,
+    eligibleMemberIds: row.eligibleMemberIds,
+    anonymous: row.anonymous,
+    resultsVisibility: row.resultsVisibility,
+    mode: row.mode,
+    deadlineAt: opt(row.deadlineAt),
+    status: row.status,
+    outcome: opt(row.outcome),
+    platformPollRef: opt(row.platformPollRef),
+    decisionId: opt(row.decisionId),
+    planStepId: opt(row.planStepId),
+    labelId: row.labelId,
+    createdByMemberId: opt(row.createdByMemberId),
+    createdAt: row.createdAt,
+    closedAt: opt(row.closedAt),
+    version: row.version,
+  };
+}
+
+export function toPlan(row: typeof plans.$inferSelect): Plan {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    title: row.title,
+    description: opt(row.description),
+    ownerMemberIds: row.ownerMemberIds,
+    status: row.status,
+    secrecy: opt(row.secrecy),
+    tz: opt(row.tz),
+    startsOn: opt(row.startsOn),
+    endsOn: opt(row.endsOn),
+    budgetNotes: row.budgetNotes,
+    assumptions: row.assumptions,
+    labelId: row.labelId,
+    createdByMemberId: opt(row.createdByMemberId),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toPlanStep(row: typeof planSteps.$inferSelect): PlanStep {
+  return {
+    id: row.id,
+    planId: row.planId,
+    groupId: row.groupId,
+    position: row.position,
+    title: row.title,
+    ownerMemberIds: row.ownerMemberIds,
+    status: row.status,
+    confirmState: row.confirmState,
+    due: opt(row.due),
+    dueAt: opt(row.dueAt),
+    dependsOn: row.dependsOn,
+    links: row.links,
+    lastActivityAt: row.lastActivityAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toDecision(row: typeof decisions.$inferSelect): Decision {
+  return {
+    rid: row.rid,
+    id: row.id,
+    groupId: row.groupId,
+    summary: row.summary,
+    rationale: opt(row.rationale),
+    topicTags: row.topicTags,
+    decidedBy: row.decidedBy,
+    alternativesRejected: row.alternativesRejected,
+    sourceRefs: row.sourceRefs,
+    origin: row.origin,
+    status: row.status,
+    supersedesId: opt(row.supersedesId),
+    supersededById: opt(row.supersededById),
+    labelId: row.labelId,
+    memoryItemId: opt(row.memoryItemId),
+    proposalId: opt(row.proposalId),
+    decidedAt: row.decidedAt,
+    decidedTz: row.decidedTz,
+    createdAt: row.createdAt,
+    version: row.version,
+  };
+}
+
+export function toReminder(row: typeof reminders.$inferSelect): Reminder {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    text: opt(row.text),
+    recipients: row.recipients,
+    delivery: row.delivery,
+    schedule: row.schedule,
+    anchor: row.anchor,
+    aboutRef: opt(row.aboutRef),
+    // `NOT NULL`: a reminder's audience is frozen at creation, so there is no absence to
+    // normalise. Narrowed through `internedId` rather than cast, like every other interned id out
+    // of a column — `reader_sets.id` is `AUTOINCREMENT`, so a non-positive value means a corrupt
+    // row (the `M1-T16` lesson about the branded `ReaderSetId`).
+    audienceReaderSetId: internedId(row.audienceReaderSetId, 'reader_sets'),
+    labelId: row.labelId,
+    createdByMemberId: opt(row.createdByMemberId),
+    nextFireAt: opt(row.nextFireAt),
+    status: row.status,
+    snoozedUntil: opt(row.snoozedUntil),
+    staleAfter: opt(row.staleAfter),
+    tzdataVersion: row.tzdataVersion,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toReminderFiring(row: typeof reminderFirings.$inferSelect): ReminderFiring {
+  return {
+    id: row.id,
+    reminderId: row.reminderId,
+    groupId: row.groupId,
+    occurrenceKey: row.occurrenceKey,
+    scheduledFor: row.scheduledFor,
+    firedAt: row.firedAt,
+    outcome: row.outcome,
+    outboxIds: row.outboxIds,
+    ackedByMemberId: opt(row.ackedByMemberId),
+    ackAt: opt(row.ackAt),
+  };
+}

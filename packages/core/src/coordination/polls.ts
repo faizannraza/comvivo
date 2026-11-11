@@ -97,6 +97,23 @@ export type PollStatus = (typeof POLL_STATUSES)[number];
 export const RESULTS_VISIBILITIES = ['live', 'after_close'] as const;
 export type ResultsVisibility = (typeof RESULTS_VISIBILITIES)[number];
 
+/**
+ * `02` §3.3.5's `polls.rule` — how the winner is decided (`03` owns what each means).
+ *
+ * A closed set, and `none` is in it: an **opinion** poll has no winner, and giving it a decision
+ * rule would make `03` compute an outcome nobody asked for. A first version of this type had
+ * `rule: string`, which the column's own union caught.
+ */
+export const POLL_RULES = [
+  'plurality',
+  'majority',
+  'supermajority_2_3',
+  'approval',
+  'consensus',
+  'none',
+] as const;
+export type PollRule = (typeof POLL_RULES)[number];
+
 /** A poll (`02` §3.3.5; semantics in `07`, decision rules in `03`). */
 export interface Poll {
   readonly rid: number;
@@ -108,7 +125,7 @@ export interface Poll {
   readonly question: string;
   readonly options: PollOptions;
   readonly allowMultiple: boolean;
-  readonly rule: string;
+  readonly rule: PollRule;
   readonly quorum: PollQuorum;
   /** Who may vote. Empty means every active member (`07`). */
   readonly eligibleMemberIds: readonly MemberId[];
@@ -137,7 +154,7 @@ export interface NewPoll {
   readonly question: string;
   readonly options: PollOptions;
   readonly allowMultiple?: boolean | undefined;
-  readonly rule: string;
+  readonly rule: PollRule;
   readonly quorum: PollQuorum;
   readonly eligibleMemberIds?: readonly MemberId[] | undefined;
   readonly anonymous?: boolean | undefined;
