@@ -24,6 +24,10 @@ import {
 import {
   type CalendarSubscriptionId,
   type ChannelIdentityId,
+  type ConfirmationId,
+  type ConsentEventId,
+  type ConstitutionVersionId,
+  type ConstraintId,
   type ConversationId,
   type DecisionId,
   type EntityId,
@@ -40,8 +44,10 @@ import {
   type PlanId,
   type PlanStepId,
   type PollId,
+  type ProposalId,
   type ReminderFiringId,
   type ReminderId,
+  type StandingApprovalId,
   SystemClock,
   type TaskId,
   TypeIdGenerator,
@@ -299,6 +305,30 @@ export function listId(tag: string): ListId {
 
 export function listItemId(tag: string): ListItemId {
   return `lsti_${suffix(tag)}` as ListItemId;
+}
+
+export function constitutionId(tag: string): ConstitutionVersionId {
+  return `cnst_${suffix(tag)}` as ConstitutionVersionId;
+}
+
+export function proposalId(tag: string): ProposalId {
+  return `prp_${suffix(tag)}` as ProposalId;
+}
+
+export function constraintId(tag: string): ConstraintId {
+  return `cst_${suffix(tag)}` as ConstraintId;
+}
+
+export function confirmationId(tag: string): ConfirmationId {
+  return `cnf_${suffix(tag)}` as ConfirmationId;
+}
+
+export function standingApprovalId(tag: string): StandingApprovalId {
+  return `sap_${suffix(tag)}` as StandingApprovalId;
+}
+
+export function consentEventId(tag: string): ConsentEventId {
+  return `cev_${suffix(tag)}` as ConsentEventId;
 }
 
 export function pollId(tag: string): PollId {

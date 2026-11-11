@@ -1041,6 +1041,12 @@ export const constitutionVersions = sqliteTable('constitution_versions', {   // 
   adoptedAt: instantMs('adopted_at').notNull(),
 }, (t) => [uniqueIndex('constitution_versions_group_version_uq').on(t.groupId, t.version)]);
 // trg_constitution_versions_immutable: BEFORE UPDATE → RAISE(ABORT,'CONSTITUTION_VERSION_IMMUTABLE')
+// `version` and `yaml_sha256` are assigned by the repository, never supplied (M1-T20). The unique
+// index makes the version dense per group, so a caller computing it races with another adoption;
+// and 03's `yamlHash` exists to detect a hand-edited row, which a caller-supplied hash cannot do
+// — it would be derived from whatever that caller had. The adoption also moves
+// `groups.constitution_version_id` in the same transaction: a version without the move is a row
+// nothing evaluates, and the pointer (not `MAX(version)`) is what 03 reads.
 
 export const proposals = sqliteTable('proposals', {   // 03 §3.3.6
   id: tid('prp')('id').primaryKey(),

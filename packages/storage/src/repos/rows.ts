@@ -19,6 +19,10 @@
 
 import type {
   ChannelIdentity,
+  ConfirmationRequest,
+  ConsentEvent,
+  ConstitutionVersion,
+  ConstraintRecord,
   Conversation,
   Decision,
   Event,
@@ -36,15 +40,22 @@ import type {
   Plan,
   PlanStep,
   Poll,
+  Proposal,
+  ProposalVote,
   Reminder,
   ReminderFiring,
   RetrievalState,
   Setting,
+  StandingApproval,
   Task,
 } from '@comvivo/core';
 import { internedId } from '@comvivo/shared';
 import type {
   channelIdentities,
+  confirmationRequests,
+  consentEvents,
+  constitutionVersions,
+  constraintRecords,
   conversations,
   decisions,
   eventAttendees,
@@ -62,9 +73,12 @@ import type {
   planSteps,
   plans,
   polls,
+  proposals,
+  proposalVotes,
   reminderFirings,
   reminders,
   settings,
+  standingApprovals,
   tasks,
 } from '../schema/index.js';
 
@@ -562,5 +576,151 @@ export function toReminderFiring(row: typeof reminderFirings.$inferSelect): Remi
     outboxIds: row.outboxIds,
     ackedByMemberId: opt(row.ackedByMemberId),
     ackAt: opt(row.ackAt),
+  };
+}
+
+/* --- Governance (`02` §3.3.6; `M1-T20`) ------------------------------------------------------- */
+
+export function toConstitutionVersion(
+  row: typeof constitutionVersions.$inferSelect,
+): ConstitutionVersion {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    version: row.version,
+    parentVersionId: opt(row.parentVersionId),
+    yaml: row.yaml,
+    yamlSha256: row.yamlSha256,
+    charterText: row.charterText,
+    compiled: row.compiled,
+    compilerVersion: row.compilerVersion,
+    adoptedVia: row.adoptedVia,
+    adoptedBy: row.adoptedBy,
+    proposalId: opt(row.proposalId),
+    adoptedAt: row.adoptedAt,
+  };
+}
+
+export function toProposal(row: typeof proposals.$inferSelect): Proposal {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    payload: row.payload,
+    actionDigest: opt(row.actionDigest),
+    rule: row.rule,
+    electorate: row.electorate,
+    status: row.status,
+    proposerMemberId: row.proposerMemberId,
+    ballotRefs: row.ballotRefs,
+    supersededById: opt(row.supersededById),
+    canonicalDiffHash: opt(row.canonicalDiffHash),
+    deadlineAt: opt(row.deadlineAt),
+    minOpenUntil: opt(row.minOpenUntil),
+    openedAt: row.openedAt,
+    closedAt: opt(row.closedAt),
+    outcome: opt(row.outcome),
+    labelId: row.labelId,
+    version: row.version,
+  };
+}
+
+export function toProposalVote(row: typeof proposalVotes.$inferSelect): ProposalVote {
+  return {
+    proposalId: row.proposalId,
+    memberId: row.memberId,
+    choice: row.choice,
+    via: row.via,
+    labelId: row.labelId,
+    castAt: row.castAt,
+  };
+}
+
+export function toConsentEvent(row: typeof consentEvents.$inferSelect): ConsentEvent {
+  return {
+    id: row.id,
+    memberId: row.memberId,
+    groupId: row.groupId,
+    fromState: row.fromState,
+    toState: row.toState,
+    via: row.via,
+    at: row.at,
+  };
+}
+
+export function toConstraintRecord(row: typeof constraintRecords.$inferSelect): ConstraintRecord {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    kind: row.kind,
+    catalogVersion: row.catalogVersion,
+    value: row.value,
+    subjectMemberId: row.subjectMemberId,
+    ownerMemberIds: row.ownerMemberIds,
+    attribution: row.attribution,
+    reasonDisclosure: row.reasonDisclosure,
+    scope: row.scope,
+    validFrom: row.validFrom,
+    validTo: opt(row.validTo),
+    status: row.status,
+    approvedBy: row.approvedBy,
+    approvalMode: opt(row.approvalMode),
+    labelId: row.labelId,
+    sealedSourceRefs: row.sealedSourceRefs,
+    sealedLabelId: row.sealedLabelId,
+    supersedesId: opt(row.supersedesId),
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    version: row.version,
+  };
+}
+
+export function toStandingApproval(row: typeof standingApprovals.$inferSelect): StandingApproval {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    guardianMemberId: row.guardianMemberId,
+    wardMemberId: row.wardMemberId,
+    actionPatterns: row.actionPatterns,
+    expiresAt: row.expiresAt,
+    revokedAt: opt(row.revokedAt),
+    createdAt: row.createdAt,
+  };
+}
+
+export function toConfirmationRequest(
+  row: typeof confirmationRequests.$inferSelect,
+): ConfirmationRequest {
+  return {
+    id: row.id,
+    groupId: row.groupId,
+    turnId: opt(row.turnId),
+    conversationId: opt(row.conversationId),
+    proposalId: opt(row.proposalId),
+    capacity: row.capacity,
+    requesterMemberId: row.requesterMemberId,
+    eligibleMemberIds: row.eligibleMemberIds,
+    quorum: row.quorum,
+    reasons: row.reasons,
+    actionDigest: row.actionDigest,
+    toolName: opt(row.toolName),
+    input: opt(row.input),
+    actionRequest: opt(row.actionRequest),
+    targetVersion: opt(row.targetVersion),
+    summary: row.summary,
+    summaryLabelId: row.summaryLabelId,
+    delivery: row.delivery,
+    options: row.options,
+    nonce: row.nonce,
+    promptOutboxIds: row.promptOutboxIds,
+    responses: row.responses,
+    status: row.status,
+    expiresAt: row.expiresAt,
+    onExpire: row.onExpire,
+    decidedByMemberId: opt(row.decidedByMemberId),
+    decidedAt: opt(row.decidedAt),
+    labelId: row.labelId,
+    createdAt: row.createdAt,
+    version: row.version,
   };
 }

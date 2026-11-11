@@ -27,6 +27,7 @@ import {
   SqlitePollRepository,
   SqliteReminderRepository,
 } from './coordination.js';
+import { SqliteGovernanceRepository } from './governance.js';
 import { SqliteGroupRepository } from './groups.js';
 import { SqliteListRepository } from './lists.js';
 import { SqliteMemberRepository } from './members.js';
@@ -90,6 +91,7 @@ export interface Repositories {
   readonly plans: SqlitePlanRepository;
   readonly decisions: SqliteDecisionRepository;
   readonly reminders: SqliteReminderRepository;
+  readonly governance: SqliteGovernanceRepository;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
    * `02` §3.7.3's context read model.
@@ -152,6 +154,7 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     plans: new SqlitePlanRepository(db, labels),
     decisions: new SqliteDecisionRepository(db, labels),
     reminders: new SqliteReminderRepository(db, labels),
+    governance: new SqliteGovernanceRepository(db, labels),
     embeddingSpaces: spaces,
   };
   return { ...set, context: new SqliteContextReadModel(set) };
@@ -166,6 +169,7 @@ export {
   SqlitePollRepository,
   SqliteReminderRepository,
 } from './coordination.js';
+export { SqliteGovernanceRepository } from './governance.js';
 export { SqliteGroupRepository } from './groups.js';
 export { after, midpoint, SqliteListRepository } from './lists.js';
 export { SqliteMemberRepository } from './members.js';
