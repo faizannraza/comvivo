@@ -191,13 +191,19 @@ describe('scrubbing the environment (08 §3.10)', () => {
     const removed = scrubSecretsFromEnv(env);
     // The two extension shapes matter as much as the fixed list: a plugin secret that stays in
     // `process.env` is one every child process inherits.
-    expect(removed).toEqual([
-      'ANTHROPIC_API_KEY',
-      `${BRAND.envPrefix}MASTER_KEY`,
-      `${BRAND.envPrefix}MCP_CLIENT_HOMEASSISTANT_TOKEN_FILE`,
-      `${BRAND.envPrefix}PLUGIN_WEATHER_API_KEY`,
-      'TELEGRAM_BOT_TOKEN_FILE',
-    ]);
+    // The expected list is sorted **here** rather than written in order: the names are built from
+    // `BRAND.envPrefix`, so their alphabetical position depends on the product's name. Written out
+    // in `COMVIVO_` order, this assertion fails the weekly rename drill — which is exactly what it
+    // did on 2026-11-11.
+    expect(removed).toEqual(
+      [
+        'ANTHROPIC_API_KEY',
+        `${BRAND.envPrefix}MASTER_KEY`,
+        `${BRAND.envPrefix}MCP_CLIENT_HOMEASSISTANT_TOKEN_FILE`,
+        `${BRAND.envPrefix}PLUGIN_WEATHER_API_KEY`,
+        'TELEGRAM_BOT_TOKEN_FILE',
+      ].toSorted(),
+    );
     // Everything that is not a secret survives, including our own non-secret variables.
     expect(Object.keys(env).toSorted()).toEqual(
       [`${BRAND.envPrefix}DATA_DIR`, 'PATH', 'TZ'].toSorted(),
