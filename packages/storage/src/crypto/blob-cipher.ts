@@ -233,11 +233,39 @@ export async function* openBlob(options: OpenBlobOptions): AsyncGenerator<Uint8A
  * the final chunk or may be a partial read, and the two are indistinguishable until the source
  * ends — a filesystem returns whatever it likes. Decrypting early would reject a perfectly good
  * file that arrived in small reads, which is why the loop holds one chunk back.
+ *
+ * ## Why the pending bytes live in one fixed buffer
+ *
+ * The obvious accumulator is `pending = concat(pending, piece)`, and it is **quadratic in the
+ * number of reads**: every piece recopies everything already waiting, so a file arriving in
+ * one-byte reads copies about `bytes × chunk / 2`. A 1 MiB blob read a byte at a time is 34 GiB of
+ * `memcpy` and takes half a minute; CI found this as a 6-second unit test on the slower of the two
+ * Node legs, which is the only reason it was not shipped. A blob source is not always a 64 KiB
+ * file read — `02` §3.11's fetch path hands over whatever the network produced — so the shape of
+ * the reads is not ours to assume.
+ *
+ * So the pending bytes live in **one buffer of a fixed capacity**, with a start and an end index:
+ * appending is a copy of the piece alone, taking a chunk advances `start`, and the buffer is
+ * compacted in place only when `end` reaches the capacity. Every byte is copied exactly once on
+ * the way in, plus at most one chunk per capacity-worth of input for the compaction — linear, with
+ * no allocation per chunk. The capacity is two chunks plus a head, which is the most that can be
+ * waiting: the drain loop holds one chunk back, and `#append` never takes more than fits.
+ *
+ * Copying on the way in rather than holding the caller's piece is also what makes the contract
+ * safe. `sealBlob` copies each piece into its chunk buffer immediately, so a source that reuses
+ * one buffer across reads works there; a framer that kept references would work with
+ * `fs.createReadStream` and corrupt data for a source that recycles its buffer, and that
+ * asymmetry between the two halves of one file format is exactly the kind of trap that is found
+ * years later.
  */
 class BlobFramer {
   readonly #options: OpenBlobOptions;
   #pull: ReturnType<SecretStream['initPull']> | undefined;
-  #pending = Buffer.alloc(0);
+  /** The most that can be pending: the head, plus the chunk held back, plus one being filled. */
+  static readonly #CAPACITY = BLOB_HEAD_BYTES + 2 * BLOB_CHUNK_BYTES;
+  readonly #pending = Buffer.allocUnsafe(BlobFramer.#CAPACITY);
+  #start = 0;
+  #end = 0;
   #first = true;
   #sawFinal = false;
 
@@ -247,18 +275,14 @@ class BlobFramer {
 
   /** Take a piece of the file, yielding whatever complete chunks it completed. */
   *accept(piece: Uint8Array): Generator<Uint8Array> {
-    this.#pending = Buffer.concat([this.#pending, Buffer.from(piece)]);
-    if (this.#pull === undefined) {
-      if (this.#pending.length < BLOB_HEAD_BYTES) return;
-      this.#pull = this.#options.stream.initPull(
-        readBlobHead(this.#pending.subarray(0, BLOB_HEAD_BYTES)),
-        this.#options.dek,
-      );
-      this.#pending = this.#pending.subarray(BLOB_HEAD_BYTES);
-    }
-    while (this.#pending.length > BLOB_CHUNK_BYTES) {
-      yield this.#take(BLOB_CHUNK_BYTES);
-    }
+    let offset = 0;
+    do {
+      offset += this.#append(piece, offset);
+      yield* this.#drain();
+      // `#append` always takes at least one byte — `#drain` leaves at most one chunk pending and
+      // the capacity is two — so this terminates. A `do` rather than a `while`, because an empty
+      // piece must still get a chance to complete the head: a source may legitimately yield one.
+    } while (offset < piece.length);
   }
 
   /** The source has ended: the remainder is the last chunk, and there must have been one. */
@@ -268,12 +292,40 @@ class BlobFramer {
     }
     // Possibly an empty-plaintext chunk, which is still `ABYTES` long — that is what an empty blob
     // looks like, and it still has to authenticate.
-    if (this.#pending.length > 0) yield this.#take(this.#pending.length);
+    if (this.#end > this.#start) yield this.#take(this.#end - this.#start);
     if (!this.#sawFinal) {
       throw new StorageError('BLOB_INTEGRITY', 'that blob file ends without a final chunk', {
         hint: 'The file was truncated. Restore it from a backup, or delete the row so the attachment is re-fetched.',
         category: 'io.failed',
       });
+    }
+  }
+
+  /** Copy as much of `piece` from `offset` as fits, compacting first if it must. Returns how much. */
+  #append(piece: Uint8Array, offset: number): number {
+    if (this.#end === BlobFramer.#CAPACITY) {
+      this.#pending.copyWithin(0, this.#start, this.#end);
+      this.#end -= this.#start;
+      this.#start = 0;
+    }
+    const take = Math.min(BlobFramer.#CAPACITY - this.#end, piece.length - offset);
+    this.#pending.set(piece.subarray(offset, offset + take), this.#end);
+    this.#end += take;
+    return take;
+  }
+
+  /** Read the head once it has arrived, then yield every chunk that is certainly complete. */
+  *#drain(): Generator<Uint8Array> {
+    if (this.#pull === undefined) {
+      if (this.#end - this.#start < BLOB_HEAD_BYTES) return;
+      this.#pull = this.#options.stream.initPull(
+        readBlobHead(this.#pending.subarray(this.#start, this.#start + BLOB_HEAD_BYTES)),
+        this.#options.dek,
+      );
+      this.#start += BLOB_HEAD_BYTES;
+    }
+    while (this.#end - this.#start > BLOB_CHUNK_BYTES) {
+      yield this.#take(BLOB_CHUNK_BYTES);
     }
   }
 
@@ -283,11 +335,11 @@ class BlobFramer {
       throw integrity('the file is shorter than a blob header', 'It was truncated during a copy.');
     }
     const { message, tag } = this.#pull.pull(
-      this.#pending.subarray(0, length),
+      this.#pending.subarray(this.#start, this.#start + length),
       this.#first ? this.#options.additionalData : undefined,
     );
     this.#first = false;
-    this.#pending = this.#pending.subarray(length);
+    this.#start += length;
     if (tag === 'final') this.#sawFinal = true;
     return message;
   }
