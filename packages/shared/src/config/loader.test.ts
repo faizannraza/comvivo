@@ -70,9 +70,9 @@ describe('defaultConfig', () => {
     expect(config.privacy.localOnly).toBe(false);
     expect(config.logging.file.enabled).toBe(false);
 
-    // The twenty top-level sections, pinned: a section added without a default would otherwise
-    // appear here with whatever zod inferred, and a section removed would take its defaults with
-    // it unnoticed.
+    // The twenty-three top-level sections, pinned: a section added without a default would
+    // otherwise appear here with whatever zod inferred, and a section removed would take its
+    // defaults with it unnoticed.
     expect(Object.keys(config)).toEqual([
       'instance',
       'models',
@@ -86,6 +86,9 @@ describe('defaultConfig', () => {
       'traces',
       'network',
       'outbound',
+      'jobs',
+      'outbox',
+      'blobs',
       'budgets',
       'backups',
       'security',

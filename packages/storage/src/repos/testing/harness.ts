@@ -32,11 +32,13 @@ import {
   type ConstraintId,
   type ConversationId,
   type DecisionId,
+  type DeletionId,
   type EntityId,
   type EventId,
   type GroupId,
   type LedgerEntryId,
   type ListId,
+  type JobId,
   type ListItemId,
   type Logger,
   type MemberId,
@@ -426,6 +428,14 @@ export function auditId(tag: string): AuditId {
 
 export function usageId(tag: string): UsageId {
   return `use_${suffix(tag)}` as UsageId;
+}
+
+export function jobId(tag: string): JobId {
+  return `job_${suffix(tag)}` as JobId;
+}
+
+export function deletionId(tag: string): DeletionId {
+  return `del_${suffix(tag)}` as DeletionId;
 }
 
 export function outboxId(tag: string): OutboxId {

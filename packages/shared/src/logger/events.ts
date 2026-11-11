@@ -73,6 +73,36 @@ export const LOG_EVENTS = {
   /** `02` §3.10.3's dead letter. Visible in the dashboard and `village doctor --check jobs`. */
   'job.dead': 'a job will not be retried',
 
+  // --- Retention and deletion (`02` §3.13) -----------------------------------------------------
+  /**
+   * One retention pass finished. `count` is rows removed, `durationMs` how long it took.
+   *
+   * At `info`, because a host reading their log should be able to see that retention is running:
+   * a sweep that silently stopped working looks exactly like a sweep with nothing to do, and the
+   * difference is whether 90-day-old messages still exist.
+   */
+  'retention.swept': 'retention removed expired rows',
+  /**
+   * `02` §3.13.2's `RETENTION_UNEXTRACTED`: messages are being deleted that extraction never read.
+   *
+   * Retention wins over memory (`03`'s privacy posture), so this is a warning and not a refusal.
+   * It means extraction was down for longer than the retention window, and the memories those
+   * messages would have produced will never exist.
+   */
+  'retention.unextracted': 'expired messages were deleted before extraction read them',
+  /** A group purge or a person erasure started (`02` §3.13.4, §3.13.5). */
+  'deletion.started': 'a deletion job started',
+  /** A group purge or a person erasure finished. `count` is rows removed. */
+  'deletion.completed': 'a deletion job completed',
+  /**
+   * The audit chain was re-anchored because retention removed its oldest rows (`08` §3.16.2).
+   *
+   * At `warn` rather than `info`: `02` §3.13.1's default keeps audit events forever, so this only
+   * happens on an instance whose host set a ceiling — and the line is the notice that verification
+   * will now report a chain that starts somewhere other than `seq` 1.
+   */
+  'audit.reanchored': 'the audit chain was re-anchored after a retention purge',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',

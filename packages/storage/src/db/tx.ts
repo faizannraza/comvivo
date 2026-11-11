@@ -332,6 +332,7 @@ export class SqliteStore implements Store {
       messagesW: repos.messages,
       settingsW: repos.settings,
       labelsW: repos.labels,
+      deletions: repos.deletions,
       memoriesW: repos.memories,
       calendarW: repos.calendar,
       remindersW: repos.reminders,

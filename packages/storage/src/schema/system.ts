@@ -76,8 +76,15 @@ export const deletions = sqliteTable(
     }).notNull(),
     /** The deleted id, opaque. Not a foreign key: the subject is gone. */
     subjectRef: text('subject_ref').notNull(),
-    /** No foreign key: this row survives the group's deletion (`02` §3.3.8). */
-    groupId: text('group_id'),
+    /**
+     * No foreign key: this row survives the group's deletion (`02` §3.3.8).
+     *
+     * `tid('grp')` all the same — identical DDL (`text`), and it gives the column the group-id type
+     * and the read-time validation every other `group_id` has. Declared as plain `text` first,
+     * which made `DeletionRecord.groupId` a `string` that had to be cast on the way out; a cast in
+     * a mapper is the place a wrong id gets in (`M1-T26`).
+     */
+    groupId: tid('grp')('group_id'),
     requestedBy: jsonOf(AuditActorSchema, 'deletions.requested_by')('requested_by').notNull(),
     status: text('status', { enum: ['pending', 'running', 'completed'] }).notNull(),
     /** The step and cursor a crashed purge resumes from (`02` D18, §3.13.4). */

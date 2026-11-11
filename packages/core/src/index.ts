@@ -453,7 +453,19 @@ export {
   JOB_STATUSES,
   POOL_LIMITS,
 } from './ports/storage/jobs.js';
+export { AUDIT_REANCHOR_ACTION } from './ports/storage/repos/audit.js';
 export type { AuditLog, AuditReader } from './ports/storage/repos/audit.js';
+export {
+  type DeletionPrimitives,
+  type DeletionRecord,
+  type LabelOwnerScope,
+  PURGE_CHUNK_ROWS,
+  type RetentionWindows,
+  SWEEP_CHUNK_ROWS,
+  type SweepableTable,
+  SWEEPABLE_TABLES,
+  type SweepChunkResult,
+} from './ports/storage/repos/deletions.js';
 export type {
   CalendarReader,
   CalendarRepository,

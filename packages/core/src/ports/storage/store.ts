@@ -39,6 +39,7 @@ import type { GroupId, LabelId } from '@comvivo/shared';
 import type { Label } from '../../ifc/eligible.js';
 import type { JobQueueTx } from './jobs.js';
 import type { AuditLog, AuditReader } from './repos/audit.js';
+import type { DeletionPrimitives } from './repos/deletions.js';
 import type {
   CalendarReader,
   CalendarRepository,
@@ -192,6 +193,15 @@ export interface UnitOfWork extends ReadScope, TxToken {
    * depend on the storage implementation — it names only what it calls.
    */
   readonly labelsW: LabelInterner;
+  /**
+   * `02` §3.7.1's `deletions: DeletionPrimitives`.
+   *
+   * On the unit of work beside the repositories rather than among them, because every method spans
+   * aggregates: deleting a memory touches its subjects, sources, FTS rows and a decision's
+   * back-reference. A repository that owns one aggregate cannot hold that without reaching into
+   * another's tables.
+   */
+  readonly deletions: DeletionPrimitives;
 }
 
 /**

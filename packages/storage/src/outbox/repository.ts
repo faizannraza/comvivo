@@ -343,6 +343,40 @@ export class SqliteOutboxRepository implements OutboxReader, OutboxRepository {
     return this.#row(id) === undefined ? notFound() : writeConflict();
   }
 
+  /**
+   * Cancel every undelivered row of one group (`02` §3.13.4 step 1).
+   *
+   * **Unbounded**, which every other deletion step here is not, and the reason is what it is for:
+   * this runs in the transaction that marks the group `deleting`, and its job is that no further
+   * message leaves for a group that is being erased. A chunked version would leave rows behind for
+   * the next chunk to find, and a sender claiming one in between would deliver a message *after*
+   * the group was deleted — which is the single most visible way this feature can fail.
+   *
+   * The bound is the table's own shape rather than a `LIMIT`: `02` §3.9 holds only messages not yet
+   * delivered plus the terminal rows retention has not yet taken, and a group with thousands of
+   * undelivered sends has a delivery outage, not a retention problem. There is deliberately **no**
+   * index on `(group_id, status)` — `02` §4 catalogs none, every outbox query in the hot path is by
+   * conversation or by status, and an index exists to be maintained on every send rather than to
+   * make one statement per group deletion faster. This is a scan, once, per deleted group.
+   *
+   * `sending` rows are included and `maybe_sent` is left alone: `02` §3.9's at-least-once promise
+   * means a row in flight may already have been delivered, and cancelling the row does not unsend
+   * it. What it does is stop a *retry*.
+   */
+  cancelGroup(uow: TxToken, groupId: GroupId, error: ErrorInfo): number {
+    return this.#db
+      .update(outboxMessages)
+      .set({ status: 'cancelled', lastError: error, leaseUntil: null, nextAttemptAt: uow.now })
+      .where(
+        and(
+          eq(outboxMessages.groupId, groupId),
+          inArray(outboxMessages.status, ['pending', 'sending']),
+        ),
+      )
+      .returning({ id: outboxMessages.id })
+      .all().length;
+  }
+
   cancel(_uow: TxToken, id: OutboxId, error: ErrorInfo): WriteResult<OutboxMessage> {
     const row = maybeOne(
       this.#db

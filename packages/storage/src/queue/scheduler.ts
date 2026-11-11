@@ -42,7 +42,7 @@ import {
   type SchedulePattern,
   UTC,
 } from '@comvivo/shared';
-import { and, asc, eq, lte } from 'drizzle-orm';
+import { and, asc, eq, inArray, like, lte } from 'drizzle-orm';
 import { Temporal } from 'temporal-polyfill';
 import type { Db } from '../db/drizzle.js';
 import { exactlyOne, maybeOne } from '../db/drizzle.js';
@@ -211,6 +211,79 @@ export class SqliteScheduler {
         .returning(),
     );
     return row === undefined ? undefined : toSchedule(row);
+  }
+
+  /**
+   * Disable every schedule of one partition, and say how many moved (`02` §3.13.4).
+   *
+   * `partition_key` is the group id, so this is "stop this group's recurring work" in one
+   * statement. Disabling rather than deleting, and in the *first* transaction of a purge: the rows
+   * go later with everything else, but `job_schedules_due_idx` is partial on `enabled = 1`, so
+   * flipping the flag takes them out of the tick's reach immediately — before a single row of the
+   * group has been deleted, which is the window a tick must not fire in.
+   */
+  disablePartition(uow: TxToken, partitionKey: string): number {
+    return this.#db
+      .update(jobSchedules)
+      .set({ enabled: false, nextRunAt: null, updatedAt: uow.now })
+      .where(and(eq(jobSchedules.partitionKey, partitionKey), eq(jobSchedules.enabled, true)))
+      .returning({ id: jobSchedules.id })
+      .all().length;
+  }
+
+  /**
+   * Delete up to `limit` schedules of one partition. Returns how many.
+   *
+   * Chunked like everything else a purge does (`02` D18), even though a group has a handful of
+   * schedules and not thousands: a step that is sometimes bounded and sometimes not is a step whose
+   * resumption has two shapes, and the purge driver only knows one.
+   */
+  deletePartition(_uow: TxToken, partitionKey: string, limit: number): number {
+    const doomed = this.#db
+      .select({ id: jobSchedules.id })
+      .from(jobSchedules)
+      .where(eq(jobSchedules.partitionKey, partitionKey))
+      .limit(limit)
+      .all();
+    if (doomed.length === 0) return 0;
+    this.#db
+      .delete(jobSchedules)
+      .where(
+        inArray(
+          jobSchedules.id,
+          doomed.map((row) => row.id),
+        ),
+      )
+      .run();
+    return doomed.length;
+  }
+
+  /**
+   * Delete the schedules a given owner created (`02` §3.13.5 step 1).
+   *
+   * `owner_ref` is `'<id>:<slug>'` — `mbr_01h…:digest.morning` — so an erasure matches on the
+   * prefix. A `LIKE` with a literal prefix, built from an id that `idSchema` has already validated
+   * as Crockford base32: there is no wildcard character in that alphabet, so the pattern cannot be
+   * widened by its own input.
+   */
+  deleteByOwnerPrefix(_uow: TxToken, ownerPrefix: string, limit: number): number {
+    const doomed = this.#db
+      .select({ id: jobSchedules.id })
+      .from(jobSchedules)
+      .where(like(jobSchedules.ownerRef, `${ownerPrefix}:%`))
+      .limit(limit)
+      .all();
+    if (doomed.length === 0) return 0;
+    this.#db
+      .delete(jobSchedules)
+      .where(
+        inArray(
+          jobSchedules.id,
+          doomed.map((row) => row.id),
+        ),
+      )
+      .run();
+    return doomed.length;
   }
 
   /**

@@ -325,16 +325,25 @@ export class SqliteMessageRepository implements MessageReader, MessageRepository
    * `limit` is mandatory: retention runs as a job against a database a host is also using, and an
    * unbounded `DELETE` would hold the write lock for as long as it takes. The caller loops.
    */
-  deleteExpired(_uow: TxToken, groupId: GroupId, now: Temporal.Instant, limit: number): number {
+  deleteExpired(
+    _uow: TxToken,
+    groupId: GroupId | undefined,
+    now: Temporal.Instant,
+    limit: number,
+  ): number {
     // A subquery, because SQLite's `DELETE` has no `LIMIT` unless it was compiled with
     // `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`, which this build is not. Selecting the rids first also
     // means the partial index does the selecting.
+    //
+    // `groupId` omitted is the retention sweep's instance-wide pass, and it is the *cheaper* one:
+    // `messages_retention_idx` is on `retention_until` alone, so adding a group predicate makes the
+    // index a filter rather than the driver.
     const doomed = this.#db
       .select({ rid: messages.rid })
       .from(messages)
       .where(
         and(
-          eq(messages.groupId, groupId),
+          ...(groupId === undefined ? [] : [eq(messages.groupId, groupId)]),
           isNotNull(messages.retentionUntil),
           lte(messages.retentionUntil, now),
         ),

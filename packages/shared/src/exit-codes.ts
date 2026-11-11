@@ -133,6 +133,8 @@ const EXIT_CODE_BY_STORAGE_CODE: Readonly<Record<StorageErrorCode, ExitCode>> = 
   BLOB_TOO_LARGE: EXIT_CODES.bug,
   BLOB_QUOTA_EXCEEDED: EXIT_CODES.bug,
   EXPORT_SCOPE_DENIED: EXIT_CODES.bug,
+  // The sweep aborts and retries tomorrow; nothing was deleted, so the instance keeps running.
+  AUDIT_REANCHOR_FAILED: EXIT_CODES.bug,
 };
 
 /** What an orchestrator should be told about one storage error code. */

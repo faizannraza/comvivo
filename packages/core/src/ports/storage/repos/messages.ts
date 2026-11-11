@@ -105,7 +105,21 @@ export interface MessageRepository {
     at: Temporal.Instant,
   ): WriteResult<Message>;
   /** Q-RET-1's half that writes: drop messages whose retention has expired. */
-  deleteExpired(uow: TxToken, groupId: GroupId, now: Temporal.Instant, limit: number): number;
+  /**
+   * Q-RET-1: drop messages whose `retention_until` has passed.
+   *
+   * `groupId` is **optional**, and `undefined` means every group — which is the shape the retention
+   * sweep needs (`02` §3.13.2 iterates tables, not groups) and the shape `messages_retention_idx`
+   * is built for: the index is on `retention_until` alone, so an instance-wide pass is the one that
+   * uses it. The per-group form exists for `03`'s "shorten this group's retention" recompute, where
+   * the caller has a group and wants to bound the work to it.
+   */
+  deleteExpired(
+    uow: TxToken,
+    groupId: GroupId | undefined,
+    now: Temporal.Instant,
+    limit: number,
+  ): number;
   /**
    * Set the label of an existing message.
    *

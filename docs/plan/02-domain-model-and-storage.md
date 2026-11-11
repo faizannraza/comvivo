@@ -2821,7 +2821,12 @@ export type StorageErrorCode =
   | 'SCHEMA_TOO_NEW' | 'MIGRATION_FAILED' | 'MIGRATION_CHECKSUM_MISMATCH' | 'MIGRATION_FK_VIOLATION'
   | 'JOB_PAYLOAD_INVALID' | 'JOB_LEASE_LOST' | 'SCHEDULE_NO_NEXT'
   | 'BLOB_TOO_LARGE' | 'BLOB_QUOTA_EXCEEDED' | 'BLOB_DISK_LOW' | 'BLOB_INTEGRITY' | 'BLOB_MISSING_FILE'
-  | 'BACKUP_INTEGRITY' | 'BACKUP_KEY_MISMATCH' | 'RESTORE_SERVER_RUNNING' | 'EXPORT_SCOPE_DENIED';
+  | 'BACKUP_INTEGRITY' | 'BACKUP_KEY_MISMATCH' | 'RESTORE_SERVER_RUNNING' | 'EXPORT_SCOPE_DENIED'
+  // Added at M1-T26: `08` §3.16.2's audit re-anchor is written **before** the rows it vouches
+  // for are deleted, so a failure to append it must abort the sweep rather than leave a chain
+  // that reads as tampered with no record of why. A distinct code, because the operator action
+  // is "retry the sweep, nothing was lost" and `STORAGE_CONSTRAINT` would not say that.
+  | 'AUDIT_REANCHOR_FAILED';
 ```
 SQLite errors are mapped in a single place, `src/db/errors.ts`: `SQLITE_CONSTRAINT_*` becomes `STORAGE_CONSTRAINT` with `{constraint}`, `SQLITE_BUSY` becomes `STORAGE_BUSY`, `SQLITE_CORRUPT`/`SQLITE_NOTADB` become `STORAGE_CORRUPT`/`STORAGE_KEY_INVALID`, and `RAISE(ABORT,'<CODE>')` messages become the matching code. Expected uniqueness conflicts (dedupe, idempotency) are returned as `duplicate` results, not thrown.
 

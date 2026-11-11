@@ -17,9 +17,12 @@ import type Database from 'better-sqlite3-multiple-ciphers';
 import type { Db } from '../db/drizzle.js';
 import { LabelStore } from '../ifc/label-store.js';
 import { SqliteOutboxRepository } from '../outbox/repository.js';
+import { JobKindRegistry } from '../queue/kinds.js';
 import { SqliteJobQueue } from '../queue/queue.js';
 import { SqliteScheduler } from '../queue/scheduler.js';
 import { SqliteContextReadModel } from '../readmodels/context.js';
+import { registerRetentionKinds, type RetentionJobKinds } from '../retention/jobs.js';
+import { SqliteDeletionPrimitives } from '../retention/primitives.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
 import { SqliteAuditLog } from './audit.js';
@@ -147,6 +150,25 @@ export interface Repositories {
   readonly schedules: SqliteScheduler;
   readonly embeddingSpaces: EmbeddingSpaceManager;
   /**
+   * The live job-kind registry (`02` §3.10.1).
+   *
+   * One per connection, and here rather than at the composition root because two registries would
+   * be worse than none: a kind the primitives can enqueue and the worker cannot claim is a job that
+   * sits in `queued` forever with nothing visibly wrong. `register` refuses a duplicate, so holding
+   * it alongside the repositories makes "one registry" structural.
+   */
+  readonly jobKinds: JobKindRegistry;
+  /** Retention's three registered kinds (`02` §3.13), for the handlers and the primitives. */
+  readonly retentionKinds: RetentionJobKinds;
+  /**
+   * `02` §3.7.1's `deletions: DeletionPrimitives` (§3.13.3).
+   *
+   * Built last but one, because it holds six of the repositories above: a deletion spans aggregates
+   * by definition, and the alternative — each repository deleting its own neighbours' rows — is the
+   * coupling the repository split exists to prevent.
+   */
+  readonly deletions: SqliteDeletionPrimitives;
+  /**
    * `02` §3.7.3's context read model.
    *
    * Built last and given the whole set, because it is a **façade**: every method delegates to the
@@ -234,7 +256,28 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     schedules: new SqliteScheduler({ db, queue: jobs }),
     embeddingSpaces: spaces,
   };
-  return { ...set, context: new SqliteContextReadModel(set) };
+  const jobKinds = new JobKindRegistry();
+  const retentionKinds = registerRetentionKinds(jobKinds);
+  const deletions = new SqliteDeletionPrimitives({
+    db,
+    connection,
+    ids: options.ids,
+    groups,
+    messages,
+    traces: set.traces,
+    audit: set.audit,
+    outbox: set.outbox,
+    jobs,
+    schedules: set.schedules,
+    kinds: retentionKinds,
+  });
+  return {
+    ...set,
+    jobKinds,
+    retentionKinds,
+    deletions,
+    context: new SqliteContextReadModel(set),
+  };
 }
 
 export {

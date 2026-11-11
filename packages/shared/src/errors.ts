@@ -183,7 +183,9 @@ export type StorageErrorCode =
   | 'BACKUP_INTEGRITY'
   | 'BACKUP_KEY_MISMATCH'
   | 'RESTORE_SERVER_RUNNING'
-  | 'EXPORT_SCOPE_DENIED';
+  | 'EXPORT_SCOPE_DENIED'
+  /** `08` §3.16.2's re-anchor could not be written, so nothing was deleted (`M1-T26`). */
+  | 'AUDIT_REANCHOR_FAILED';
 
 /** Every `StorageErrorCode`, for exhaustiveness checks and for tests that enumerate them. */
 export const STORAGE_ERROR_CODES: readonly StorageErrorCode[] = [
@@ -224,6 +226,7 @@ export const STORAGE_ERROR_CODES: readonly StorageErrorCode[] = [
   'BACKUP_KEY_MISMATCH',
   'RESTORE_SERVER_RUNNING',
   'EXPORT_SCOPE_DENIED',
+  'AUDIT_REANCHOR_FAILED',
 ];
 
 /**

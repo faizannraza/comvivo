@@ -232,6 +232,26 @@ export class SqliteJobQueue implements JobQueueTx, JobQueue {
     return this.#finish(job, 'succeeded') ? 'ok' : 'lease_lost';
   }
 
+  /**
+   * Pause or resume a partition (`02` §3.13.4).
+   *
+   * Pausing is not cancelling and the purge needs both: `cancelPartition` clears the work that is
+   * *queued now*, and the pause is what stops work enqueued a millisecond later — by a job already
+   * running, by a schedule tick — from ever being claimed. The claim query reads
+   * `coalesce(p.paused, 0) = 0`, so this row is the whole mechanism.
+   *
+   * Upserted rather than updated, because a group whose partition has never been claimed has no
+   * `job_partitions` row yet, and "pause a partition that has done nothing" has to work: that is
+   * exactly the state of a group being deleted the day it was created.
+   */
+  setPartitionPaused(uow: TxToken, partitionKey: PartitionKey, paused: boolean): void {
+    this.#db
+      .insert(jobPartitions)
+      .values({ partitionKey, lastClaimedAt: uow.now, paused })
+      .onConflictDoUpdate({ target: jobPartitions.partitionKey, set: { paused } })
+      .run();
+  }
+
   cancelPartition(_uow: TxToken, partitionKey: PartitionKey, kinds?: readonly string[]): number {
     const rows = this.#db
       .update(jobs)

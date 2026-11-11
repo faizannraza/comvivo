@@ -116,6 +116,24 @@ const privacy = z
     messageRetentionDays: z.number().int().min(1).default(90),
     maxMessageRetentionDays: z.number().int().min(1).default(365),
     logRetentionDays: z.number().int().min(1).default(14),
+    /** `02` §3.13.1. `usage_daily` keeps the aggregate forever; this is the per-call detail. */
+    usageRetentionDays: z.number().int().min(1).default(400),
+    /**
+     * How long the audit chain is kept. `null` means forever, which is the default.
+     *
+     * `02` §3.13.1 says audit events live "forever (deleted only with the group)"; `08` §3.16.2
+     * says "1 year (hash chain re-anchored on purge)". The conflict is resolved in favour of `02`'s
+     * default with `08`'s mechanism available, because the two documents are answering different
+     * questions. An audit row holds ids, enums and counts and **never** content (`02` §3.3.9) — it
+     * is what remains after an erasure precisely because there is nothing personal left in it — so
+     * deleting it by default trades away the accountability the chain exists for and buys no
+     * privacy. A host who needs a ceiling anyway (a policy, a jurisdiction) sets one here, and the
+     * sweep then re-anchors the chain so verification can still tell a lawful purge from an edit.
+     *
+     * The floor is 30 days rather than 1: a chain swept faster than a host reads it cannot support
+     * the "what happened last month?" question that is the whole point of having one.
+     */
+    auditRetentionDays: z.number().int().min(30).nullable().default(null),
     encryptAtRest: z.boolean().default(true),
     localOnly: z.boolean().default(false),
     sensitiveRoutesLocal: z.boolean().default(false),
@@ -196,6 +214,32 @@ export const configSchema = z
     traces,
     network,
     outbound,
+    /** `02` §3.13.1's `jobs.*` retention. Terminal rows only; a live job is never swept. */
+    jobs: z
+      .object({
+        retainSucceededDays: z.number().int().min(1).default(7),
+        retainDeadDays: z.number().int().min(1).default(30),
+      })
+      .prefault({}),
+    /** `02` §3.13.1's `outbox.*` retention. `retainDeadDays` is longer: a dead send is evidence. */
+    outbox: z
+      .object({
+        retainDays: z.number().int().min(1).default(14),
+        retainDeadDays: z.number().int().min(1).default(90),
+      })
+      .prefault({}),
+    /** `02` §3.11's limits and §3.13.1's GC grace. Mirrored by `BLOB_LIMITS` in `storage`. */
+    blobs: z
+      .object({
+        maxBytes: z.number().int().positive().default(52_428_800),
+        groupQuotaBytes: z.number().int().positive().default(2 * 1024 * 1024 * 1024),
+        /** 0 means unlimited (`02` §3.11). */
+        instanceQuotaBytes: z.number().int().min(0).default(0),
+        minFreeBytes: z.number().int().positive().default(1024 * 1024 * 1024),
+        /** How long an unreferenced blob survives before the sweep takes it. */
+        gcGraceHours: z.number().int().min(1).default(24),
+      })
+      .prefault({}),
     budgets: z
       .object({
         /** `auto` uses the per-preset defaults in `01` §14 A3. */

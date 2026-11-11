@@ -23,6 +23,7 @@
  */
 import { type CanonicalValue, canonicalJson } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
+import { shadowTables } from '../retention/inventory.js';
 
 /**
  * Columns that legitimately differ between two runs of the same work.
@@ -70,6 +71,12 @@ interface ColumnInfo {
 
 /** Every real table in the database, excluding SQLite's own and the FTS/vec shadow tables. */
 export function domainTables(db: Database.Database): readonly string[] {
+  // Asked of SQLite rather than matched on a suffix. The suffix list this used to carry missed
+  // sqlite-vec 0.1.9's `_metadatachunks00`, `_metadatachunks01`, `_metadatachunks02` and
+  // `_metadatatext02` outright; it was harmless only because the query below already excludes
+  // `vec_memory_%` and `%_fts%` by prefix, which is a second filter doing the first one's job.
+  // `retention/inventory.ts` owns the answer now (`M1-T26`).
+  const shadows = shadowTables(db);
   return (
     db
       .prepare(
@@ -85,20 +92,7 @@ export function domainTables(db: Database.Database): readonly string[] {
       .all() as { name: string }[]
   )
     .map((row) => row.name)
-    .filter((name) => !NON_DOMAIN_TABLES.has(name) && !isShadowTable(name));
-}
-
-/**
- * Whether a table is an FTS5 or vec0 shadow table.
- *
- * FTS5 creates `<name>_data`, `_idx`, `_content`, `_docsize` and `_config` siblings. Matching on
- * those suffixes rather than on a prefix of the virtual table's name keeps the rule from depending
- * on what the virtual tables happen to be called.
- */
-function isShadowTable(name: string): boolean {
-  return /_(data|idx|content|docsize|config|rowids|chunks|vector_chunks\d+|info|auxiliary)$/.test(
-    name,
-  );
+    .filter((name) => !NON_DOMAIN_TABLES.has(name) && !shadows.has(name));
 }
 
 function columnsOf(db: Database.Database, table: string): readonly ColumnInfo[] {

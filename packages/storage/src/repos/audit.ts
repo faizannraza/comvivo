@@ -28,6 +28,7 @@
  * than a nicety.
  */
 import type {
+  AuditActor,
   AuditEvent,
   AuditLog,
   AuditReader,
@@ -36,10 +37,16 @@ import type {
   TxToken,
   WriteResult,
 } from '@comvivo/core';
-import { chainKeyFor, duplicate, writeOk } from '@comvivo/core';
-import { type AuditId, type CanonicalValue, canonicalJson, type GroupId } from '@comvivo/shared';
+import { AUDIT_REANCHOR_ACTION, chainKeyFor, duplicate, writeOk } from '@comvivo/core';
+import {
+  type AuditId,
+  type CanonicalValue,
+  canonicalJson,
+  type GroupId,
+  StorageError,
+} from '@comvivo/shared';
 import { secureEqual, sha256 } from '@comvivo/shared/crypto';
-import { and, asc, desc, eq, gte } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, gte, lte, ne } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
 import type { Db } from '../db/drizzle.js';
 import { exactlyOne, maybeOne } from '../db/drizzle.js';
@@ -169,14 +176,21 @@ export class SqliteAuditLog implements AuditReader, AuditLog {
    * row's `prev_hash` on trust and says so by reporting `checked` — it proves nothing was altered
    * *within* the window, which is the question `11` §1116's health check is asking.
    *
-   * **A purge therefore has to re-anchor**, and `08` §895 says it does. The mechanism is *not*
-   * here: the obvious one — rewrite the surviving first row's `prev_hash` to the genesis value —
-   * does not work, because that row's own `hash` covers its `prev_hash`, so the hash changes, so
-   * the *next* row's `prev_hash` no longer matches, and the whole surviving chain would have to be
-   * rehashed. The alternative is to store the purged-up-to `(seq, hash)` per chain and have this
-   * function accept a first row that continues it. Which of those `M1-T26`'s retention sweep wants
-   * is its decision, and until it makes one an un-re-anchored purge reads as broken — which is the
-   * safe direction: a host is told to look rather than reassured.
+   * **A purge therefore has to re-anchor**, and `08` §895 says it does. The obvious mechanism does
+   * not work: rewriting the surviving first row's `prev_hash` to the genesis value changes that
+   * row's own `hash`, which the *next* row's `prev_hash` covers, so the whole surviving chain would
+   * have to be rehashed — and a chain that can be rehashed on demand is not evidence of anything.
+   *
+   * So the purged-up-to `(seq, hash)` is recorded **inside the chain**, as an
+   * `audit.reanchor` event appended at the head before anything is deleted (`reanchorBefore`), and
+   * this function accepts a first row whose `prev_hash` a re-anchor vouches for. A side table would
+   * have been simpler and worthless: the claim "these rows were removed lawfully" has to be as
+   * tamper-evident as the rows it is about, and inside the chain it is covered by every row written
+   * after it. An attacker who deletes a prefix still has to leave that record behind.
+   *
+   * What is **not** accepted is a first row vouched for by nothing, which is `08` T-T02's actual
+   * attack and still reads as broken. Note also that a group purge needs none of this: `chain_key`
+   * is per-group, so a group's chain goes whole rather than leaving a gap (`02` §3.3.7).
    */
   verifyChain(chainKey: string, limit = DEFAULT_VERIFY_LIMIT): ChainVerification {
     const rows = this.#db
@@ -191,7 +205,7 @@ export class SqliteAuditLog implements AuditReader, AuditLog {
     if (first === undefined) return { chainKey, ok: true, checked: 0, brokenAtSeq: undefined };
 
     const truncated = rows.length === limit;
-    if (!truncated && (first.seq !== 1 || !secureEqual(first.prevHash, GENESIS_HASH))) {
+    if (!truncated && !this.#startsCorrectly(chainKey, first)) {
       return { chainKey, ok: false, checked: rows.length, brokenAtSeq: first.seq };
     }
 
@@ -255,6 +269,122 @@ export class SqliteAuditLog implements AuditReader, AuditLog {
       // the transaction — so a unique violation here is the same `id` twice, which is a retry.
       return duplicate(event.id);
     }
+  }
+
+  /**
+   * Remove the oldest rows of one chain and record that it happened (`08` §3.16.2).
+   *
+   * The sequence matters and is the opposite of the obvious one: the re-anchor row is appended
+   * **before** anything is deleted. Both happen in the caller's transaction, so an observer never
+   * sees one without the other — but if the order were reversed and the append failed, the chain
+   * would be left reading as tampered with no record of why. Writing the claim first means the
+   * worst case is a claim about a deletion that then rolled back, and a `through` that nothing
+   * needs is harmless: `#startsCorrectly` looks for the re-anchor matching its *own* first row.
+   *
+   * Re-anchor rows are themselves never swept. They accumulate at one row per sweep that actually
+   * deleted something — a few hundred a year — and they have to stay: deleting row *n* while row
+   * *n+1* exists breaks the link in the middle of the chain, which is indistinguishable from
+   * tampering. That is the trade `08` §3.16.2's ceiling costs, and it is a few kilobytes.
+   */
+  reanchorBefore(
+    uow: TxToken,
+    request: {
+      readonly chainKey: string;
+      readonly before: Temporal.Instant;
+      readonly limit: number;
+      readonly id: AuditId;
+      readonly actor: AuditActor;
+      readonly at: Temporal.Instant;
+    },
+  ): number {
+    const doomed = this.#db
+      .select({ seq: auditEvents.seq, hash: auditEvents.hash })
+      .from(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.chainKey, request.chainKey),
+          lte(auditEvents.at, request.before),
+          // A re-anchor is the one row kind a sweep may not take. Its own `at` is the sweep's, so
+          // it is outside the window anyway for a full retention period — this is what keeps it
+          // out *forever*.
+          ne(auditEvents.action, AUDIT_REANCHOR_ACTION),
+        ),
+      )
+      .orderBy(asc(auditEvents.seq))
+      .limit(request.limit)
+      .all();
+    const through = doomed.at(-1);
+    if (through === undefined) return 0;
+
+    // The whole chain cannot go: with no surviving row there is nothing for the re-anchor to
+    // anchor, and `append` would extend a chain the next statement empties. A chain entirely
+    // outside the window keeps its newest row, which is one row of overhead per dormant chain and
+    // the only alternative to a chain that silently ceases to exist.
+    // A plain `select … limit 1` rather than `$count`: drizzle's `$count` is awaitable only, and
+    // `01` §1 forbids an `await` inside a transaction. "Is there one?" is the question anyway.
+    const survivor = maybeOne(
+      this.#db
+        .select({ seq: auditEvents.seq })
+        .from(auditEvents)
+        .where(and(eq(auditEvents.chainKey, request.chainKey), gt(auditEvents.seq, through.seq))),
+    );
+    if (survivor === undefined) {
+      if (doomed.length === 1) return 0;
+      return this.reanchorBefore(uow, { ...request, limit: doomed.length - 1 });
+    }
+
+    const appended = this.append(uow, {
+      id: request.id,
+      actor: request.actor,
+      action: AUDIT_REANCHOR_ACTION,
+      decision: { outcome: 'not_applicable', reason: null, capability: null, constitutionVersionId: null },
+      details: {
+        chainKey: request.chainKey,
+        through: through.seq,
+        throughHash: Buffer.from(through.hash).toString('hex'),
+        removed: doomed.length,
+      },
+      at: request.at,
+    });
+    if (appended.kind !== 'ok') {
+      throw new StorageError('AUDIT_REANCHOR_FAILED', 'the re-anchor event could not be appended', {
+        hint: 'Retry the retention sweep. Nothing was deleted: the re-anchor is written first on purpose.',
+        category: 'bug',
+        detail: { chainKey: request.chainKey, outcome: appended.kind },
+      });
+    }
+
+    this.#db
+      .delete(auditEvents)
+      .where(
+        and(
+          eq(auditEvents.chainKey, request.chainKey),
+          lte(auditEvents.seq, through.seq),
+          ne(auditEvents.action, AUDIT_REANCHOR_ACTION),
+        ),
+      )
+      .run();
+    return doomed.length;
+  }
+
+  /**
+   * Does this chain begin where it claims to?
+   *
+   * Either at `seq` 1 with the genesis `prev_hash`, or at a row whose `prev_hash` is the hash a
+   * re-anchor event says was removed. Nothing else: a first row that links to a hash no re-anchor
+   * vouches for is `08` T-T02's exact attack, and it has to read as broken.
+   */
+  #startsCorrectly(chainKey: string, first: typeof auditEvents.$inferSelect): boolean {
+    if (first.seq === 1 && secureEqual(first.prevHash, GENESIS_HASH)) return true;
+    const vouched = this.#db
+      .select({ details: auditEvents.details })
+      .from(auditEvents)
+      .where(and(eq(auditEvents.chainKey, chainKey), eq(auditEvents.action, AUDIT_REANCHOR_ACTION)))
+      .all();
+    const wanted = Buffer.from(first.prevHash).toString('hex');
+    return vouched.some(
+      (row) => row.details['through'] === first.seq - 1 && row.details['throughHash'] === wanted,
+    );
   }
 }
 
