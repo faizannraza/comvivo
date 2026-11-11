@@ -33,6 +33,8 @@ packages/storage/.dev/
 .turbo/
 .vitest/
 coverage/
+# `pnpm bench` output. The results that matter are the ones CI uploads (`11` §3.9.3).
+.bench/
 reports/
 *.tsbuildinfo
 .eslintcache

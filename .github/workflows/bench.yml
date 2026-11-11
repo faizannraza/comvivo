@@ -1,0 +1,82 @@
+# The benchmark suite (`11` §3.9.3).
+#
+# Runs `pnpm bench` on both reference architectures and keeps the results as artefacts. It is
+# **non-gating**, deliberately: `14`'s `M1-T32` records a baseline, and the budgets in `11` §3.9.1
+# become hard gates at `M1-T33`, which is the task that produces the datasets they are stated over.
+# A gate on numbers nobody has a baseline for is a gate that fails for the wrong reasons.
+#
+# ## What is not here yet
+#
+# `11` §3.9.3 stores results with github-action-benchmark in a quality repo (`dev/bench`), with
+# `alert-threshold: 125%` and an issue on alert. That needs the `comvivo` GitHub organisation,
+# which is owner ask **H-6** in `STATUS.md` and does not exist yet — so this workflow does
+# everything that can be done without it: it runs the suite, writes the JSON, prints the table into
+# the job summary, and keeps the artefact for 90 days. When H-6 lands, the store step is one `uses:`
+# away and every run before it is already in a comparable format.
+#
+# The PR-tier interleaved A/B of §3.9.3 also waits for `M1-T33`: it compares a merge base against a
+# head, which needs macro benchmarks whose variance is known.
+name: bench
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**"
+      - "apps/**"
+      - "scripts/bench/**"
+      - ".github/workflows/bench.yml"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: bench-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  bench:
+    name: bench (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    strategy:
+      # One architecture's result is worth having even when the other runner is unavailable, and a
+      # benchmark is never a reason to cancel its sibling.
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      - name: Run the benchmarks
+        run: pnpm bench --out ".bench/${{ matrix.arch }}.json"
+
+      # The table in the job summary, so a result is visible without downloading anything. `11`
+      # §3.9.3's dashboard is the long-term view; this is the one a person reads on the day.
+      - name: Summarise
+        env:
+          BENCH_ARCH: ${{ matrix.arch }}
+        run: scripts/bench/summary.sh "$BENCH_ARCH" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-${{ matrix.arch }}
+          path: .bench/${{ matrix.arch }}.json
+          # Long enough to compare against the previous month's runs by hand while the
+          # github-action-benchmark store waits on H-6.
+          retention-days: 90
+          if-no-files-found: error

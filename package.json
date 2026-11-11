@@ -46,7 +46,7 @@
     "test:scenario": "vitest run --project scenario",
     "test:guards": "vitest run --project unit --project integration test/boundaries test/docs-ia scripts/ packages/shared/src/logger/scrub.test.ts",
     "test:prop": "FC_NUM_RUNS=${FC_NUM_RUNS:-500} vitest run .prop.",
-    "bench": "node scripts/pending.mjs \"pnpm bench\" M1-T32 \"run the B-suite micro and macro benchmarks and compare against the 01 \u00a711.10 budgets\" \"nothing yet: vitest 5.0.5 does not expose a usable bench API, so M1-T32 chooses the harness (see STATUS Plan changes)\"",
+    "bench": "tsx --tsconfig tsconfig.runtime.json scripts/bench/run.ts",
     "coverage": "vitest run --coverage",
     "evals:smoke": "turbo run evals:smoke",
     "evals:live": "node scripts/pending.mjs \"pnpm evals:live\" M2-T19 \"run the eval suites against real models, inside the approved budget\" \"pnpm evals:smoke, which uses the deterministic fake gateways\"",
