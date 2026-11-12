@@ -368,11 +368,15 @@ async function send(
     // mapped address and every literal spelling of one (`08` §3.9), `refuseByName` for local and
     // dotless names, a per-purpose allowlist where one applies, and `pinnedLookup` below, which
     // pins the resolution so the address checked is the address connected to. A taint tracker
-    // cannot see that chain; the suppression says so rather than leaving a permanent critical
-    // alert that trains everyone to ignore the list.
+    // cannot see that chain, and `10` §9's 96-case matrix is the evidence that the chain holds.
     //
-    // codeql[js/request-forgery]
-    const request = requestFn(target.url, {
+    // The marker has to sit on the line the alert is reported on — a comment on the line above it
+    // does not suppress, measured on this very alert — and Biome's formatter moves a trailing
+    // comment off that line, which would make the suppression stop working the next time anyone
+    // formatted the file. So the formatter is told to leave this statement alone, with the reason.
+    //
+    // biome-ignore format: the `codeql` marker below must stay on the call's own line to suppress
+    const request = requestFn(target.url, { // codeql[js/request-forgery]
       method,
       headers: outgoing,
       lookup: pinnedLookup(address.address, address.family === 4 ? 4 : 6),
