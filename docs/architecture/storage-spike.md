@@ -26,7 +26,7 @@ and a suite that runs is the difference between a failing test and a corrupted d
 | Step 4 fails but vec loads → trigger-free vec deletes | **Does not apply.** vec0 DML inside a trigger works (with `trusted_schema` ON) |
 | vec cannot load into multiple-ciphers → in-process index | **Does not apply.** `sqlite-vec` loads and serves KNN inside SQLCipher |
 | Step 7: snapshot plaintext (SP-3) → online backup API | **Does not apply.** `VACUUM INTO` output is encrypted and opens only with the key |
-| Step 10: secretstream < 40 MB/s on a Pi 5 (SP-2) → `sodium-native` | **Undecided — needs H-10.** 372 MB/s here; the gate is a Pi 5 |
+| Step 10: secretstream < 40 MB/s on a Pi 5 (SP-2) → `sodium-native` | **Undecided — needs H-10.** 375 MB/s here (median of five, 369–381); the gate is a Pi 5 |
 | Native install fails on a target → block that target | **No failure on darwin-arm64.** linux-x64 runs in CI; linux-arm64 needs H-10 |
 
 ## U1–U7

@@ -96,9 +96,12 @@ Measured on darwin-arm64 (Apple M1) and linux-x64 (GitHub Actions), green on **b
 **Still owed, and stated rather than glossed:** U7 (the whole `02` §3.16.4 latency table) and
 **SP-2's 40 MB/s gate** are specified on a Raspberry Pi 5, which is owner ask **H-10**. The
 darwin-arm64 numbers are a ceiling, not evidence that the budgets hold, and
-`docs/architecture/storage-benchmarks.md` says so where the numbers are. SP-2 measured 372 MB/s
-here, three orders of magnitude above the threshold, which makes the `sodium-native` switch
-unlikely without settling it.
+`docs/architecture/storage-benchmarks.md` says so where the numbers are. SP-2 measures **375 MB/s**
+here — the median of five passes after a warm-up, 369–381 across them — which is about **9.4×** the
+40 MB/s threshold, not the "three orders of magnitude" an earlier version of this line claimed
+(372 ÷ 40 is 9.3, and the single timed pass it came from was bimodal: 161–354 MB/s on the same
+machine, which is why the benchmark now reports a median). One order of magnitude of headroom on a
+laptop makes the `sodium-native` switch unlikely, and a Pi is still the only thing that settles it.
 
 ## Alternatives considered
 

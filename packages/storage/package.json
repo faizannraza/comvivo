@@ -43,9 +43,9 @@
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
     "test": "pnpm -w exec vitest run packages/storage",
-    "bench:storage": "tsx spike/bench.ts",
+    "bench:storage": "tsx --tsconfig ../../tsconfig.runtime.json spike/bench.ts",
     "db:generate": "pnpm -w exec tsc -b packages/core && drizzle-kit generate",
-    "db:guards": "pnpm -w exec tsx ../../scripts/gen-guard-triggers.ts",
+    "db:guards": "pnpm -w exec tsx --tsconfig tsconfig.runtime.json scripts/gen-guard-triggers.ts",
     "db:migrate": "tsx --tsconfig ../../tsconfig.runtime.json src/migrate/cli.mjs"
   },
   "dependencies": {

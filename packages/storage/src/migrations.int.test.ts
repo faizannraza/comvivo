@@ -122,7 +122,14 @@ describe('migrations.fresh-equals-migrated', { tags: ['db'] }, () => {
         }
       }
       expect(normalizedSchema(migrated)).toEqual(normalizedSchema(fresh));
-      expect(normalizedSchema(migrated).length).toBeGreaterThan(150);
+      // Pinned, not `> 150`. A floor that low cannot tell a schema from a third of one, and the
+      // number is the whole premise of the comparison above: two identical halves of *nothing*
+      // are equal. **471** is 78 tables, 125 indexes, 4 FTS5 virtual tables with their shadow
+      // tables, and 248 triggers (the I4 label guards, the FTS sync triggers, the immutability
+      // guards and the 132 group-agreement guards the M1 exit gate added). It was 317 before those
+      // — `STATUS.md`'s `M1-T14` entry records that figure, and this is where the current one
+      // lives, because a count in a document nothing runs is a count that rots.
+      expect(normalizedSchema(migrated)).toHaveLength(471);
     } finally {
       migrated.close();
       fresh.close();

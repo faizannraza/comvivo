@@ -332,6 +332,47 @@ describe('tsconfig.runtime.json', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('is what every tsx invocation in a manifest loads', () => {
+    // The gap that made the trap recur. The *content* of the derived file is guarded by the two
+    // tests above; nothing checked that the commands actually **use** it, so a script could lose
+    // its `--tsconfig` flag and only the person who ran that one command would find out. It
+    // happened again at the M1 exit gate: `bench:storage` lost the flag and died with
+    // `ReferenceError: Database is not defined` — the sixth time, and the second after the derived
+    // file was supposed to have ended it.
+    //
+    // A blanket rule rather than a list of the scripts that import the driver: the flag is
+    // harmless for a script that does not (the map differs by one type-only entry), and a rule
+    // with no exceptions is one nobody has to maintain.
+    const manifests = ['package.json', ...workspaceManifests().map((m) => m.path)];
+    const offenders: string[] = [];
+    for (const manifest of manifests) {
+      const scripts = (
+        JSON.parse(readFileSync(`${ROOT}/${manifest}`, 'utf8')) as {
+          scripts?: Record<string, string>;
+        }
+      ).scripts;
+      for (const [name, command] of Object.entries(scripts ?? {})) {
+        // `tsx` as a word, so `vitest` or a path containing it does not match.
+        for (const match of command.matchAll(/(?:^|\s)tsx(\s+\S+)/g)) {
+          if (!(match[1] ?? '').trim().startsWith('--tsconfig')) {
+            offenders.push(`${manifest} → ${name}: ${command}`);
+          }
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('finds tsx invocations at all, so the rule above is not vacuous', () => {
+    const scripts = (
+      JSON.parse(readFileSync(`${ROOT}/package.json`, 'utf8')) as {
+        scripts?: Record<string, string>;
+      }
+    ).scripts;
+    const withTsx = Object.values(scripts ?? {}).filter((command) => /(?:^|\s)tsx\s/.test(command));
+    expect(withTsx.length).toBeGreaterThan(5);
+  });
+
   it('still drops exactly one entry, so the filter is doing something', () => {
     // Non-vacuity: if `tsconfig.paths.json` ever stops needing a `.d.ts` entry, this fails and the
     // derived file plus its script can be deleted rather than kept out of habit.
