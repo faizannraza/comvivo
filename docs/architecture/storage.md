@@ -46,10 +46,23 @@ permanent regression suite (`02` M1-T2).
    in SQL. The handful of deliberate exceptions are named `…Unfiltered`, and dependency-cruiser
    restricts who may call them: the tool executor, which has already applied the requester's
    authority, and storage internals such as the retention sweep.
-3. **The group id is in every table and every index.** `I4` is enforced three ways: the column, the
-   index prefix, and a trigger per table that refuses a row whose label belongs to another group.
-   `pnpm --filter @comvivo/storage db:guards` generates those triggers from the schema, so a new
-   table cannot forget them.
+3. **Group isolation is enforced by generated triggers, not by a convention about columns.** The
+   precise shape, because the convenient summary — "the group id is in every table and every
+   index" — is false and was in this document until the M1 exit gate: **51 of 78** tables carry
+   `group_id` and **45 of 109** indexes lead with it. The rest reach their group through a parent,
+   which `02` §3.3 intends. What is uniform is the guard set, generated from the schema by
+   `pnpm --filter @comvivo/storage db:guards`:
+   - a **label** trigger per labeled column, refusing a row whose label belongs to another group
+     (31 columns);
+   - a **parent-group** trigger per foreign key whose two sides must agree, refusing a row attached
+     to another group's parent — including a denormalised `group_id` that disagrees with the parent
+     it was copied from (66 keys, added at the exit gate after a reviewer proved twenty-two such
+     writes succeeded);
+   - a **group-immutability** trigger, so a row cannot be moved between groups after the fact.
+
+   A table added later gets all three by existing. The cost is what `02` D5 predicted — one
+   primary-key lookup per write: ingestion measures 0.86 ms p95 against a 3 ms budget with the
+   parent-group guards in place, against 0.93 ms without them.
 4. **An id list drives the query, not the eligibility list.** Given both, SQLite's planner picks by
    guesswork — a fresh install has no `sqlite_stat1` — and which it picks depends on how many
    labels the group has. `eqUnindexed` and `inArrayUnindexed` in `db/drizzle.ts` are the hints,

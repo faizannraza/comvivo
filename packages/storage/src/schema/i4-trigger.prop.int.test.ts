@@ -204,9 +204,112 @@ describe('labels.i4-trigger.property — behavioural', { tags: ['prop', 'db'] },
             own.labelId,
           );
 
-      // A real group's label on a row claiming no group is the mismatch `IS NOT` catches.
-      expect(() => insert(null)).toThrow(/I4_LABEL_GROUP_MISMATCH/);
+      // A real group's label on a row claiming no group is the mismatch `IS NOT` catches — and
+      // since the M1 exit gate it is caught twice. The parent-group guard fires first, because the
+      // same row points at a conversation that *does* have a group: `group_id IS NULL` disagreeing
+      // with a parent's group is exactly what that guard is for, and it was one of the writes the
+      // reviewer proved. Either refusal is correct; the assertion names both rather than pinning
+      // the order in which SQLite evaluates two `BEFORE INSERT` triggers.
+      expect(() => insert(null)).toThrow(/I4_(LABEL|PARENT)_GROUP_MISMATCH/);
       expect(() => insert(own.groupId)).not.toThrow();
+    });
+  });
+});
+
+describe('I4 parent-group agreement (02 §3.2 D5)', { tags: ['db'] }, () => {
+  /**
+   * The writes the M1 exit gate's reviewer proved against the committed migrations: a row in one
+   * group attached to a parent in another, each refused by nothing. A foreign key checks that the
+   * parent **exists**; `I4` is about whether it belongs to the same group, and nothing asked.
+   *
+   * These are the shapes that matter most, one per mechanism: a message pointing at another
+   * group's conversation, a turn whose requester is another group's member, a label whose reader
+   * set is another group's, a trace claiming a group it does not belong to (the row the dashboard
+   * renders), and an attendee joining another group's member to an event — the sibling shape,
+   * where the child has no `group_id` of its own.
+   */
+  it('refuses a row attached to another group’s parent', () => {
+    withMigratedDb((db) => {
+      const own = seedGroup(db, 'pga');
+      const other = seedGroup(db, 'pgb');
+
+      // 1. `messages.conversation_id` — the hole the repository patched by hand, now structural.
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO messages (id, group_id, conversation_id, kind, sender_member_id, text,
+               untrusted, label_id, sent_at, received_at, delivered_late, truncated, edit_count)
+             VALUES ('msg_01jpga0000000000000000001', ?, ?, 'member', NULL, 'x', 0, ?, 0, 0, 0, 0, 0)`,
+          )
+          .run(own.groupId, other.conversationId, own.labelId),
+      ).toThrow(/I4_PARENT_GROUP_MISMATCH/);
+
+      // 2. `labels.reader_set_id` — a label in one group resolving an audience from another.
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO labels (group_id, reader_set_id, owner_member_id, co_owner_member_ids,
+               sensitivity, influence, untrusted, canonical_key, created_at)
+             VALUES (?, ?, NULL, '[]', 'normal', 'none', 0, 'l:cross', 0)`,
+          )
+          .run(own.groupId, other.readerSetId),
+      ).toThrow(/I4_PARENT_GROUP_MISMATCH/);
+
+      // 3. `reader_set_members.member_id` — the sibling shape: the child has no `group_id`, so the
+      //    member must belong to the reader set's group.
+      expect(() =>
+        db
+          .prepare('INSERT INTO reader_set_members (reader_set_id, member_id) VALUES (?, ?)')
+          .run(own.readerSetId, other.memberId),
+      ).toThrow(/I4_PARENT_GROUP_MISMATCH/);
+
+      // Non-vacuity: the same three writes inside one group are accepted, so these assertions are
+      // about **agreement** and not about the writes being impossible.
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO messages (id, group_id, conversation_id, kind, sender_member_id, text,
+               untrusted, label_id, sent_at, received_at, delivered_late, truncated, edit_count)
+             VALUES ('msg_01jpga0000000000000000002', ?, ?, 'member', NULL, 'x', 0, ?, 0, 0, 0, 0, 0)`,
+          )
+          .run(own.groupId, own.conversationId, own.labelId),
+      ).not.toThrow();
+      expect(() =>
+        db
+          .prepare('INSERT INTO reader_set_members (reader_set_id, member_id) VALUES (?, ?)')
+          .run(own.readerSetId, own.memberId),
+      ).not.toThrow();
+    });
+  });
+
+  it('refuses a group_id the row made up, where its parent says otherwise', () => {
+    withMigratedDb((db) => {
+      const own = seedGroup(db, 'pgc');
+      const other = seedGroup(db, 'pgd');
+      // Eleven tables carry a `group_id` with no foreign key to `groups` and a group that is
+      // derivable from a parent, so the I4 label trigger compared a label against a group **the
+      // row itself supplied**. `turn_traces` is the worst of them: it is the row the dashboard
+      // renders and the row an audit reads, so a trace of one group's turn, labeled and filed
+      // under another, was readable in the wrong group's view — I4 failing *through* the trigger
+      // meant to prevent it.
+      db.prepare(
+        `INSERT INTO turns (id, group_id, conversation_id, kind, trigger_message_ids,
+           audience_reader_set_id, status, boot_id, root_turn_id, started_at, deadline_at)
+         VALUES ('trn_01jpgc0000000000000000001', ?, ?, 'message', '[]', ?, 'running', 'boot-1',
+           'trn_01jpgc0000000000000000001', 0, 0)`,
+      ).run(own.groupId, own.conversationId, own.readerSetId);
+
+      expect(() =>
+        db
+          .prepare(
+            `INSERT INTO turn_traces (id, turn_id, group_id, conversation_id, label_id, trigger,
+               disposition, context_manifest, model_calls, tool_calls, policy_decisions,
+               guard_results, latency, replay, created_at, expires_at)
+             VALUES ('ttr_01jpgc0000000000000000001', 'trn_01jpgc0000000000000000001', ?, ?, ?,
+               'message', 'reply', '[]', '[]', '[]', '[]', '[]', '{}', '{}', 0, 0)`,
+          )
+          .run(other.groupId, other.conversationId, other.labelId),
+      ).toThrow(/I4_PARENT_GROUP_MISMATCH/);
     });
   });
 });

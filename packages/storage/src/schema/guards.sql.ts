@@ -292,3 +292,171 @@ export function schemaColumns(table: string): readonly string[] | undefined {
   }
   return undefined;
 }
+
+/* ─────────────────────────── Parent-group agreement (I4) ─────────────────────────── */
+
+/**
+ * A foreign key whose two sides must belong to the same group.
+ *
+ * ## The hole these close
+ *
+ * The I4 label triggers above compare a row's **label** against a group. They say nothing about
+ * the row's other foreign keys, and the M1 exit gate's reviewer proved the consequence against the
+ * committed migrations with `foreign_keys = ON`: twenty-two writes that attach a row in one group
+ * to a parent in another, each refused by nothing. A message in `grp_A` pointing at a conversation
+ * in `grp_B`; a turn in `grp_A` whose requester is a member of `grp_B`; a label in `grp_A` whose
+ * reader set belongs to `grp_B`; an outbox row claiming no group at all while pointing into one.
+ * A plain foreign key checks *existence*, not *agreement* — and agreement is what `I4` is.
+ *
+ * `02` §3.3 already had one relation doing it properly: `message_attachments` has a composite key
+ * on `(group_id, blob_sha256)`, which the reviewer confirmed refuses the cross-group case outright.
+ * Composite keys everywhere would be the better fix and belong to the next schema revision; this
+ * is the same rule as a trigger, generated from the schema so a table added later gets it by
+ * existing rather than by someone remembering.
+ *
+ * ## The two shapes
+ *
+ * **`direct`** — the child carries `group_id` and so does the parent: the parent's group must be
+ * the child's. This is also what makes a denormalised `group_id` honest. Before it, eleven tables
+ * carried a `group_id` with no foreign key to `groups` and a derivable true group, so the I4 label
+ * trigger compared a label against a group **the row itself supplied** — `turn_traces` could claim
+ * another group while pointing at its own group's turn, and the trace the dashboard renders would
+ * appear in the wrong group's view. I4 failing through the trigger meant to prevent it.
+ *
+ * **`sibling`** — the child has no `group_id`, so its group is its owner's: every other
+ * group-scoped parent must agree with the owner. `event_attendees` is the shape — an attendee row
+ * joins an event to a member, and the member must be in the event's group.
+ */
+export interface GroupAgreement {
+  readonly table: string;
+  readonly kind: 'direct' | 'sibling';
+  /** The column on the child pointing at the parent. */
+  readonly via: string;
+  readonly parent: string;
+  readonly parentKey: string;
+  /** For `sibling`: the owning parent whose group the others must match. */
+  readonly owner?: { readonly via: string; readonly table: string; readonly parentKey: string };
+}
+
+/** Does this table carry a `group_id` column? */
+function hasGroupColumn(table: SQLiteTable): boolean {
+  return Object.values(getTableColumns(table)).some((column) => column.name === 'group_id');
+}
+
+/**
+ * The owning parent of a child with no `group_id`.
+ *
+ * `GROUP_VIA_PARENT` first, because those three are already stated there with their reasons. Then
+ * the convention `02` §3.3 follows everywhere: the row belongs to the aggregate named by its
+ * **first** declared foreign key, which is also the one its primary key is built from. Returning
+ * `undefined` means "no owner we can prove", and such a table gets no sibling guard rather than a
+ * guessed one.
+ */
+function owningParent(
+  table: SQLiteTable,
+  parents: readonly { via: string; parent: string; parentKey: string; parentHasGroup: boolean }[],
+): { via: string; table: string; parentKey: string } | undefined {
+  const named = GROUP_VIA_PARENT[getTableName(table)];
+  if (named !== undefined) {
+    return { via: named.via, table: named.table, parentKey: named.parentKey };
+  }
+  const first = parents.find((parent) => parent.parentHasGroup);
+  return first === undefined
+    ? undefined
+    : { via: first.via, table: first.parent, parentKey: first.parentKey };
+}
+
+/** Every foreign key in the schema whose two sides must agree on a group. */
+export function groupAgreements(): readonly GroupAgreement[] {
+  const byName = new Map<string, SQLiteTable>();
+  for (const value of Object.values(schema) as unknown[]) {
+    if (is(value, SQLiteTable)) byName.set(getTableName(value), value);
+  }
+
+  const found: GroupAgreement[] = [];
+  for (const [name, table] of byName) {
+    const config = getTableConfig(table);
+    const parents: { via: string; parent: string; parentKey: string; parentHasGroup: boolean }[] =
+      [];
+    for (const key of config.foreignKeys) {
+      const reference = key.reference();
+      // A composite key that already includes `group_id` is the agreement, stated in the schema.
+      if (reference.columns.some((column) => column.name === 'group_id')) continue;
+      if (reference.columns.length !== 1) continue;
+      const via = reference.columns[0]?.name;
+      const parentKey = reference.foreignColumns[0]?.name;
+      const parentTable = reference.foreignTable;
+      if (via === undefined || parentKey === undefined) continue;
+      parents.push({
+        via,
+        parent: getTableName(parentTable),
+        parentKey,
+        parentHasGroup: hasGroupColumn(parentTable),
+      });
+    }
+
+    if (hasGroupColumn(table)) {
+      for (const parent of parents) {
+        if (!parent.parentHasGroup) continue;
+        found.push({
+          table: name,
+          kind: 'direct',
+          via: parent.via,
+          parent: parent.parent,
+          parentKey: parent.parentKey,
+        });
+      }
+      continue;
+    }
+
+    const owner = owningParent(table, parents);
+    if (owner === undefined) continue;
+    for (const parent of parents) {
+      if (!parent.parentHasGroup || parent.via === owner.via) continue;
+      found.push({
+        table: name,
+        kind: 'sibling',
+        via: parent.via,
+        parent: parent.parent,
+        parentKey: parent.parentKey,
+        owner,
+      });
+    }
+  }
+  return found.sort(
+    (left, right) => left.table.localeCompare(right.table) || left.via.localeCompare(right.via),
+  );
+}
+
+/**
+ * The two triggers for one agreement.
+ *
+ * `IS NOT` for the same reason the label triggers use it: `<>` yields `NULL` when either side is,
+ * and a `WHEN` clause evaluating to `NULL` does not fire — so a row with `group_id IS NULL`
+ * pointing into a real group would slip through. That exact case was one of the proven writes
+ * (`outbox_messages`, whose `group_id` is nullable).
+ */
+export function groupAgreementTriggers(entry: GroupAgreement): readonly string[] {
+  const own =
+    entry.kind === 'direct'
+      ? 'NEW.group_id'
+      : `(SELECT group_id FROM ${entry.owner?.table ?? ''} WHERE ${entry.owner?.parentKey ?? 'id'} = NEW.${entry.owner?.via ?? ''})`;
+  const condition = `NEW.${entry.via} IS NOT NULL
+ AND (SELECT group_id FROM ${entry.parent} WHERE ${entry.parentKey} = NEW.${entry.via}) IS NOT ${own}`;
+  const name = `trg_${entry.table}_${entry.via.replace(/_id$/, '')}_group`;
+  const watched =
+    entry.kind === 'direct' ? `${entry.via}, group_id` : `${entry.via}, ${entry.owner?.via ?? ''}`;
+  return [
+    `CREATE TRIGGER ${name}_ins BEFORE INSERT ON ${entry.table}
+WHEN ${condition}
+BEGIN SELECT RAISE(ABORT, 'I4_PARENT_GROUP_MISMATCH'); END`,
+    `CREATE TRIGGER ${name}_upd BEFORE UPDATE OF ${watched} ON ${entry.table}
+WHEN ${condition}
+BEGIN SELECT RAISE(ABORT, 'I4_PARENT_GROUP_MISMATCH'); END`,
+  ];
+}
+
+/** Every parent-group agreement trigger, in a stable order. */
+export function allGroupAgreementTriggers(): readonly string[] {
+  return groupAgreements().flatMap((entry) => groupAgreementTriggers(entry));
+}

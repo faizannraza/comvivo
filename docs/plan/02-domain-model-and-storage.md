@@ -1688,6 +1688,41 @@ export const feedbackItems = sqliteTable('feedback_items', {   // 11 §3.13.2 Fe
 }, (t) => [index('feedback_group_created_idx').on(t.groupId, t.createdAt)]);
 ```
 
+##### 3.3.12a Parent-group agreement triggers (added at the M1 exit gate)
+
+D5's label triggers answer one question — does this row's **label** belong to this row's group — and
+say nothing about the row's other foreign keys. The M1 exit gate's independent reviewer proved the
+consequence against the committed migrations with `foreign_keys = ON`: **twenty-two writes** that
+attach a row in one group to a parent in another, each refused by nothing. A message in `grp_A`
+pointing at a conversation in `grp_B`; a turn whose requester is another group's member; a label
+whose reader set belongs to another group; an outbox row claiming no group at all while pointing
+into one. A foreign key checks that the parent **exists**; `I4` is whether it belongs to the same
+group, and nothing asked.
+
+Worse, eleven tables carry a `group_id` with **no foreign key to `groups`** and a group that is
+derivable from a parent, so `ownGroupSql()`'s `NEW.group_id` let the label trigger compare a label
+against a group *the row itself supplied*. `turn_traces` is the worst of them — the row the
+dashboard renders and an audit reads — so a trace of one group's turn, labeled and filed under
+another, was readable in the wrong group's view: `I4` failing **through** the trigger meant to
+prevent it.
+
+`guards.sql.ts` now generates a second family from the same schema walk:
+
+- **direct** — child and parent both carry `group_id`: the parent's group must be the child's. This
+  is also what makes a denormalised `group_id` honest.
+- **sibling** — the child has no `group_id`, so its group is its owner's: every other group-scoped
+  parent must agree with the owner (`event_attendees` joining an event to a member is the shape).
+
+66 keys, two triggers each, `RAISE(ABORT, 'I4_PARENT_GROUP_MISMATCH')`, `IS NOT` for null-safety
+(one of the proven writes had `group_id IS NULL`). Measured cost: ingestion **0.86 ms p95** against
+§3.16.4's 3 ms budget, against 0.93 ms before — no measurable regression, because each guard is the
+one primary-key lookup D5 already priced.
+
+**Composite foreign keys would be the stronger fix** and belong to the next schema revision:
+`message_attachments` already has one on `(group_id, blob_sha256)`, and the reviewer confirmed it
+refuses the cross-group case outright. The triggers are the same rule, generated, and they cover
+the 23 keys whose child has no `group_id` to put in a composite key.
+
 #### 3.3.13 Entity → table checklist (`01` §14 A7)
 `scripts/schema-doc.ts` (M1-T26) fails CI if an entity below has no table (or explicit "no table" row).
 

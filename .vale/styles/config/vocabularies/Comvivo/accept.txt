@@ -140,3 +140,6 @@ lognormal
 # `01` §7's own term for the member a tool acts on behalf of (invariant: requester authority).
 requester
 requester's
+# `02` §3.3's own term for a column copied from a parent so a query need not join.
+denormalised
+denormalisation
