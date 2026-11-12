@@ -499,11 +499,15 @@ describe('CalendarRepository', () => {
             'an event elsewhere',
           ),
         );
-        // A label in **this** group, so the eligible set below is non-empty: `02` §3.7.1's labeled
-        // reads return early on an empty set, and an empty one would satisfy these three
-        // assertions without the `group_id` predicate they are about ever running. The other
-        // group's label cannot be in a set for this group — `computeEligible` refuses it, which is
-        // the containment the forged helper this replaced could not express.
+        // A label in **this** group, so the eligible set below is non-empty and `02` §3.7.1's
+        // empty-set early return is not what makes these three assertions pass. The other group's
+        // label cannot be in a set for this group — `computeEligible` refuses it — which is the
+        // containment the forged helper this replaced could not express.
+        //
+        // These assert the **outcome**: a cross-group row is excluded by `group_id = ?` *and* by
+        // `label_id IN (…)`, and no test can isolate the first, because two groups share no label
+        // id. `repos/memory.contract.test.ts` carries the long version of this note and names the
+        // two suites where the group predicate *is* isolated.
         world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
         const eligible = eligibleAll(world);
         expect(world.repos.calendar.byId(world.groupId, elsewhere.id, eligible)).toBeUndefined();

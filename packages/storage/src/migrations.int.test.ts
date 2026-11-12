@@ -272,6 +272,11 @@ describe('migrations.checksums-locked', () => {
     ['a half-merged file', '{"released": {\n<<<<<<< HEAD'],
     ['an empty file', ''],
     ['a bare array', '[]'],
+    // The headline case the fix exists for, and the one the old `?? {}` turned into an empty lock:
+    // `released` of the wrong *type*. A bad merge produces exactly this.
+    ['a `released` that is an array', '{"released": []}'],
+    ['a `released` that is a string', '{"released": "none"}'],
+    ['a `released` that is null', '{"released": null}'],
   ])('refuses %s rather than reading it as an empty lock', (_label, text) => {
     // The failure mode this prevents is silent, not loud: the reader used to cast the parsed JSON
     // to `Partial<MigrationLock>` and take `released ?? {}`, so a `released` of the wrong type
@@ -284,7 +289,9 @@ describe('migrations.checksums-locked', () => {
     try {
       readLock(path);
     } catch (error) {
-      expect((error as StorageError).storageCode).toBe('MIGRATION_CHECKSUM_MISMATCH');
+      // The code names the failure a host is looking at: a conflicted file is not an edited
+      // migration, and `MIGRATION_CHECKSUM_MISMATCH` would send them to the wrong place.
+      expect((error as StorageError).storageCode).toBe('STORAGE_JSON_INVALID');
       expect((error as StorageError).message).toContain(path);
       expect((error as StorageError).hint).toBeDefined();
     }

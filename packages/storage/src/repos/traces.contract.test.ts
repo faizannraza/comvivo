@@ -35,8 +35,6 @@ const DAY = 86_400_000;
 const at = (days: number) =>
   Temporal.Instant.fromEpochMilliseconds(T0.epochMilliseconds + days * DAY);
 
-/** An eligible set over every label in the database. */
-
 function withTraces<T>(
   fn: (
     world: Parameters<Parameters<typeof withRepos>[0]>[0],

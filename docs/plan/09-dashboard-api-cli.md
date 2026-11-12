@@ -1,7 +1,7 @@
 # 09 — HTTP API, Auth, Dashboard and CLI
 
 > Status: **draft for review**. Elaborates `01-architecture.md` (ADR-008 Hono, ADR-009 React SPA, ADR-014 config, ADR-017 telemetry, ADR-018 i18n; §9 dashboard security; §10 config) and must not contradict it. Proposed spine changes are listed in §12.
-> Owns: the HTTP API (routes, conventions, errors, SSE, rate limits, health), authentication and sessions, the dashboard (information architecture, every screen, design system, accessibility, i18n, performance, embedding), the `village` CLI (commands, `init` wizard, `doctor`), and copy guidelines for the dashboard and CLI.
+> Owns: the HTTP API (routes, conventions, errors, SSE, rate limits, health), authentication and sessions, the dashboard (information architecture, every screen, design system, accessibility, i18n, performance, embedding), the `comvivo` CLI (commands, `init` wizard, `doctor`), and copy guidelines for the dashboard and CLI.
 > Third-party facts were verified on **2026-11-01**. Versions and URLs are listed in §2.1.
 
 ---
@@ -25,11 +25,11 @@
    - every screen (purpose, data, actions, states, permissions and a wireframe),
    - the design system, accessibility (WCAG 2.2 AA), i18n and the performance budget,
    - embedding in the Home Assistant ingress panel.
-4. **CLI** (`apps/cli`; npm package name is the placeholder `<cli>` until owner decision D-2, see 01 §14 A2; this document writes the binary as `village`). This covers:
+4. **CLI** (`apps/cli`; npm package name is the placeholder `<cli>` until owner decision D-2, see 01 §14 A2; this document writes the binary as `comvivo`). This covers:
    - the framework choice,
    - every command with its flags, output and exit codes,
-   - the `village init` wizard with exact copy,
-   - `village doctor` checks with remediation text.
+   - the `comvivo init` wizard with exact copy,
+   - `comvivo doctor` checks with remediation text.
 5. **Copy and UX writing guidelines** for the dashboard and the CLI.
 
 ### 1.2 What this document does not specify (owner in brackets)
@@ -49,7 +49,7 @@
 |---|---|---|
 | Host | CLI and dashboard | The **Instance** area (models, channels, backups, plugins, security) and their own group views if they are a member |
 | Organizer / Admin | Chat, dashboard on a phone | Group views with management actions their capabilities allow |
-| Member, Teen | Chat; dashboard optional | Group views limited to their capabilities. "What Village knows about me", their own traces |
+| Member, Teen | Chat; dashboard optional | Group views limited to their capabilities. "What Comvivo knows about me", their own traces |
 | Child | Chat | No dashboard access unless the constitution grants `dashboard.access` (capability required by 01 §14 A6 in 03 §3.1.2) |
 
 ---
@@ -62,7 +62,7 @@
 | D-02 | Spec | `@hono/zod-openapi` 1.6 with zod v4. `app.doc31` produces **OpenAPI 3.1**. The spec is emitted at build time to `apps/server/openapi.json` and committed. CI fails on drift. | Hand-written spec | One schema language end to end (ADR-010). The spec cannot drift from the handlers. |
 | D-03 | Dashboard client | **openapi-typescript 7 + openapi-fetch 0.17 + openapi-react-query 0.5**, generated into a new package `@comvivo/api-client`. | `hono/client` RPC | Hono's RPC needs the server's `AppType` imported into the dashboard. That violates "dashboard → generated client only". Its type-checking also slows down with many routes (Hono docs). The OpenAPI client also serves community tools. |
 | D-04 | CLI ↔ server | The **Control API** `/control/v1/*` on the same listener uses a bearer token from `dataDir/keys/control.token` (0600, 256-bit). It has its own types via `hono/client`, which is allowed because CLI → apps/server. | Unix socket | A Unix socket doesn't cross Docker Desktop's VM boundary. A token file works everywhere, and having the file proves filesystem access, which equals host trust. |
-| D-05 | Errors | **RFC 9457** `application/problem+json` with `type: "urn:village:problem:<slug>"`, a stable `code`, `requestId` and an optional `errors[]` (JSON pointers). | Ad-hoc JSON | Standard and machine-readable. A URN type doesn't depend on the final product name or domain. |
+| D-05 | Errors | **RFC 9457** `application/problem+json` with `type: "urn:comvivo:problem:<slug>"`, a stable `code`, `requestId` and an optional `errors[]` (JSON pointers). | Ad-hoc JSON | Standard and machine-readable. A URN type doesn't depend on the final product name or domain. |
 | D-06 | Pagination | Opaque cursor (`limit` default 50, max 200). The response is `{ items, nextCursor }`. **No total counts** on IFC-filtered collections. | Offset/limit | Stable under inserts. A total count would leak hidden rows. |
 | D-07 | IFC on reads | Every handler reads through `@comvivo/engine/readmodels`. It works with a `GroupViewer` whose audience is `{kind:'members', memberIds:{viewer}}`. Rows pass `InformationFlow.canRead` and are branded `Readable<T>`. Response mappers accept only `Readable<T>`. **HTTP code cannot import `@comvivo/storage`** (dependency-cruiser rule). | Filtering in the UI or in handlers | It is the same gate as the model context (I1). The type system and the import rules make a bypass a compile or CI error. |
 | D-08 | Unreadable ⇒ 404 | An unreadable entity returns the same 404 as a nonexistent one. | 403 | A 403 would confirm that the item exists. |
@@ -71,12 +71,12 @@
 | D-11 | Login (default) | A **pairing code** (device flow), the default in every exposure mode (01 §14 A9; semantics 08 SD-09). The browser shows `/pair K7QM-4ZTD`, the member sends it to the bot in a DM and taps **Approve**. The approval message names the browser and OS. Formats per 08 §3.7.12. | Passwords, passkeys (later) | Browser-bound: a code seen by the platform is useless without the browser's pending cookie. It covers "Telegram is on my phone, but I want the dashboard on my laptop" and HA ingress linking. |
 | D-12 | Second login path | **Magic link** delivered by the bot in a DM, allowed **only on loopback, or over HTTPS when the host explicitly opts in** (`dashboard.auth.magicLinks: auto \| https \| off`). Token `vml1.…` (08 §3.7.12), single use, expires in 10 minutes, bound to `(personId, instanceId, purpose)`. The token goes in the **URL fragment** and is exchanged by `POST`. Never issued in insecure-LAN mode or on the ingress listener. | GET exchange | A fragment never reaches server logs, `Referer` or link-preview fetchers, so it can't be consumed by mistake. |
 | D-13 | Sessions | Opaque 256-bit session ID (`vs1_…`), hashed in the DB, cached in an LRU. **12-hour idle and 7-day absolute expiry** (08 §3.7.12), rotated every 24 h and on privilege change. Revocable, with a sessions list. | JWT | Revocation and listing are first-class requirements. |
-| D-14 | Cookie | Name `__Host-village_session` on HTTPS with base path `/`, `__Secure-village_session` on HTTPS with a sub-path, and `village_session` on plain HTTP (the pending-login cookie follows the same rule: `…village_pending`). Always `HttpOnly; SameSite=Strict; Path=<basePath>`. | One fixed name | `__Host-` requires `Path=/` and `Secure` (verified in Hono's cookie helper). The cookie must also work on `http://localhost` and on LAN. |
-| D-15 | CSRF | Custom middleware on **all** unsafe methods: `Sec-Fetch-Site: same-origin`, else an allowed `Origin`, else reject. Bodies must be JSON. The per-session header `X-Village-CSRF` must match. | `hono/csrf` | Hono's built-in middleware checks only form content types. JSON requests would pass unchecked. |
+| D-14 | Cookie | Name `__Host-comvivo_session` on HTTPS with base path `/`, `__Secure-comvivo_session` on HTTPS with a sub-path, and `comvivo_session` on plain HTTP (the pending-login cookie follows the same rule: `…comvivo_pending`). Always `HttpOnly; SameSite=Strict; Path=<basePath>`. | One fixed name | `__Host-` requires `Path=/` and `Secure` (verified in Hono's cookie helper). The cookie must also work on `http://localhost` and on LAN. |
+| D-15 | CSRF | Custom middleware on **all** unsafe methods: `Sec-Fetch-Site: same-origin`, else an allowed `Origin`, else reject. Bodies must be JSON. The per-session header `X-Comvivo-CSRF` must match. | `hono/csrf` | Hono's built-in middleware checks only form content types. JSON requests would pass unchecked. |
 | D-16 | Recent auth | Sensitive actions require `authTime` within 10 minutes. Step-up is an **Approve** button in the member's DM, with a 6-digit code as fallback. | Re-entering a password | There are no passwords. The chat identity is the authenticator. |
-| D-17 | Host bootstrap | A **host claim code** (typed `VLG-7K2M-9QXA`, 40 bits, plus a 128-bit link token `c_<22 chars>` for deep links; 30-minute TTL; burned after 10 failed attempts; formats per 08 §3.7.12 and 06 §3.20.1) is printed by the server and shown by `village init`. It is redeemed with a Telegram deep link (`?start=c_…` or `?startgroup=c_…`), with the claim command in other chat apps (06 §3.20), or on the web at `/setup`. App-store installs may supply `COMVIVO_SETUP_TOKEN` instead (§3.9.4). | First visitor becomes admin | A first-visitor model is unsafe when the dashboard is reachable on a LAN. |
+| D-17 | Host bootstrap | A **host claim code** (typed `VLG-7K2M-9QXA`, 40 bits, plus a 128-bit link token `c_<22 chars>` for deep links; 30-minute TTL; burned after 10 failed attempts; formats per 08 §3.7.12 and 06 §3.20.1) is printed by the server and shown by `comvivo init`. It is redeemed with a Telegram deep link (`?start=c_…` or `?startgroup=c_…`), with the claim command in other chat apps (06 §3.20), or on the web at `/setup`. App-store installs may supply `COMVIVO_SETUP_TOKEN` instead (§3.9.4). | First visitor becomes admin | A first-visitor model is unsafe when the dashboard is reachable on a LAN. |
 | D-18 | Base path | Runtime base path. Vite `base: './'`. The server injects `<base href>` and boot JSON into `index.html` per request, using `dashboard.basePath` or a trusted `X-Ingress-Path`. Router `basepath` and the API `baseUrl` come from boot. | Build-time base | The HA ingress path is only known at request time. |
-| D-19 | HA ingress | A dedicated ingress listener on port 8099. Only `172.30.32.2` may connect. HA users are identified by `X-Remote-User-Id`, with no cookie, but **a header never authenticates on its own**: an HA user is linked to a Village person once via a bot code (a pairing code approved in the member's DM; or, only while the instance is unclaimed, the console host claim code). Unlinked HA users get the linking screen (01 §14 A9). | Magic links in an iframe | HA docs say not to ask for a second login, and to trust those headers only from the Supervisor. |
+| D-19 | HA ingress | A dedicated ingress listener on port 8099. Only `172.30.32.2` may connect. HA users are identified by `X-Remote-User-Id`, with no cookie, but **a header never authenticates on its own**: an HA user is linked to a Comvivo person once via a bot code (a pairing code approved in the member's DM; or, only while the instance is unclaimed, the console host claim code). Unlinked HA users get the linking screen (01 §14 A9). | Magic links in an iframe | HA docs say not to ask for a second login, and to trust those headers only from the Supervisor. |
 | D-20 | Dashboard stack | React 19.3, Vite 8 (Rolldown), TanStack Router 1.170 (file routes, `autoCodeSplitting`), TanStack Query 5.105, Tailwind 4.3 (`@tailwindcss/vite`), shadcn CLI 4 with `--base radix`, lucide-react. | — | Spine ADR-009. Versions verified. |
 | D-21 | Charts | **Recharts 3** through the shadcn `chart` component, lazy-loaded only on Costs and Fairness. Every chart has a "View as table" toggle. | uPlot, visx, ECharts | Consistent theming with shadcn tokens and the `accessibilityLayer` prop. It isn't in the initial bundle. |
 | D-22 | Calendar UI | **Built in-house**: Agenda, Month and Week views on `temporal-polyfill` and CSS grid. | Schedule-X, FullCalendar | Visibility chips inside events, WCAG grid semantics, theme tokens and a smaller bundle. Schedule-X is the fallback if Week view slips. |
@@ -86,8 +86,8 @@
 | D-26 | CLI packaging | The CLI is a **thin** pure-JS package (placeholder name `<cli>`, 01 §14 A2): CLI, wizard and probes. It installs the public server-runtime package (`@comvivo/server`, names per 12 §3.1) **on demand** in native mode, or pulls the Docker image. Both downloads start in the background while the wizard asks questions. | One fat package | It makes the 5-minute target realistic. The native modules (better-sqlite3-multiple-ciphers, onnxruntime) are large. |
 | D-27 | Health | `GET /healthz` is liveness. `GET /readyz` is readiness. Channels are **not** part of readiness (01 §14 A15). `GET /api/v1/instance/health` gives the host details. The Docker HEALTHCHECK (`/app/healthcheck.mjs`, 12 §3.2.5) and the HA `watchdog` use `/healthz`; the contract is §3.8. | One endpoint | A Telegram outage must not restart-loop the container. |
 | D-28 | Rate limiting | An in-house token-bucket middleware (~100 LOC). It is keyed by session, person or IP and emits `RateLimit-Policy`, `RateLimit` and `Retry-After` headers. | hono-rate-limiter | The rate-limiter README says it is "still in development". This is a single-process server, and the behavior must be exact. |
-| D-29 | Secrets in UI | **Read-only**: shown masked (last 4 characters), with a "Test" button. They are changed with `village secrets set` or by editing `.env`. **Sole exception (01 §14 A29):** on appliance installs (`COMVIVO_PLATFORM` = `home-assistant`, `umbrel` or `casaos`) the token-gated `/setup` flow, and afterwards Instance → Secrets in a host session with step-up (A9), may **write** host-only secrets once into `keys/secrets.enc` (format and key per 08 §3.10). Inputs are write-only (never echoed back), env and `*_FILE` still take precedence, and nothing is stored in the DB. | Editing in the dashboard everywhere | ADR-014: secrets live only in env, a keyfile or (appliances, A29) `secrets.enc`. Keeping writes to appliance setup and host step-up limits the impact of a stolen session. |
-| D-30 | No token streaming in chat | Web chat shows "Village is thinking…" and then the full message. | Streaming tokens | I5: the disclosure guard must see the whole draft before egress. |
+| D-29 | Secrets in UI | **Read-only**: shown masked (last 4 characters), with a "Test" button. They are changed with `comvivo secrets set` or by editing `.env`. **Sole exception (01 §14 A29):** on appliance installs (`COMVIVO_PLATFORM` = `home-assistant`, `umbrel` or `casaos`) the token-gated `/setup` flow, and afterwards Instance → Secrets in a host session with step-up (A9), may **write** host-only secrets once into `keys/secrets.enc` (format and key per 08 §3.10). Inputs are write-only (never echoed back), env and `*_FILE` still take precedence, and nothing is stored in the DB. | Editing in the dashboard everywhere | ADR-014: secrets live only in env, a keyfile or (appliances, A29) `secrets.enc`. Keeping writes to appliance setup and host step-up limits the impact of a stolen session. |
+| D-30 | No token streaming in chat | Web chat shows "Comvivo is thinking…" and then the full message. | Streaming tokens | I5: the disclosure guard must see the whole draft before egress. |
 
 ### 2.1 Verified third-party facts (2026-11-01)
 
@@ -134,7 +134,7 @@
 apps/server/src/http/
 ├─ app.ts                 # createHttpApp(deps): OpenAPIHono — composes everything below
 ├─ listeners.ts           # main listener (dashboard.bind:port; also serves 10's /mcp when enabled) + optional ingress listener (8099)
-├─ meta/route-meta.ts     # defineRoute() wrapper + typed side-table of x-village metadata
+├─ meta/route-meta.ts     # defineRoute() wrapper + typed side-table of x-comvivo metadata
 ├─ middleware/
 │  ├─ request-id.ts       # hono/request-id; echo X-Request-Id
 │  ├─ base-path.ts        # strip dashboard.basePath prefix if present (proxies that don't strip)
@@ -144,7 +144,7 @@ apps/server/src/http/
 │  ├─ no-store.ts         # Cache-Control: no-store on /api/* and /control/*
 │  ├─ body-limit.ts       # hono/body-limit (api.maxBodyKb)
 │  ├─ session.ts          # cookie → Session → RequestPrincipal (rotation, idle bump)
-│  ├─ csrf.ts             # Sec-Fetch-Site / Origin + X-Village-CSRF on unsafe methods
+│  ├─ csrf.ts             # Sec-Fetch-Site / Origin + X-Comvivo-CSRF on unsafe methods
 │  ├─ rate-limit.ts       # token buckets (§3.7)
 │  ├─ group-scope.ts      # /groups/:groupId/* → GroupViewer or 404
 │  ├─ recent-auth.ts      # requireRecentAuth(10 min) → 403 step_up_required
@@ -169,14 +169,14 @@ type RouteMeta = {
   rateLimit: RateLimitClass;
 };
 ```
-The metadata is kept in a typed side-table and also emitted as the `x-village` specification extension on each operation.
+The metadata is kept in a typed side-table and also emitted as the `x-comvivo` specification extension on each operation.
 
 **Static assets and the SPA:**
 - `serveStatic({ root: dashboardDist, precompressed: true })` serves `/assets/*` with `Cache-Control: public, max-age=31536000, immutable`.
 - Any other `GET` that accepts `text/html` and is not under `/api`, `/control`, `/ics`, `/healthz` or `/readyz` returns the **templated `index.html`**. Templating replaces three markers, using a precomputed string split, so there is no per-request parsing:
   - `<base href="{basePath}/">`
   - the CSP nonce
-  - `<script type="application/json" id="village-boot">{…}</script>`
+  - `<script type="application/json" id="comvivo-boot">{…}</script>`
 
   The response carries `Cache-Control: no-store`.
 - **Boot JSON** (no secrets): `{ basePath, apiBase, embedded: 'ha'|null, version, setupState: 'needs_host_claim'|'ready', defaultLocale, features: {pairing, magicLink} }`. `features.magicLink` is true only when magic links are allowed for this listener and exposure mode (D-12).
@@ -204,7 +204,7 @@ The metadata is kept in a typed side-table and also emitted as the `x-village` s
 
 ```json
 {
-  "type": "urn:village:problem:validation_failed",
+  "type": "urn:comvivo:problem:validation_failed",
   "title": "Validation failed",
   "status": 400,
   "detail": "2 fields need attention.",
@@ -239,7 +239,7 @@ The metadata is kept in a typed side-table and also emitted as the `x-village` s
 
 ### 3.3 Information-flow control on the API
 
-**Principle.** The dashboard is just another audience. A viewer sees exactly what Village could say to that viewer alone in a private DM. **Roles never grant read access.** Capabilities such as `members.manage` or `memory.forget.any` grant *actions* on data the viewer can already read. "Admin" therefore never means "can read DMs" (spine §9, invariant I1).
+**Principle.** The dashboard is just another audience. A viewer sees exactly what Comvivo could say to that viewer alone in a private DM. **Roles never grant read access.** Capabilities such as `members.manage` or `memory.forget.any` grant *actions* on data the viewer can already read. "Admin" therefore never means "can read DMs" (spine §9, invariant I1).
 
 **Resolution pipeline (per request):**
 1. `session.ts` produces a `RequestPrincipal { personId, sessionId, instanceRole: 'host' | null, authTime, via }`.
@@ -268,7 +268,7 @@ The metadata is kept in a typed side-table and also emitted as the `x-village` s
 | Data | Member | Admin (`members.manage`, `settings.write`, …) | Host, not a member | Host, member |
 |---|---|---|---|---|
 | Group-labeled memories, events, tasks and messages | ✓ | ✓ | ✗ | ✓ |
-| Another member's DM with Village, private memories, private tasks | ✗ | ✗ | ✗ | ✗ |
+| Another member's DM with Comvivo, private memories, private tasks | ✗ | ✗ | ✗ | ✗ |
 | Own DM and private items | ✓ | ✓ | n/a | ✓ |
 | Traces of group-audience turns | if `traces.read.group` | if `traces.read.group` | ✗ | as member |
 | Traces of own DM turns | if `traces.read.own` | same | ✗ | same |
@@ -330,7 +330,7 @@ HTTP handler ─▶ CommandBus.dispatch(groupId, Command, principal, origin:'das
 | GET | `/meta` | pub | — | — | → `{product, apiVersion:'1', setupState, loginMethods:['pairing'] or ['pairing','magic_link'] (D-12), basePath}`. The version is only shown when authenticated. |
 | GET | `/openapi.json` | S | — | — | → OpenAPI 3.1 document. The docs site renders it publicly (13). |
 | POST | `/auth/magic/exchange` | pub (Origin-checked) | — | — | `{token}` → `200 {me}` + Set-Cookie, or `401 token_invalid`. Mounted only where magic links are allowed (D-12) |
-| POST | `/auth/pairing` | pub (Origin-checked) | — | — | `{}` → `{pairingId, code, deepLinks:{telegram?}, expiresAt}` + Set-Cookie `village_pending` (name per D-14) |
+| POST | `/auth/pairing` | pub (Origin-checked) | — | — | `{}` → `{pairingId, code, deepLinks:{telegram?}, expiresAt}` + Set-Cookie `comvivo_pending` (name per D-14) |
 | GET | `/auth/pairing/{pairingId}` | P | — | — | → `{status:'pending'\|'approved'\|'denied'\|'expired'}`. On `approved` it sets the session cookie, and the pairing is consumed. |
 | POST | `/auth/claim` | pub (Origin-checked) | — | — | `{code, displayName, locale, timezone}` → `200 {me}` + cookie. Only works while `setupState='needs_host_claim'`. |
 | POST | `/auth/logout` | S | self | — | → `204`. Revokes the current session. |
@@ -501,10 +501,10 @@ HTTP handler ─▶ CommandBus.dispatch(groupId, Command, principal, origin:'das
 | GET | `/events` | SSE: `setup.host_claimed`, `group.bound {groupId,name,channel}`, `channel.status`, `job.progress` |
 | POST | `/backups` | `{tier?, label?}` → create a backup and stream progress |
 | POST / DELETE | `/backups/ha-snapshot` | HA `backup_pre`/`backup_post` hooks (12 §3.5): write or delete `backups/ha-snapshot/*.vbak` |
-| POST | `/db/checkpoint` | `wal_checkpoint(TRUNCATE)` (`village db checkpoint`, 12 runbook R2) |
+| POST | `/db/checkpoint` | `wal_checkpoint(TRUNCATE)` (`comvivo db checkpoint`, 12 runbook R2) |
 | POST | `/channels/{ch}/restart` | |
 | POST | `/sessions/revoke-all` | `{except?:personId}` |
-| PUT / DELETE | `/vault/{namespace}/{name}` | Write or remove an extension secret in the 08 vault (`namespace` ∈ `plugin`, `mcp`; 08 §3.10). Used by `village plugin secret set` and `village mcp client secret set` while the server runs (the server holds the vault key); the value travels in the body, never in the URL, and is never returned. When the server is stopped the CLI unlocks the keyring itself (keyfile/keychain modes) and writes the vault directly |
+| PUT / DELETE | `/vault/{namespace}/{name}` | Write or remove an extension secret in the 08 vault (`namespace` ∈ `plugin`, `mcp`; 08 §3.10). Used by `comvivo plugin secret set` and `comvivo mcp client secret set` while the server runs (the server holds the vault key); the value travels in the body, never in the URL, and is never returned. When the server is stopped the CLI unlocks the keyring itself (keyfile/keychain modes) and writes the vault directly |
 | POST | `/reload` | re-read `.env` and hot-reloadable settings (§5.3) |
 | POST | `/shutdown` | `{drainSeconds≤60}` |
 
@@ -573,8 +573,8 @@ Token buckets in memory, with idle buckets swept every 60 s. The key depends on 
 
 | Endpoint | Semantics | Used by |
 |---|---|---|
-| `GET /healthz` | Liveness (01 §14 A15; the same contract as 12 §4.3). **200** with `{status:'ok'\|'starting'\|'degraded'}` when the process is alive, isn't draining or failed, and the event-loop delay p99 is under 5 s over the last 30 s (`perf_hooks.monitorEventLoopDelay`). `starting` (+ `phase: migrating\|backing-up\|recovering`) covers boot steps 6–9 (12 §3.8.1) so watchdogs don't kill long migrations; `degraded` covers channel auth failures, stale backups (> 36 h) and recovery mode (`phase:'recovery'`; restarting would not help, so liveness stays 200 while `/readyz` is 503). **503** `{status:'draining'}` during shutdown, or `{status:'fail'}` after an unrecoverable DB error or an event-loop stall. No DB access per request (cached state), no auth, and served before migrations finish. Loopback, the trusted ingress source and `COMVIVO_METRICS_TOKEN` holders also get the details in 12 §4.3. | Docker `HEALTHCHECK` (`/app/healthcheck.mjs` in the image; `village healthcheck` runs the same check for other runners), HA `watchdog: "http://[HOST]:[PORT:8099]/healthz"`, Umbrel/CasaOS, systemd `ExecStartPost` probes |
-| `GET /readyz` | **200** when all of these hold:<br>• the DB is open and `SELECT 1` succeeds<br>• migrations are at head<br>• the scheduler heartbeat is under 30 s old<br>• the actor system has started<br>• dashboard assets are present (warning only).<br>Channels are listed in `degraded[]` but never fail readiness. **503** returns a problem with failing check IDs only. | `village init` / `village start` wait loop, reverse-proxy health checks, compose `depends_on: service_healthy` for sidecars |
+| `GET /healthz` | Liveness (01 §14 A15; the same contract as 12 §4.3). **200** with `{status:'ok'\|'starting'\|'degraded'}` when the process is alive, isn't draining or failed, and the event-loop delay p99 is under 5 s over the last 30 s (`perf_hooks.monitorEventLoopDelay`). `starting` (+ `phase: migrating\|backing-up\|recovering`) covers boot steps 6–9 (12 §3.8.1) so watchdogs don't kill long migrations; `degraded` covers channel auth failures, stale backups (> 36 h) and recovery mode (`phase:'recovery'`; restarting would not help, so liveness stays 200 while `/readyz` is 503). **503** `{status:'draining'}` during shutdown, or `{status:'fail'}` after an unrecoverable DB error or an event-loop stall. No DB access per request (cached state), no auth, and served before migrations finish. Loopback, the trusted ingress source and `COMVIVO_METRICS_TOKEN` holders also get the details in 12 §4.3. | Docker `HEALTHCHECK` (`/app/healthcheck.mjs` in the image; `comvivo healthcheck` runs the same check for other runners), HA `watchdog: "http://[HOST]:[PORT:8099]/healthz"`, Umbrel/CasaOS, systemd `ExecStartPost` probes |
+| `GET /readyz` | **200** when all of these hold:<br>• the DB is open and `SELECT 1` succeeds<br>• migrations are at head<br>• the scheduler heartbeat is under 30 s old<br>• the actor system has started<br>• dashboard assets are present (warning only).<br>Channels are listed in `degraded[]` but never fail readiness. **503** returns a problem with failing check IDs only. | `comvivo init` / `comvivo start` wait loop, reverse-proxy health checks, compose `depends_on: service_healthy` for sidecars |
 | `GET /api/v1/instance/health` | Detailed online checks, the same registry as `doctor` | Dashboard Settings → Health |
 
 Both health endpoints are served on the main **and** ingress listeners, at the root **and** under `basePath`.
@@ -588,7 +588,7 @@ Formats, entropy and TTLs of the credentials 08 lists are **normative in 08 §3.
 | Credential | Format | Entropy | TTL | Bound to | Stored as | Single-use |
 |---|---|---|---|---|---|---|
 | Magic-link token (D-12 modes only) | `vml1.<b64u(payload)>.<b64u(HMAC)>`, payload `{jti, sub:personId, aud:instanceId, purpose:'login', exp}` | 128-bit jti + MAC | 10 min (configurable down to 2, never up) | personId, instanceId, purpose `login` | jti row (`consumedAt`) | yes |
-| Pairing code | `XXXX-XXXX` (8 Crockford base32) + `pairingId` + pending cookie `…village_pending` (`vlp_…`, 256-bit) | 40 bit code + cookie | 10 min | the browser (cookie) until approved, then the person | SHA-256 of code and of cookie | yes |
+| Pairing code | `XXXX-XXXX` (8 Crockford base32) + `pairingId` + pending cookie `…comvivo_pending` (`cvp_…`, 256-bit) | 40 bit code + cookie | 10 min | the browser (cookie) until approved, then the person | SHA-256 of code and of cookie | yes |
 | Host claim code | typed `VLG-XXXX-XXXX` (8 Crockford base32) + link token `c_<22 chars>` | 40 bit typed / 128 bit link | 30 min (regenerated at boot or by CLI) | instance | SHA-256 | yes; burned after 10 failed attempts |
 | Group claim code | same shapes as the host code (06 §3.20.1) | 40 / 128 bit | 30 min (01 §14 A27; `--ttl` may only shorten it) | instance, optional channel, group and template | SHA-256 | yes; burned after 10 failed attempts |
 | Invite code | 8 Crockford base32 | 40 bit | ≤ 72 h | group and role | SHA-256 | yes |
@@ -611,11 +611,11 @@ Formats, entropy and TTLs of the credentials 08 lists are **normative in 08 §3.
 ```mermaid
 sequenceDiagram
   participant M as Member (chat app)
-  participant B as Village bot (06)
+  participant B as Comvivo bot (06)
   participant A as AuthService (engine/auth)
   participant W as Browser (dashboard)
   participant H as HTTP API
-  M->>B: /dashboard (in DM or group) — or host runs `village login`
+  M->>B: /dashboard (in DM or group) — or host runs `comvivo login`
   B->>A: issueLoginLink(personId, via=channelIdentity)
   A->>A: magic links allowed for this exposure mode? (D-12) else reply with the pairing instructions
   A->>A: rate-limit, eligibility (host, or active member with dashboard.access)
@@ -628,14 +628,14 @@ sequenceDiagram
   H->>A: exchange(token, ua, ip)
   A->>A: atomic UPDATE login_tokens SET usedAt=now WHERE hash=? AND usedAt IS NULL AND expiresAt>now AND instanceId=?
   A->>A: create Session (authTime=now), AuditEvent auth.login
-  H-->>W: 200 {me} + Set-Cookie village_session (name per D-14); navigate to saved redirect or Home
+  H-->>W: 200 {me} + Set-Cookie comvivo_session (name per D-14); navigate to saved redirect or Home
 ```
 
 **Details:**
 0. **Availability.** Magic links exist only on loopback (mode L, `dashboard.auth.magicLinks: auto`) or, over HTTPS, when the host set `magicLinks: https` (01 §14 A9; 08 §3.8.1). Elsewhere `/dashboard` replies with pairing instructions ("Open the dashboard and choose *Get a sign-in code*") and `/auth/magic/exchange` is not mounted.
 1. **Triggers:**
    - **Chat.** `/dashboard`, or the natural-language intent "open the dashboard" (06/05).
-   - **CLI.** `village login`, via `POST /control/v1/login-links`:
+   - **CLI.** `comvivo login`, via `POST /control/v1/login-links`:
      - `deliver:'print'` prints the URL in the terminal, with an optional QR code and `--open`.
      - `deliver:'chat'` DMs it instead.
    - **Web.** The `/login` page offers no way to *request* a link, because it can't identify the person. It explains how to get one in chat, and it offers the pairing code (§3.9.3).
@@ -649,9 +649,9 @@ sequenceDiagram
 4. **Base URL selection:**
    - `instance.publicUrl` + `basePath`, if set.
    - Otherwise `http://<dashboard.bind, or the detected LAN address when bound to 0.0.0.0>:<port>`.
-   - If the URL is loopback-only, the DM adds: "This link only opens on the computer running Village. To use your phone, set a dashboard address: `village config set instance.publicUrl …`." The doctor check `dashboard.reachability` flags this too.
+   - If the URL is loopback-only, the DM adds: "This link only opens on the computer running Comvivo. To use your phone, set a dashboard address: `comvivo config set instance.publicUrl …`." The doctor check `dashboard.reachability` flags this too.
 5. **Exchange errors:**
-   - Every failure returns the same `token_invalid` 401. The dashboard copy is: "This sign-in link has expired or was already used. Send /dashboard to Village for a new one."
+   - Every failure returns the same `token_invalid` 401. The dashboard copy is: "This sign-in link has expired or was already used. Send /dashboard to Comvivo for a new one."
    - Failures count toward the IP bucket `auth.exchange`.
 6. **Optional sign-in notice:**
    - Controlled by `dashboard.auth.notifyOnSignIn`: `off`, `host` (default) or `all`.
@@ -659,11 +659,11 @@ sequenceDiagram
 
 #### 3.9.3 Pairing-code flow (device flow)
 
-1. On `/login`, the user picks **"Get a sign-in code"** (the primary option). The browser calls `POST /auth/pairing`, which returns `{pairingId, code:'K7QM-4ZTD', deepLinks:{telegram:'https://t.me/<bot>?start=pair_K7QM4ZTD'}, expiresAt}` (10-minute TTL) and sets the HttpOnly pending cookie (`…village_pending`, D-14).
-2. The page shows the code in large monospace with a copy button and the text: "Send this to Village in a private chat: **/pair K7QM-4ZTD**". On phones, it also offers the Telegram deep link. It shows a countdown.
+1. On `/login`, the user picks **"Get a sign-in code"** (the primary option). The browser calls `POST /auth/pairing`, which returns `{pairingId, code:'K7QM-4ZTD', deepLinks:{telegram:'https://t.me/<bot>?start=pair_K7QM4ZTD'}, expiresAt}` (10-minute TTL) and sets the HttpOnly pending cookie (`…comvivo_pending`, D-14).
+2. The page shows the code in large monospace with a copy button and the text: "Send this to Comvivo in a private chat: **/pair K7QM-4ZTD**". On phones, it also offers the Telegram deep link. It shows a countdown.
 3. In the DM, 06 calls `AuthService.lookupPairing(code, identity)`. The bot replies with buttons:
 
-   > Sign in to the Village dashboard on **Chrome · macOS** (requested 20 seconds ago from 192.168.1.x)?
+   > Sign in to the Comvivo dashboard on **Chrome · macOS** (requested 20 seconds ago from 192.168.1.x)?
    > Only approve if this code is on **your own screen right now**. Someone asking you to send a code is trying to get into your account.
    > [Approve] [Deny]
 
@@ -673,7 +673,7 @@ sequenceDiagram
    - 5 failed `/pair` attempts per identity per 15 minutes.
    - A pairing can be approved once.
    - **Deny** expires the pairing immediately.
-6. **Other uses.** The same flow links a **Home Assistant user** to a Village person (§3.9.10). It is the recommended path for "Telegram is on my phone, the dashboard is on my laptop".
+6. **Other uses.** The same flow links a **Home Assistant user** to a Comvivo person (§3.9.10). It is the recommended path for "Telegram is on my phone, the dashboard is on my laptop".
 7. **Configuration.** `dashboard.auth.pairingCodes: false` disables the flow; it is accepted only where magic links are allowed (D-12), otherwise the config is invalid (exit 78) because nobody could sign in.
 
 #### 3.9.4 Host bootstrap and group claim
@@ -683,26 +683,26 @@ sequenceDiagram
 1. **Code generation.** At boot, if `ownerPersonId` is null and no host claim code is active, the server generates one. It prints the code to stdout as a dedicated log line. In JSON log format, the line uses `event:"setup.claim_code"`; in pretty mode it is a boxed banner:
 
    ```
-   ┌ Village isn't set up yet ──────────────────────────────────────┐
+   ┌ Comvivo isn't set up yet ──────────────────────────────────────┐
    │ Claim code: VLG-7K2M-9QXA   (expires 17:42, 30 minutes)         │
-   │ Telegram: https://t.me/garcia_village_bot?start=c_<link token>  │
+   │ Telegram: https://t.me/garcia_comvivo_bot?start=c_<link token>  │
    │ Or open the dashboard and choose "Set up", or run:              │
-   │   village init   (shows the code and links again)               │
+   │   comvivo init   (shows the code and links again)               │
    └─────────────────────────────────────────────────────────────────┘
    ```
 
-   `village init` fetches the code from `POST /control/v1/claim-codes {kind:'host'}`. That call rotates the code, so only the latest one works. **App-store installs without a terminal** (Umbrel, CasaOS; 12 §3.6) may set `COMVIVO_SETUP_TOKEN` (e.g. Umbrel's `APP_PASSWORD`): while `setupState='needs_host_claim'`, `/setup` also accepts that token in place of the claim code (stored hashed in `run/setup-token`, single use, same attempt limit).
+   `comvivo init` fetches the code from `POST /control/v1/claim-codes {kind:'host'}`. That call rotates the code, so only the latest one works. **App-store installs without a terminal** (Umbrel, CasaOS; 12 §3.6) may set `COMVIVO_SETUP_TOKEN` (e.g. Umbrel's `APP_PASSWORD`): while `setupState='needs_host_claim'`, `/setup` also accepts that token in place of the claim code (stored hashed in `run/setup-token`, single use, same attempt limit).
 2. **Redemption paths.** Each one consumes the code and runs in one transaction with an `AuditEvent setup.host_claimed`:
-   - **DM deep link** `?start=c_<code>`. The sender's identity becomes the host Person. The bot replies: "You're the host of this Village. Next, add me to your group: {startgroup link}". The bot also issues a fresh **group claim code**.
+   - **DM deep link** `?start=c_<code>`. The sender's identity becomes the host Person. The bot replies: "You're the host of this Comvivo. Next, add me to your group: {startgroup link}". The bot also issues a fresh **group claim code**.
    - **Group deep link** `?startgroup=c_<code>`. Telegram adds the bot to a chosen group and sends `/start@bot c_<code>` from the person who added it. That person becomes the host **and** the group is bound. 06's in-chat setup flow then runs (template choice, consent announcement), and the person becomes the group's first admin under the template.
-   - **Other platforms.** Add the bot, then the claim command with the typed code (Discord `/village claim code:VLG-…`, Slack `/village claim VLG-…`, Matrix `!village claim VLG-…`, Signal `village claim VLG-…`; exact syntax owned by 06 §3.20).
+   - **Other platforms.** Add the bot, then the claim command with the typed code (Discord `/comvivo claim code:VLG-…`, Slack `/comvivo claim VLG-…`, Matrix `!comvivo claim VLG-…`, Signal `comvivo claim VLG-…`; exact syntax owned by 06 §3.20).
    - **Web** `/setup`. The person enters the code, a display name, and a timezone (pre-filled from the browser). This creates the host Person with a `web` identity and a session. The onboarding checklist then asks them to connect a chat app with a **link code**.
-   - **CLI.** `village login` while unclaimed claims the instance for a new host Person with a web identity. Access to the data directory is the proof.
-3. **Group claim codes** (01 §14 A27). A platform chat binds to a group **only** by redeeming a single-use claim code with a 30-minute TTL. The host creates codes from **Instance → Groups → Add a group** or `village group claim [--channel <id>] [--group <grp_…>] [--template <archetype>]`; a group admin with `members.manage` creates a code that adds a chat to **their own** group with `/village addchat` (06 §3.20.1). 06 binds the chat when someone uses the `?startgroup=c_<link token>` deep link or the claim command. Creating a **new** group remains host-only in v1 (Q-15).
+   - **CLI.** `comvivo login` while unclaimed claims the instance for a new host Person with a web identity. Access to the data directory is the proof.
+3. **Group claim codes** (01 §14 A27). A platform chat binds to a group **only** by redeeming a single-use claim code with a 30-minute TTL. The host creates codes from **Instance → Groups → Add a group** or `comvivo group claim [--channel <id>] [--group <grp_…>] [--template <archetype>]`; a group admin with `members.manage` creates a code that adds a chat to **their own** group with `/comvivo addchat` (06 §3.20.1). 06 binds the chat when someone uses the `?startgroup=c_<link token>` deep link or the claim command. Creating a **new** group remains host-only in v1 (Q-15).
 4. **Recovery and transfer.**
-   - A host who lost every chat identity uses `village login` (machine access).
-   - `village host transfer --to <personId>` (CLI, M15) changes `ownerPersonId` with an audit event.
-5. **Claim attempts after `ready`** return `409 already_claimed`. The dashboard shows "This Village already has a host."
+   - A host who lost every chat identity uses `comvivo login` (machine access).
+   - `comvivo host transfer --to <personId>` (CLI, M15) changes `ownerPersonId` with an audit event.
+5. **Claim attempts after `ready`** return `409 already_claimed`. The dashboard shows "This Comvivo already has a host."
 
 #### 3.9.5 Sessions
 
@@ -726,7 +726,7 @@ sequenceDiagram
   - `Set-Cookie` is sent on the response that triggered the rotation.
 - **Login always creates a new session** (prevents session fixation).
 - **Revocation triggers:**
-  - logout, `/me/sessions` revoke, revoke-others, host revoke, `village sessions revoke`, and `/logout-all` in chat (06);
+  - logout, `/me/sessions` revoke, revoke-others, host revoke, `comvivo sessions revoke`, and `/logout-all` in chat (06);
   - restore from backup (all sessions);
   - person deletion;
   - the last membership ending for a person who isn't the host.
@@ -739,11 +739,11 @@ sequenceDiagram
 
   | Context | Name | Attributes |
   |---|---|---|
-  | `publicUrl` is `https://…` or (`trustProxy` and `X-Forwarded-Proto: https`), and `basePath = /` | `__Host-village_session` | `Secure; HttpOnly; SameSite=Strict; Path=/` |
-  | Same, but `basePath = /village` | `__Secure-village_session` | `Secure; HttpOnly; SameSite=Strict; Path=/village` |
-  | Plain HTTP (localhost, LAN) | `village_session` | `HttpOnly; SameSite=Strict; Path=<basePath>` |
+  | `publicUrl` is `https://…` or (`trustProxy` and `X-Forwarded-Proto: https`), and `basePath = /` | `__Host-comvivo_session` | `Secure; HttpOnly; SameSite=Strict; Path=/` |
+  | Same, but `basePath = /comvivo` | `__Secure-comvivo_session` | `Secure; HttpOnly; SameSite=Strict; Path=/comvivo` |
+  | Plain HTTP (localhost, LAN) | `comvivo_session` | `HttpOnly; SameSite=Strict; Path=<basePath>` |
 
-  `Max-Age` is set to the remaining absolute lifetime (≤ 7 days). `Domain` is never set. The pending-login cookie (`…village_pending`) follows the same naming rule.
+  `Max-Age` is set to the remaining absolute lifetime (≤ 7 days). `Domain` is never set. The pending-login cookie (`…comvivo_pending`) follows the same naming rule.
 - **Why SameSite=Strict works for a SPA:**
   - A top-level navigation from Telegram to the dashboard is cross-site, so the HTML request carries no cookie. That is fine: the HTML is static.
   - The SPA then makes same-origin `fetch` calls. These are same-site, so Strict cookies are sent.
@@ -763,7 +763,7 @@ Every `POST`, `PUT`, `PATCH` and `DELETE` on `/api/v1/**` must pass all of these
    - If `Sec-Fetch-Site` is present, it must be `same-origin`.
    - Otherwise `Origin` must be in the allowed origins.
    - If neither header is present, reject. Non-browser clients use bearer tokens (control, MCP), never cookies.
-3. **Session-bound header.** `X-Village-CSRF` must equal the session's CSRF token. The dashboard gets the token from `GET /me`, and the openapi-fetch middleware adds it to every request.
+3. **Session-bound header.** `X-Comvivo-CSRF` must equal the session's CSRF token. The dashboard gets the token from `GET /me`, and the openapi-fetch middleware adds it to every request.
 
 The pre-session `POST`s (`/auth/magic/exchange`, `/auth/pairing`, `/auth/claim`) run checks 1 and 2. This prevents login CSRF.
 
@@ -781,13 +781,13 @@ The pre-session `POST`s (`/auth/magic/exchange`, `/auth/pairing`, `/auth/claim`)
   - instance session revocation, sensitive instance settings;
   - "forget all memories about me" (04).
 - **Dashboard flow:**
-  1. The dashboard shows a dialog: "Confirm it's you. We sent a message to your private chat with Village."
+  1. The dashboard shows a dialog: "Confirm it's you. We sent a message to your private chat with Comvivo."
   2. It calls `POST /auth/step-up {action:'Download backup'}`.
   3. The bot DMs: "Confirm on the dashboard: **Download backup**? [Confirm] [Cancel]". On channels without buttons, the DM contains a 6-digit code to type into the dashboard instead.
   4. The dialog polls `GET /auth/step-up/{id}`.
   5. On approval, the session rotates with a new `authTime` and the original request is retried automatically.
 - **Fresh logins count.** A session created within the last 10 minutes already satisfies the rule.
-- **Host shortcut.** `village login` creates a session with a fresh `authTime`.
+- **Host shortcut.** `comvivo login` creates a session with a fresh `authTime`.
 - **Web-only people** (no chat identity) can't step up. Their sensitive actions show: "Link a chat app to confirm sensitive actions."
 
 #### 3.9.9 Role-based views
@@ -819,12 +819,12 @@ The pre-session `POST`s (`/auth/magic/exchange`, `/auth/pairing`, `/auth/claim`)
 - **Base path** comes from `X-Ingress-Path`, which is trusted only on this listener.
 - **Identity** comes from `X-Remote-User-Id`, `X-Remote-User-Name` and `X-Remote-User-Display-Name`. Per HA docs these headers are optional; a request without them is treated as unknown and gets the "open from the Home Assistant sidebar" error page.
 - **First visit of an HA user** shows the screen "Link your Home Assistant account". The headers alone grant nothing (01 §14 A9). The options are:
-  - **(a)** a pairing code shown on this screen, sent to Village in a private chat and approved there (the default; a "bot code");
+  - **(a)** a pairing code shown on this screen, sent to Comvivo in a private chat and approved there (the default; a "bot code");
   - **(b)** only while the instance is unclaimed: the console host claim code.
 
   On success, the server stores `ha_links(haUserId → personId)` and creates a **header session** keyed by `ha:<haUserId>`. That session has no cookie. It is a server-side row used for `authTime`, listing and revocation.
 - **Later requests** from a **linked** HA user resolve the principal from the header with no second login, as the HA guidelines require. Unlinked HA users always get the linking screen. Revoking the header session unlinks the HA user.
-- **CSRF on ingress.** Check 2 is `Sec-Fetch-Site: same-origin`, because the iframe is same-origin with HA. The `X-Village-CSRF` value comes from `/me`, and the token is derived from the header session's secret.
+- **CSRF on ingress.** Check 2 is `Sec-Fetch-Site: same-origin`, because the iframe is same-origin with HA. The `X-Comvivo-CSRF` value comes from `/me`, and the token is derived from the header session's secret.
 - **Step-up on ingress** uses the same DM approval.
 - **Control routes and `/auth/magic/exchange` are not mounted** on the ingress listener. The only auth routes mounted there are pairing create and poll, and `/auth/claim`. Both are used for HA linking only.
 
@@ -843,7 +843,7 @@ The pre-session `POST`s (`/auth/magic/exchange`, `/auth/pairing`, `/auth/claim`)
 
 ```
 apps/dashboard/
-├─ index.html                 # template: <base href>, nonce, #village-boot placeholders; inline theme script (nonce)
+├─ index.html                 # template: <base href>, nonce, #comvivo-boot placeholders; inline theme script (nonce)
 ├─ vite.config.ts             # base:'./', plugins: tanstackRouter({target:'react',autoCodeSplitting:true}), react(), tailwindcss()
 ├─ components.json            # shadcn (style per §3.10.5, base: radix, iconLibrary: lucide)
 ├─ src/
@@ -904,7 +904,7 @@ apps/dashboard/
 
   The middleware chain:
   1. **onRequest:**
-     - adds `X-Village-CSRF` (from the `me` cache);
+     - adds `X-Comvivo-CSRF` (from the `me` cache);
      - adds `Idempotency-Key` (`crypto.randomUUID()`) on POST;
      - adds `If-Match` when the caller passes `etag`;
      - sets `Accept-Language`.
@@ -932,7 +932,7 @@ apps/dashboard/
   - `session.revoked` → logout;
   - `command.completed` → resolves pending command promises.
 - **Visibility.** When the tab is hidden for more than 5 minutes, the stream is closed. On `visibilitychange`, the client reopens it with `Last-Event-ID`.
-- **Multiple tabs** (M15): one tab holds the stream, elected with `navigator.locks.request('village-stream')`, and rebroadcasts via `BroadcastChannel`. This avoids the HTTP/1.1 limit of 6 connections per origin on LAN installs.
+- **Multiple tabs** (M15): one tab holds the stream, elected with `navigator.locks.request('comvivo-stream')`, and rebroadcasts via `BroadcastChannel`. This avoids the HTTP/1.1 limit of 6 connections per origin on LAN installs.
 
 #### 3.10.3 Information architecture and navigation
 
@@ -967,9 +967,9 @@ apps/dashboard/
 | **Error** | A section-level `ErrorState` with the problem title, a "Try again" button and the `requestId` (copyable, small). One failed card never blanks the page. A 404 for an item the viewer can't read shows: "This item doesn't exist or isn't shared with you." |
 | **Offline / stream lost** | A slim top banner: "Reconnecting…" (after 5 s), then "You're offline. Changes will fail until you reconnect." No offline writes. |
 | **Visibility** | `VisibilityChip` on every labeled object: <br>• lucide `Users` "Everyone in {group}" <br>• `Lock` "Only you" <br>• `UserRound` "You and {name}" / "You, {a} and {n} others" <br>• `ShieldAlert` "Sensitive" add-on <br>Color is never the only signal. Hovering or focusing shows the reader list. |
-| **Who did this** | Every mutable object shows "Added by {name} · {relative time}". Automatic objects say "Added by Village from chat · {time}" and link to the source if it is readable. |
+| **Who did this** | Every mutable object shows "Added by {name} · {relative time}". Automatic objects say "Added by Comvivo from chat · {time}" and link to the source if it is readable. |
 | **Time** | Group-facing objects (events, tasks) are shown in the **group timezone**. When it differs from the member's timezone, they add a secondary "{time} your time". Relative times ("in 2 days") have the absolute time in a tooltip and an `aria-label`. |
-| **Destructive actions** | A confirm dialog naming the object and its consequence ("Forget this memory? Village will stop using it. This can't be undone."). Irreversible bulk actions use type-to-confirm. |
+| **Destructive actions** | A confirm dialog naming the object and its consequence ("Forget this memory? Comvivo will stop using it. This can't be undone."). Irreversible bulk actions use type-to-confirm. |
 | **Toasts** | `sonner` with `aria-live=polite`. Each has an Undo action where the API supports it (list items, task completion within 10 s). |
 
 #### 3.10.5 Design system
@@ -983,7 +983,7 @@ apps/dashboard/
   :root {
     --radius: 0.625rem;
     --background: oklch(0.99 0.004 95);  --foreground: oklch(0.21 0.02 160);
-    --primary: oklch(0.52 0.11 160);     --primary-foreground: oklch(0.99 0 0);   /* "village green" */
+    --primary: oklch(0.52 0.11 160);     --primary-foreground: oklch(0.99 0 0);   /* "comvivo green" */
     --muted: oklch(0.96 0.006 95);       --muted-foreground: oklch(0.48 0.02 160);
     --accent: oklch(0.94 0.03 160);      --destructive: oklch(0.58 0.2 27);
     --border: oklch(0.91 0.008 95);      --ring: oklch(0.6 0.11 160);
@@ -1027,8 +1027,8 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 - **`/login`:**
   - The heading is "Sign in to {instanceName}".
   - **Card A (primary), "Get a sign-in code":** a button that starts the pairing flow (§3.9.3). It shows the code, a copy button, a Telegram deep link and a countdown, and polls every 2 s.
-  - **Card B, "Use a link from your chat app"** (shown only when `boot.features.magicLink` is true, D-12): "Send **/dashboard** to Village in a private chat. You'll get a sign-in link that works once."
-  - **Footer:** "Running Village yourself? Run `village login` on the server."
+  - **Card B, "Use a link from your chat app"** (shown only when `boot.features.magicLink` is true, D-12): "Send **/dashboard** to Comvivo in a private chat. You'll get a sign-in link that works once."
+  - **Footer:** "Running Comvivo yourself? Run `comvivo login` on the server."
   - **Errors:** an expired code shows "That code expired. Get a new one."
   - **States:** if `setupState='needs_host_claim'`, the page redirects to `/setup`.
 - **`/auth/magic`:**
@@ -1036,13 +1036,13 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - On error: the `token_invalid` copy with a "Back to sign in" button.
   - No token in the hash: redirects to `/login`.
 - **`/setup`:**
-  - The heading is "Set up your Village".
+  - The heading is "Set up your Comvivo".
   - Fields: claim code (an 8-character code input that auto-formats and accepts an optional `VLG-` prefix; or the app-store setup token), "Your name" and timezone (prefilled).
-  - Help text: "The claim code is shown when Village starts and by `village init`. Lost it? Run `village init` on the server, or restart Village to get a new one."
+  - Help text: "The claim code is shown when Comvivo starts and by `comvivo init`. Lost it? Run `comvivo init` on the server, or restart Comvivo to get a new one."
   - **Appliance step (A29; only when `COMVIVO_PLATFORM` is `home-assistant`, `umbrel` or `casaos` and the request carries the setup token):** "Connect your AI provider and chat app" with write-only password fields for the provider key and bot token(s) that the chosen preset and channels need (names from 08 §3.10). Each value is tested (provider probe, channel probe) before it is saved to `keys/secrets.enc`; a value already set in env is shown as "set by the platform" and cannot be overridden here.
   - On success it goes to `/instance` with the onboarding checklist.
 - **`/join`:** "You're invited to {group}". Fields: name and timezone. Shows a consent explainer from 03's template. On submit, the member lands in group Home.
-- **`/link-ha`:** "Link your Home Assistant account to Village" with the two options of §3.9.10 (pairing code approved in a DM; the host claim code only while unclaimed).
+- **`/link-ha`:** "Link your Home Assistant account to Comvivo" with the two options of §3.9.10 (pairing code approved in a DM; the host claim code only while unclaimed).
 - **Permissions:** public routes. All are rate-limited.
 
 ##### 3.10.6.2 Home / group overview (`/g/$groupId`)
@@ -1054,10 +1054,10 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   2. **Coming up:** events for the next 7 days as an agenda.
   3. **My tasks:** overdue, then today, then this week.
   4. **Recent decisions:** 5 items.
-  5. **What Village did lately:** 5 recent effects visible to me, each with a "Why?" link to its trace when permitted.
+  5. **What Comvivo did lately:** 5 recent effects visible to me, each with a "Why?" link to its trace when permitted.
   6. **Status strip:** channel state dots, plus the budget level if `usage.read`.
 - **Actions:** quick add (event, task, list item) via "+"; vote inline; approve or reject inline (with confirm); open chat.
-- **Empty (new group):** "Village is settling in. As your group chats, plans, tasks and decisions will appear here." For admins it adds a mini checklist: "Review your constitution", "Check everyone has seen the privacy notice" (with a consent count), "Try asking Village something in the group".
+- **Empty (new group):** "Comvivo is settling in. As your group chats, plans, tasks and decisions will appear here." For admins it adds a mini checklist: "Review your constitution", "Check everyone has seen the privacy notice" (with a consent count), "Try asking Comvivo something in the group".
 - **Loading:** 4 card skeletons.
 - **Errors:** per card.
 - **Permissions:** `mbr`. Each card is hidden when the viewer lacks the read capability (for example `calendar.read`).
@@ -1074,39 +1074,39 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   │ …       │ ┌ My tasks ──────────────┐┌ Decisions ───┐│ │ My tasks                   │
   │         │ │ ☐ Bins (today)         ││ Camp: Lake A ││ │  ☐ Bins · today            │
   │         │ └────────────────────────┘└──────────────┘│ │ ───────────────────────────│
-  │         │ What Village did lately · Why? links       │ │ Home Chat Cal Tasks More   │
+  │         │ What Comvivo did lately · Why? links       │ │ Home Chat Cal Tasks More   │
   └─────────┴───────────────────────────────────────────┘ └────────────────────────────┘
   ```
 
 ##### 3.10.6.3 Chat (web channel) (`/g/$groupId/chat/$conversationId?`)
 
-- **Purpose:** talk to Village privately in the browser. In web-channel groups, this is also the group room.
+- **Purpose:** talk to Comvivo privately in the browser. In web-channel groups, this is also the group room.
 - **Data:**
   - Conversations: my web DM, plus web group rooms.
   - Messages: an infinite query, newest at the bottom.
   - SSE: `chat.message`, `chat.typing` and `turn.status`.
 - **Header:** the conversation name plus an **audience banner**:
-  - "Private · only you and Village", or
+  - "Private · only you and Comvivo", or
   - "Group room · visible to all 5 members".
 
   Clicking the banner lists the readers.
 - **Messages:**
-  - Village messages render the `RichText` AST: no raw HTML, and links get `rel="noopener noreferrer nofollow"`.
-  - Each Village message has a "Why?" action (when permitted), Copy, and a timestamp.
+  - Comvivo messages render the `RichText` AST: no raw HTML, and links get `rel="noopener noreferrer nofollow"`.
+  - Each Comvivo message has a "Why?" action (when permitted), Copy, and a timestamp.
   - Interactive buttons (confirmations, polls) render natively.
   - `untrusted` content (forwards, documents) gets a subtle "Forwarded" frame.
 - **Composer:**
   - A multiline textarea: Enter sends, Shift+Enter adds a new line, and the limit is 4,000 characters with a counter near the limit.
   - Sends `clientMessageId` and shows the message optimistically in a "sending" state. A failure shows "Didn't send · Retry".
-- **While a turn runs:** "Village is thinking…" (from `turn.status`). The reply is **never** streamed (D-30).
-- **Empty:** "This is your private chat with Village. Ask about plans, add reminders, or say 'what do you know about me?'", plus 3 suggestion chips.
-- **Errors:** budget exhausted shows Village's own budget message as a normal message.
+- **While a turn runs:** "Comvivo is thinking…" (from `turn.status`). The reply is **never** streamed (D-30).
+- **Empty:** "This is your private chat with Comvivo. Ask about plans, add reminders, or say 'what do you know about me?'", plus 3 suggestion chips.
+- **Errors:** budget exhausted shows Comvivo's own budget message as a normal message.
 - **A11y:** the message list is `role="log"` with `aria-live="polite"`; keyboard focus returns to the composer after sending.
 - **Permissions:** `chat.ask` to send. The DM is visible only to its member.
 
 ##### 3.10.6.4 Members and roles (`/g/$groupId/members[/$memberId]`)
 
-- **Purpose:** who is here, what they can do, and whether they've been told about Village.
+- **Purpose:** who is here, what they can do, and whether they've been told about Comvivo.
 - **Data:** `GET members`, `GET members/{m}` (with capabilities), `PATCH`, `remove`, `consent-notice`, `invites`.
 - **List:**
   - Each row shows avatar initials, name, role badge, platforms (icons with labels), status, and the consent chip ("Not yet informed", "Informed", "Memory on", "Memory off"). The consent chip is visible to self, or to everyone when the viewer has `members.manage`.
@@ -1119,11 +1119,11 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - Guardian links (family template).
   - Actions:
     - "Resend privacy notice";
-    - "Remove from group", with this confirm text: "Village will stop serving {name} here. Their private memories in this group are deleted after {retention} days per your constitution." The exact semantics are 03/04's.
+    - "Remove from group", with this confirm text: "Comvivo will stop serving {name} here. Their private memories in this group are deleted after {retention} days per your constitution." The exact semantics are 03/04's.
 - **Invite (`members.manage`):**
   - For chat groups: "People join by being in your {platform} group. They'll get a privacy notice the first time they talk."
   - For web groups: "Create invite link" (one-time, with an expiry choice) plus a QR code.
-- **My consent:** on my own row, a switch for "Village may remember things I say" that calls the consent PATCH, with an explainer.
+- **My consent:** on my own row, a switch for "Comvivo may remember things I say" that calls the consent PATCH, with an explainer.
 - **Empty:** "Only you so far. People appear here after they say something in the group."
 - **Permissions:** view `mbr`; manage `members.manage`.
 
@@ -1171,7 +1171,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 
 ##### 3.10.6.6 Memory explorer (`/g/$groupId/memory`)
 
-- **Purpose:** see, search and correct what Village remembers. Members feel in control here, and here Village earns trust.
+- **Purpose:** see, search and correct what Comvivo remembers. Members feel in control here, and here Comvivo earns trust.
 - **Data:** `GET memories` (search and filters), `GET memories/{id}`, `about-me`, and the mutations from §3.5.
 - **Layout:**
   - A search field (debounced 250 ms; `q` in the URL).
@@ -1185,18 +1185,18 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 - **Result card:**
   - Content text, kind badge, `VisibilityChip`.
   - "From chat · Tue 14 Oct", which opens the source if it is readable and still retained; otherwise it reads "source deleted after {n} days".
-  - "Valid since {date}"; confidence (proposed only, shown as "Village isn't sure"); pin icon.
+  - "Valid since {date}"; confidence (proposed only, shown as "Comvivo isn't sure"); pin icon.
 - **Detail drawer:**
   - Full content and **provenance**: source message excerpts, extractor, confidence, and the "replaces" / "replaced by" chain.
   - Label details in plain words.
   - Actions:
-    - **Correct** (inline edit creates a new version, "Saved. Village will use the corrected version.");
+    - **Correct** (inline edit creates a new version, "Saved. Comvivo will use the corrected version.");
     - **Pin**;
     - **Forget** (confirm);
     - **Change who can see this** (owner only). Narrowing takes effect immediately. Widening shows: "Make visible to {audience}? They'll be able to see this exact text."
     - For proposed items: **Keep** or **Discard**.
 - **Info line** under the filters: "You only see memories shared with you. Other members' private memories never appear here, including for admins."
-- **Empty:** "Village hasn't remembered anything yet. It learns from your group's conversations." If the viewer's consent is memory off: "You've turned memory off, so Village doesn't remember what you say."
+- **Empty:** "Comvivo hasn't remembered anything yet. It learns from your group's conversations." If the viewer's consent is memory off: "You've turned memory off, so Comvivo doesn't remember what you say."
 - **Virtualized list** (`@tanstack/react-virtual`) with infinite loading (§3.3 partial pages).
 - **Permissions:** `memory.read`. Mutations need the capabilities in §3.5.
 
@@ -1209,7 +1209,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - **Month** (desktop default): a 7-column CSS grid; each day shows up to 3 events and a "+n more" popover. Keyboard navigation follows the ARIA grid pattern (arrows move by day, Enter opens the day).
   - **Week:** a time grid at 30-minute rows. Overlap layout uses a greedy column packer. An all-day lane sits at the top. A "now" line shows in the group timezone.
 - **Event chip:** time, title, `VisibilityChip` dot plus an sr-only label, and a recurring icon.
-- **Event sheet:** title, when (with timezone), location, attendees, recurrence in plain words ("Every Tuesday until Dec 19"), reminders, source ("Added by Village from chat"), and Edit/Delete.
+- **Event sheet:** title, when (with timezone), location, attendees, recurrence in plain words ("Every Tuesday until Dec 19"), reminders, source ("Added by Comvivo from chat"), and Edit/Delete.
 - **Editing a recurring event** asks: "Change only this event, this and following, or all events?"
 - **Create/edit form:**
   - Title; all-day toggle; start and end (date and time pickers using react-day-picker through shadcn `Calendar`, converted to a Temporal `PlainDateTime` in the **group timezone**, with a timezone selector under "More").
@@ -1237,9 +1237,9 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - Follows `fairness.ledgerVisibility` (03). Every template defaults to `self_only`: the tab shows only the viewer's own points and share ("Your share: 22% over 30 days; your fair share is 25%") and the note "Only you can see your numbers. The group can choose to share them (constitution → Fairness)." With `off`: "The fairness view is off for this group." Group-visible views are an explicit opt-in by a privacy-reducing amendment (03 §3.3.8).
   - Only when the group opted into `everyone` (or `admins`, for admin viewers): a bar chart of effort points per member over 30 or 90 days, with the target-share line.
   - A caption: "Ana did 38% of the work; the fair share is 25%."
-  - "How Village assigns chores", a short `RichText` from 07/03.
+  - "How Comvivo assigns chores", a short `RichText` from 07/03.
   - A table toggle.
-- **Empty:** "No tasks yet. Say 'Village, remind Leo to take out the bins every Monday' in your group, or add one here."
+- **Empty:** "No tasks yet. Say 'Comvivo, remind Leo to take out the bins every Monday' in your group, or add one here."
 - **Permissions:** per §3.5.
 
 ##### 3.10.6.9 Lists (`/g/$groupId/lists[/$listId]`)
@@ -1263,8 +1263,8 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - A searchable timeline: summary, date, "Decided by {rule}: {members}", rationale, alternatives considered, and source (poll or chat excerpt if readable).
   - "Record a decision" (`decisions.record`). Superseding shows "Replaced by …".
 - **Empty states:**
-  - "No polls yet. Ask Village to 'make a poll' in your group."
-  - "No decisions recorded yet. Village records decisions when your group agrees on something."
+  - "No polls yet. Ask Comvivo to 'make a poll' in your group."
+  - "No decisions recorded yet. Comvivo records decisions when your group agrees on something."
 
 ##### 3.10.6.11 Plans (`/g/$groupId/plans[/$planId]`)
 
@@ -1274,16 +1274,16 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
   - Notes (`RichText`).
   - "Add step" (`plans.write`) and reorder with buttons.
   - Edits use `If-Match`. On 412: "Someone else changed this plan. Review their changes", with a merge prompt.
-- **Empty:** "Plans help with multi-step things like trips. Say 'Village, let's plan the lake trip' in your group."
+- **Empty:** "Plans help with multi-step things like trips. Say 'Comvivo, let's plan the lake trip' in your group."
 
-##### 3.10.6.12 Turn traces: "Why did Village say this?" (`/g/$groupId/traces[/$turnId]`)
+##### 3.10.6.12 Turn traces: "Why did Comvivo say this?" (`/g/$groupId/traces[/$turnId]`)
 
 - **Purpose:** an explainable, IFC-filtered timeline of one turn. The data is from `TurnTrace` (05). The filtering is from §3.3.
 - **List:**
   - A table or cards: time, conversation, trigger excerpt (if readable), disposition (Replied / Observed / Ignored / Spoke up), status, cost and latency.
   - Filters: conversation, disposition, date.
-  - Entry points: the "Why?" action on chat messages, Home "What Village did", and the `/why` link that the bot posts in chat.
-- **Detail (`TraceView`)** is a vertical timeline with a plain-language **summary** at the top. Example: "Village replied because you mentioned it. It used 4 memories shared with the group, checked the calendar, and passed the privacy check. Cost $0.004 · 2.8 s."
+  - Entry points: the "Why?" action on chat messages, Home "What Comvivo did", and the `/why` link that the bot posts in chat.
+- **Detail (`TraceView`)** is a vertical timeline with a plain-language **summary** at the top. Example: "Comvivo replied because you mentioned it. It used 4 memories shared with the group, checked the calendar, and passed the privacy check. Cost $0.004 · 2.8 s."
 
   | Step | Shows | IFC rule |
   |---|---|---|
@@ -1303,9 +1303,9 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 ##### 3.10.6.13 Activity and audit (`/g/$groupId/activity`)
 
 - **Purpose:** a friendly feed of what happened. Admins can switch to an exact audit log.
-- **Default (Activity):** a day-grouped feed of human sentences built from `activity.<action>` templates: "Village added *Recital* to the calendar · from chat", "Ana changed Leo's role to Teen", "Proposal #3 adopted (4 of 5 voted yes)".
+- **Default (Activity):** a day-grouped feed of human sentences built from `activity.<action>` templates: "Comvivo added *Recital* to the calendar · from chat", "Ana changed Leo's role to Teen", "Proposal #3 adopted (4 of 5 voted yes)".
 - **Detailed (`audit.read`):**
-  - Table columns: seq, time, actor (member / Village / system / host), action code, target, decision (allowed, denied, needed approval), via (chat, dashboard, CLI, system).
+  - Table columns: seq, time, actor (member / Comvivo / system / host), action code, target, decision (allowed, denied, needed approval), via (chat, dashboard, CLI, system).
   - Filters: actor, action, decision, date. Export CSV is client-side over the rows already readable.
   - Hosts also see an "Integrity: ✓ verified {time}" badge via `/instance/audit/verify`.
 - **Empty:** "Nothing has happened yet."
@@ -1313,7 +1313,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 
 ##### 3.10.6.14 Costs and budgets (`/g/$groupId/costs`)
 
-- **Purpose:** know what Village costs and keep it in budget.
+- **Purpose:** know what Comvivo costs and keep it in budget.
 - **Data:** `GET usage?groupBy=day|route|model`, `GET/PATCH budget`, and the `budget.status` stream.
 - **KPI tiles:** "This month" (spend / budget, with a progress ring), "Projected month end", "Today" (vs daily cap), "Cache savings" (cached tokens × price delta).
 - **Charts:**
@@ -1323,7 +1323,7 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 - **Table:** route × model with tokens and cost.
 - **Budget form** (`settings.write`):
   - Monthly and daily caps, and "Alert admins at {80}%".
-  - An explainer: "Near the limit, Village switches to a cheaper model, then pauses optional messages. At the limit it replies only to say the budget is reached."
+  - An explainer: "Near the limit, Comvivo switches to a cheaper model, then pauses optional messages. At the limit it replies only to say the budget is reached."
 - **Local preset:** the tiles read "Running on your own hardware · $0", and the charts show tokens instead.
 - **Empty:** "No usage yet this month."
 - **Permissions:** `usage.read`; edit `settings.write`. The host sees all groups in Instance → Overview.
@@ -1335,16 +1335,16 @@ Format for each screen: **Purpose**, **Data**, **Actions**, **States**, **Permis
 
   | # | Item | Done when |
   |---|---|---|
-  | 1 | Claim your Village | host set |
+  | 1 | Claim your Comvivo | host set |
   | 2 | Connect an AI model | `models.test` passed for the `chat` route |
   | 3 | Connect a chat app | ≥ 1 channel is `connected` |
-  | 4 | Add Village to a group | ≥ 1 group is bound |
+  | 4 | Add Comvivo to a group | ≥ 1 group is bound |
   | 5 | Review the group's constitution | the host viewed the Charter or adopted a version |
-  | 6 | Let everyone know about Village | consent notices are sent to all members (03) |
+  | 6 | Let everyone know about Comvivo | consent notices are sent to all members (03) |
   | 7 | Save your recovery key | `keys verify-recovery` succeeded |
   | 8 | Turn on backups | backups are enabled and the first backup succeeded |
   | 9 | Open the dashboard on your phone (optional) | a session from a mobile UA exists, or `publicUrl` is set |
-  | 10 | Ask Village something | the first `respond` turn completed |
+  | 10 | Ask Comvivo something | the first `respond` turn completed |
 
 - **UI:** a progress bar plus rows. Each row has a one-line why, an action button (deep link to the screen or a copyable CLI command) and a "Mark as done" override. The card is dismissible after 7 of 10 are done and collapses to a "Setup: 9/10" chip.
 
@@ -1359,18 +1359,18 @@ Common rule: every field shows its **source**. Values set by an environment vari
 | Group → Privacy | message retention (days, within instance bounds), "who can see the fairness view", "per-member costs" (constitution) | `settings.write` |
 | Group → Budget | same as Costs → budget form | `settings.write` |
 | Me → Profile | name, language, timezone, theme, density | self |
-| Me → Privacy | memory consent per group, "What Village knows about me" link, morning brief on/off and time, personal quiet hours, "Forget everything about me in {group}" (recent auth, type-to-confirm) | self |
+| Me → Privacy | memory consent per group, "What Comvivo knows about me" link, morning brief on/off and time, personal quiet hours, "Forget everything about me in {group}" (recent auth, type-to-confirm) | self |
 | Me → Sessions | current and other sessions (browser · OS, approx. location as an IP prefix, last active), Sign out, Sign out everywhere else | self |
 | Me → Connections | linked chat accounts, "Link another app" (link code), unlink (recent auth) | self |
 | Me → Agent access (MCP) | tokens per group with scopes, create (recent auth, shown once with copy), revoke (10) | self |
 | Me → Export | "Download my data" (recent auth) → job progress → download | `export.self` |
 | Instance → Models | preset cards (Best, Balanced, Economy, Local, Custom) with "≈ ${x}/month for a family of 5" (from preset metadata, M13), per-route overrides table (route, provider, model, effort), provider keys (masked `…abcd`, source `env`, **Test** button → `ProbeReport` checks), local server URL with a reachability check | host |
-| Instance → Channels | a card per channel: status dot and text, bot identity ("@garcia_village_bot"), last event time, enabled switch (recent auth), **checks with fix-it hints** (§3.11.6 copy, e.g. Telegram privacy mode), Re-check, Restart, "Add to a group" (claim code dialog), "Change token: run `village secrets set TELEGRAM_BOT_TOKEN`" | host |
+| Instance → Channels | a card per channel: status dot and text, bot identity ("@garcia_comvivo_bot"), last event time, enabled switch (recent auth), **checks with fix-it hints** (§3.11.6 copy, e.g. Telegram privacy mode), Re-check, Restart, "Add to a group" (claim code dialog), "Change token: run `comvivo secrets set TELEGRAM_BOT_TOKEN`" | host |
 | Instance → Groups | table of groups (infra metadata), Add a group (claim code + deep links + QR), archive (CLI only in v1) | host |
-| Instance → Backups | schedule, keep N, last result, list (date, size, verified), **Back up now**, Download (recent auth), Restore: "Restoring replaces all data. Run on the server: `village restore <file>`" (copyable) | host |
-| Instance → Plugins | installed plugins, permissions in plain words, enable/disable and approve permission changes (recent auth). "Install: `village plugin add <name>`" | host |
+| Instance → Backups | schedule, keep N, last result, list (date, size, verified), **Back up now**, Download (recent auth), Restore: "Restoring replaces all data. Run on the server: `comvivo restore <file>`" (copyable) | host |
+| Instance → Plugins | installed plugins, permissions in plain words, enable/disable and approve permission changes (recent auth). "Install: `comvivo plugin add <name>`" | host |
 | Instance → Security | encryption at rest status, key file permissions, last key rotation, recovery key verified, active sessions (all people), audit integrity, control API on/off | host |
-| Instance → About | version, deployment mode, data folder size and free space, update check (opt-in toggle; when off: "Village never contacts the internet to check for updates unless you turn this on"), licenses, docs links | host |
+| Instance → About | version, deployment mode, data folder size and free space, update check (opt-in toggle; when off: "Comvivo never contacts the internet to check for updates unless you turn this on"), licenses, docs links | host |
 
 #### 3.10.7 Responsive and mobile
 
@@ -1390,13 +1390,13 @@ Common rule: every field shows its **source**. Values set by an environment vari
 
 | Area | Requirement |
 |---|---|
-| Structure | Landmarks `header`, `nav` ("Main", "Sections") and `main`. One `h1` per page. The title is "{Screen} · {Group} · Village". On route change, focus moves to the `h1` and the title is announced politely. |
+| Structure | Landmarks `header`, `nav` ("Main", "Sections") and `main`. One `h1` per page. The title is "{Screen} · {Group} · Comvivo". On route change, focus moves to the `h1` and the title is announced politely. |
 | Skip link | "Skip to content" focuses `#main` **programmatically**, because `<base href>` breaks fragment-only links. |
 | Keyboard | Everything is reachable. Radix provides focus traps and returns focus. Month and Week views use the ARIA grid pattern. `⌘K`/`Ctrl+K` opens the command menu; `?` lists shortcuts (M15). |
 | WCAG 2.2 additions | **2.4.11** Focus not obscured: `scroll-padding` under sticky bars.<br>**2.5.7** Dragging: never drag-only.<br>**2.5.8** Target size: ≥ 24 px (≥ 44 px touch).<br>**3.2.6** Consistent help: the Help link is always in the account menu.<br>**3.3.7** Redundant entry: forms and the wizard prefill known values.<br>**3.3.8** Accessible authentication: no passwords, CAPTCHAs or memorization; codes have copy buttons and accept paste. |
 | Forms | Visible labels. Hints and errors linked with `aria-describedby`. An error summary at the top links to the fields. Server `errors[].pointer` values map to fields. |
 | Color | Token contrast is checked in CI. Chart colors differ in lightness so they hold up under color-vision deficiency, and series have direct labels. Visibility and status never rely on color alone. |
-| Live content | Chat uses `role="log"`. Toasts are announced politely and errors assertively. "Village is thinking…" uses `role="status"`. |
+| Live content | Chat uses `role="log"`. Toasts are announced politely and errors assertively. "Comvivo is thinking…" uses `role="status"`. |
 | Motion and zoom | `prefers-reduced-motion` is honored. Layouts reflow at 200 % zoom and 320 px width, except Week view, which offers Agenda instead. |
 | Verification | `@axe-core/playwright` on every screen in light/dark and desktop/mobile. A manual VoiceOver and NVDA pass in M15. `jsx-a11y`-equivalent lint rules. |
 
@@ -1452,7 +1452,7 @@ Common rule: every field shows its **source**. Values set by an environment vari
   - SSE works (the proxy supports streaming).
   - Downloads (exports, backups) use `Content-Disposition: attachment` and open in a new tab, because some HA companion apps block in-iframe downloads.
 - **12 sets the HA app manifest** (HA renamed add-ons to "apps"): `ingress: true`, `ingress_port: 8099`, `panel_icon: mdi:home-group`, `panel_admin: true`, `watchdog` on port 8099 `/healthz`.
-### 3.11 CLI (`apps/cli`, npm package `<cli>` placeholder until D-2 (01 §14 A2), bin written as `village`)
+### 3.11 CLI (`apps/cli`, npm package `<cli>` placeholder until D-2 (01 §14 A2), bin written as `comvivo`)
 
 #### 3.11.1 Framework and layout
 
@@ -1460,8 +1460,8 @@ Common rule: every field shows its **source**. Values set by an environment vari
 - **Prompts:** `@clack/prompts` 1.8. Validators receive a zod schema directly (Standard Schema) or an async function, which lets live API checks run inside a prompt.
 - **Colors:** `picocolors`, honoring `NO_COLOR` and `FORCE_COLOR`.
 - **QR codes:** `uqr` (`renderUnicodeCompact`).
-- **Bootstrap:** `bin/village.mjs` is a tiny ES2018-syntax shim. It checks `process.versions.node >= 22.12` before any import and otherwise prints:
-  > Village needs Node.js 22.12 or newer (you have {v}). Install it from https://nodejs.org or use Docker: {docs}/install/docker
+- **Bootstrap:** `bin/comvivo.mjs` is a tiny ES2018-syntax shim. It checks `process.versions.node >= 22.12` before any import and otherwise prints:
+  > Comvivo needs Node.js 22.12 or newer (you have {v}). Install it from https://nodejs.org or use Docker: {docs}/install/docker
 
   The server runtime requires Node ≥ 24.11; Node 26 LTS is the primary target (01 §14 A1). Native mode checks that separately.
 
@@ -1483,16 +1483,16 @@ apps/cli/src/
 
 | Topic | Rule |
 |---|---|
-| Install folder | `-C, --dir <path>` or `COMVIVO_DIR`. If neither is given, the CLI searches upward from cwd for `comvivo.yaml`, then tries `./village/comvivo.yaml`. The data dir comes from `instance.dataDir` (relative to the folder) or from `--data-dir` / `COMVIVO_DATA_DIR`. |
+| Install folder | `-C, --dir <path>` or `COMVIVO_DIR`. If neither is given, the CLI searches upward from cwd for `comvivo.yaml`, then tries `./comvivo/comvivo.yaml`. The data dir comes from `instance.dataDir` (relative to the folder) or from `--data-dir` / `COMVIVO_DATA_DIR`. |
 | Mode | Read from `deployment.mode` in `comvivo.yaml` (`docker`, `native`, `ha` or `umbrel`). Commands adapt: for example, `logs` uses `docker compose logs` in Docker mode. |
 | Output | Human output goes to **stdout**. Progress, warnings and prompts go to **stderr**. `--json` prints exactly one JSON document to stdout (`{ok, data?, error?:{code,message,hint}}`) and disables prompts and spinners. |
 | Interactivity | Prompts run only when `stdin.isTTY` and the run is not `--non-interactive`, `CI=true` or `--json`. Otherwise a missing required input fails with exit 3 and names the flag to pass. `--yes` accepts the default confirmations; destructive operations still require their explicit flag. |
-| Secrets | Never accepted as flag *values* (shell history). They come from the environment (`ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, …), a hidden `password()` prompt, `--*-file <path>`, or stdin (`village secrets set NAME -`). |
-| Cancel | Ctrl+C or Esc in a prompt runs `cancel("Setup cancelled. Nothing was changed.")` (or "…Files written so far are kept; run village init again to continue."). The process exits with 130. |
-| Server contact | Commands that need the running server use the Control API. If it is unreachable, they exit 5 with "Village isn't running. Start it with: village start". |
+| Secrets | Never accepted as flag *values* (shell history). They come from the environment (`ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, …), a hidden `password()` prompt, `--*-file <path>`, or stdin (`comvivo secrets set NAME -`). |
+| Cancel | Ctrl+C or Esc in a prompt runs `cancel("Setup cancelled. Nothing was changed.")` (or "…Files written so far are kept; run comvivo init again to continue."). The process exits with 130. |
+| Server contact | Commands that need the running server use the Control API. If it is unreachable, they exit 5 with "Comvivo isn't running. Start it with: comvivo start". |
 | Version skew | If the CLI's major.minor ≠ the server's, the CLI warns: "This CLI is {a}; the server is {b}. Use npx {cli}@{b} …" (`{cli}` from `BRAND`). `migrate`, `restore` and the `keys rotate-*` commands refuse to run with exit 10. |
 
-**Exit codes** (documented in `village help exit-codes`). This table covers CLI commands. The **server process** (`village start` in the foreground, the container's `start`, systemd) exits with the sysexits contract in 12 §4.2 (0, 1, 65 data, 75 temporary, 78 configuration, 130), which orchestrators rely on; 12 §4.2 does not use 64 because CLI usage errors exit 2 here.
+**Exit codes** (documented in `comvivo help exit-codes`). This table covers CLI commands. The **server process** (`comvivo start` in the foreground, the container's `start`, systemd) exits with the sysexits contract in 12 §4.2 (0, 1, 65 data, 75 temporary, 78 configuration, 130), which orchestrators rely on; 12 §4.2 does not use 64 because CLI usage errors exit 2 here.
 
 | Code | Meaning |
 |---|---|
@@ -1513,54 +1513,54 @@ apps/cli/src/
 
 | Command | Purpose | Key flags | Output (human) | Exit | Milestone |
 |---|---|---|---|---|---|
-| `village init [dir]` | Setup wizard (§3.11.5). On an existing install it offers reconfigure options. | `--mode docker\|native`, `--data-dir`, `--preset best\|balanced\|economy\|local\|custom`, `--provider anthropic\|openai\|google\|local`, `--channels telegram,discord,…`, `--budget-monthly <usd>`, `--budget-daily <usd>`, `--access local\|lan\|url:<https://…>`, `--key-store keyfile\|keychain\|file\|env\|passphrase` (08 §3.7.3; default `keyfile`), `--recovery-key-out <file>`, `--from-env` (take secrets from the environment), `--restore <file.vbak>` (skip the wizard and restore; 12 R5), `--no-start`, `--no-wait`, `--skip-validation`, `--force`, `--timing`. Test mode only (`COMVIVO_TEST_MODE=1`, docs-as-tests and the quickstart matrix, 13 §4.4): `--channels simulator`, `--preset fake` | Steps, then summary and claim links | 0, 3, 6, 8, 130 | M3 (min), M9 (full), M14 (modes) |
-| `village start` | Start the server. In the foreground it exits with the server codes of 12 §4.2 | `--role web\|worker\|all\|drill`, `--detach` (native), `--port`, `--bind`, `--wait <s>`, `--recovery` (12 §3.8.5), `--allow-downgrade --restore <file\|pre-migrate:latest> [--exit-after-restore]` (12 §3.8.3), `--insecure-permissions` (08 §3.7.3) | "Village is running at {url}" | `--detach`: 0, 6, 8, 10; foreground: 12 §4.2 | M3 |
-| `village stop` | Graceful stop (drains ≤ 30 s) | `--timeout <s>` | "Stopped." | 0, 5 | M9 |
-| `village restart` | stop + start | same as start | | | M9 |
-| `village status` | One-screen health summary | `--json`, `--watch` | version, uptime, mode, groups, channels (●/○), queue, outbox, last backup, budgets | 0, 5 | M3 |
-| `village doctor` | Diagnose with remediation (§3.11.6) | `--fix` (safe fixes only), `--strict`, `--offline`, `--check <id-or-prefix,…>` (e.g. `channels,models`), `--deep` (full `integrity_check` and a restore test of the newest backup), `--bundle [path]` (redacted diagnostics bundle, scrub rules 11 §3.11), `--print` (preview the bundle), `--json` | grouped checks | 0, 4 | M3 (min), M9 |
-| `village logs` | Show logs (never content above debug) | `-f/--follow`, `--since 1h`, `--level warn`, `--group <id>`, `--json` | pretty pino lines | 0, 5 | M9 |
-| `village login` | One-time dashboard sign-in for the host (prints a magic link; on non-loopback without `magicLinks: https` it prints a pairing code to send instead) | `--chat` (DM instead), `--open`, `--qr`, `--print-only` | URL (+ QR) "works once, expires in 10 minutes" | 0, 5 | M9 |
-| `village group claim` | Create a group claim code + deep links (01 §14 A27; 06 §3.20.1) | `--channel <id>`, `--group <grp_…>` (add a chat to an existing group), `--template <archetype>`, `--ttl <≤30m>`, `--qr`, `--wait` | code, links, per-platform instructions | 0, 5 | M3 (host code), M9 |
-| `village group list` | Groups (infra metadata) | `--json` | table | 0, 5 | M9 |
-| `village backup [create]` | Create an encrypted backup now (online through the control API; offline with storage if the server is stopped) | `--out <file>`, `--label <name>`, `--json` | path, size, verified ✓ | 0, 7, 9 | M9 |
-| `village backup list` / `verify [file\|--latest\|--all]` / `prune [--before <date>] [--dry-run]` / `rewrap [--all]` / `decrypt <file> --out <dir>` | List backups / verify archive integrity and decryptability / prune (02, 12 §3.9) / rewrite `VBK1` headers after a recovery-key rotation (08 §3.7.7) / standalone decrypt (08 OQ-3) | `--recovery-key-file` | table / ✓ | 0, 9 | M9 (list, verify), M14 (prune, rewrap, decrypt) |
-| `village restore <file\|latest\|pre-migrate:latest>` | Replace all data with a backup (server must be stopped) | `--stop` (stop the server first), `--recovery-key-file`, `--drill` (restore into a temp dir and run assertions; 12 §3.9), `--dry-run`, `--yes-i-understand` | summary (date, version, groups) → typed confirm "restore" → moves current data to `data/backups/manual/pre-restore-<ts>/` → restore → migrate → revoke sessions → rotate control token | 0, 6, 9, 10 | M9 (basic), M14 (cross-machine, drill) |
-| `village export` | **Shared-data** export of a group (plaintext; group-labeled data only), or `--instance` (encrypted portable archive) | `--group <id\|name>`, `--instance`, `--out` | path | 0, 5 | M9 |
-| `village migrate status\|up` | Show and apply DB migrations (a backup is taken first) | `--dry-run`, `--no-backup` | pending list / applied | 0, 6, 9, 10 | M3 (status), M9 |
-| `village keys status` | Encryption status | `--json` | key source and mode, keyring generations and slots, last rotation, recovery verified | 0, 7 | M1 (08 M1-T83), M9 |
-| `village keys verify-recovery` | Type the recovery key to check it against its slot (changes nothing) | `--recovery-key-file` | ✓ / ✖ | 0, 9 | M1 |
-| `village keys rotate-master \| rotate-data [--reencrypt-blobs] \| rotate-recovery \| rotate-sessions \| recover \| add-passphrase \| remove-slot <id> \| purge-retired` | Key operations; mechanics, online/offline behavior and ceremony are normative in 08 §3.7.6–3.7.7. `rotate-recovery` prints a **new** recovery key once; the old one is never shown again (there is no "show recovery key" command, 08 SD-04) | `--yes`, `--recovery-key-out <file>` (rotate-recovery), `--recovery-key-file` (recover) | progress; new recovery key for rotate-recovery | 0, 6, 9, 10 | M1 (08 M1-T83), M9 |
-| `village secrets set <NAME> [-]` / `unset` / `list` | Edit `.env` (0600) safely; offers `reload` | `--file <path>` | "Saved. Run village restart to apply." (or reload) | 0, 3, 7 | M9 |
-| `village config get\|set\|unset\|validate\|print` | Non-secret config in `comvivo.yaml`. `print --sources` shows the effective value and its source. | `--sources`, `--json` | | 0, 3 | M9 |
-| `village sessions list\|revoke` | Dashboard sessions | `--all`, `--person <id>` | table | 0, 5 | M9 |
-| `village channels test [name]` | Re-run channel probes | `--json` | probe report with fixes | 0, 8 | M9 |
-| `village plugin add <spec>` / `remove <id>` / `list` / `info` / `update` / `outdated` / `restart` / `logs` / `secret set\|unset\|list` / `search` | Plugin management; semantics and the approval screen are owned by 10 §3.3. `add` and `update` show the manifest's permissions and ask for approval. | `--approve <perm,…>` (required with `--non-interactive`), `--version`, `--to <v>`, `--purge` | | 0, 3, 8 | M12 (10 owns) |
-| `village skill …` / `village mcp client …` (incl. `secret set`) / `village mcp token create\|list\|revoke` | Skills, MCP client servers and member MCP tokens; semantics owned by 10 (§3.7.3 for tokens: `create --member <id>` only for the host's own membership; `list [--person \| --group]` metadata only; `revoke <mtk_…> \| --person <prs_…> \| --all`) | per 10 | | 0, 3, 5 | M12 (10 owns) |
-| `village eval run\|replay\|lint\|generate\|calibrate\|label\|triage\|report\|inspect\|challenge` | Evals. Semantics in 11 §4.7; `challenge` per 13 §3.D.6. `@comvivo/evals` is a **published** package that `village eval` imports **dynamically as an optional dependency** and prints an install hint when absent; `eval replay` lives in engine/server code and works without it (01 §14 A17). `eval run --suite smoke` (≤ 10 scenarios, < $0.01) validates the configured models | `--suite`, `--preset`, `--live` (costs money; asks first), `--report <file>`, others per 11 §4.7 | score table | 0, 1 | M9 (smoke, replay), M13 |
-| `village bench` / `village feedback report\|export` | Macro benchmarks (11 §3.9) / local human-feedback reports (11 §3.13) | per 11 §4.7 | | 0, 1 | M8 (feedback), M13 (bench) |
-| `village version` | Version info | `--check` (one opt-in fetch of the release manifest; no identifiers) | `village 1.0.0 · server 1.0.0 · node 26.x · linux-arm64 · docker` | 0 | M3 |
-| `village update` | Update to the latest release (backup first) | `--to <version>`, `--channel stable\|beta`, `--yes`, `--check` (canary: run the target version's migrations on a restored copy with `--role=drill`; 12 §3.8.4) | | 0, 8, 10 | M14 |
-| `village runtime install [ver] \| use <ver> \| list \| prune` | Native runtime management (12 §3.4.3) | | | 0, 8 | M14 |
-| `village models list \| pull <id> \| verify` | Pinned model files (12 §3.2.4) | | | 0, 8, 9 | M11 |
-| `village recovery status \| restore <backup> \| export-raw` | Recovery mode (12 §3.8.5) | | | 0, 5, 9 | M14 |
-| `village db checkpoint` | WAL checkpoint through the control API (12 runbook R2) | | | 0, 5 | M14 |
-| `village selftest` | Native-library self-test (12 §4.1) | `--json` | | 0, 1 | M3 |
-| `village service install\|uninstall\|status\|start\|stop` | systemd (Linux) / launchd (macOS) unit for native mode; `start`/`stop`/`status` wrap `systemctl`/`launchctl` | `--user\|--system`, `--yes` | unit path + enable instructions | 0, 7 | M14 |
-| `village host transfer --to <personId>` | Change the instance owner | | | 0, 5 | M15 |
-| `village healthcheck` (hidden) | Exit 0 if `/healthz` is 200 on loopback (same check as the image's `/app/healthcheck.mjs`) | `--url` | none | 0, 1 | M14 |
-| `village completion <bash\|zsh\|fish>` | Shell completion script | | | 0 | M15 |
+| `comvivo init [dir]` | Setup wizard (§3.11.5). On an existing install it offers reconfigure options. | `--mode docker\|native`, `--data-dir`, `--preset best\|balanced\|economy\|local\|custom`, `--provider anthropic\|openai\|google\|local`, `--channels telegram,discord,…`, `--budget-monthly <usd>`, `--budget-daily <usd>`, `--access local\|lan\|url:<https://…>`, `--key-store keyfile\|keychain\|file\|env\|passphrase` (08 §3.7.3; default `keyfile`), `--recovery-key-out <file>`, `--from-env` (take secrets from the environment), `--restore <file.vbak>` (skip the wizard and restore; 12 R5), `--no-start`, `--no-wait`, `--skip-validation`, `--force`, `--timing`. Test mode only (`COMVIVO_TEST_MODE=1`, docs-as-tests and the quickstart matrix, 13 §4.4): `--channels simulator`, `--preset fake` | Steps, then summary and claim links | 0, 3, 6, 8, 130 | M3 (min), M9 (full), M14 (modes) |
+| `comvivo start` | Start the server. In the foreground it exits with the server codes of 12 §4.2 | `--role web\|worker\|all\|drill`, `--detach` (native), `--port`, `--bind`, `--wait <s>`, `--recovery` (12 §3.8.5), `--allow-downgrade --restore <file\|pre-migrate:latest> [--exit-after-restore]` (12 §3.8.3), `--insecure-permissions` (08 §3.7.3) | "Comvivo is running at {url}" | `--detach`: 0, 6, 8, 10; foreground: 12 §4.2 | M3 |
+| `comvivo stop` | Graceful stop (drains ≤ 30 s) | `--timeout <s>` | "Stopped." | 0, 5 | M9 |
+| `comvivo restart` | stop + start | same as start | | | M9 |
+| `comvivo status` | One-screen health summary | `--json`, `--watch` | version, uptime, mode, groups, channels (●/○), queue, outbox, last backup, budgets | 0, 5 | M3 |
+| `comvivo doctor` | Diagnose with remediation (§3.11.6) | `--fix` (safe fixes only), `--strict`, `--offline`, `--check <id-or-prefix,…>` (e.g. `channels,models`), `--deep` (full `integrity_check` and a restore test of the newest backup), `--bundle [path]` (redacted diagnostics bundle, scrub rules 11 §3.11), `--print` (preview the bundle), `--json` | grouped checks | 0, 4 | M3 (min), M9 |
+| `comvivo logs` | Show logs (never content above debug) | `-f/--follow`, `--since 1h`, `--level warn`, `--group <id>`, `--json` | pretty pino lines | 0, 5 | M9 |
+| `comvivo login` | One-time dashboard sign-in for the host (prints a magic link; on non-loopback without `magicLinks: https` it prints a pairing code to send instead) | `--chat` (DM instead), `--open`, `--qr`, `--print-only` | URL (+ QR) "works once, expires in 10 minutes" | 0, 5 | M9 |
+| `comvivo group claim` | Create a group claim code + deep links (01 §14 A27; 06 §3.20.1) | `--channel <id>`, `--group <grp_…>` (add a chat to an existing group), `--template <archetype>`, `--ttl <≤30m>`, `--qr`, `--wait` | code, links, per-platform instructions | 0, 5 | M3 (host code), M9 |
+| `comvivo group list` | Groups (infra metadata) | `--json` | table | 0, 5 | M9 |
+| `comvivo backup [create]` | Create an encrypted backup now (online through the control API; offline with storage if the server is stopped) | `--out <file>`, `--label <name>`, `--json` | path, size, verified ✓ | 0, 7, 9 | M9 |
+| `comvivo backup list` / `verify [file\|--latest\|--all]` / `prune [--before <date>] [--dry-run]` / `rewrap [--all]` / `decrypt <file> --out <dir>` | List backups / verify archive integrity and decryptability / prune (02, 12 §3.9) / rewrite `VBK1` headers after a recovery-key rotation (08 §3.7.7) / standalone decrypt (08 OQ-3) | `--recovery-key-file` | table / ✓ | 0, 9 | M9 (list, verify), M14 (prune, rewrap, decrypt) |
+| `comvivo restore <file\|latest\|pre-migrate:latest>` | Replace all data with a backup (server must be stopped) | `--stop` (stop the server first), `--recovery-key-file`, `--drill` (restore into a temp dir and run assertions; 12 §3.9), `--dry-run`, `--yes-i-understand` | summary (date, version, groups) → typed confirm "restore" → moves current data to `data/backups/manual/pre-restore-<ts>/` → restore → migrate → revoke sessions → rotate control token | 0, 6, 9, 10 | M9 (basic), M14 (cross-machine, drill) |
+| `comvivo export` | **Shared-data** export of a group (plaintext; group-labeled data only), or `--instance` (encrypted portable archive) | `--group <id\|name>`, `--instance`, `--out` | path | 0, 5 | M9 |
+| `comvivo migrate status\|up` | Show and apply DB migrations (a backup is taken first) | `--dry-run`, `--no-backup` | pending list / applied | 0, 6, 9, 10 | M3 (status), M9 |
+| `comvivo keys status` | Encryption status | `--json` | key source and mode, keyring generations and slots, last rotation, recovery verified | 0, 7 | M1 (08 M1-T83), M9 |
+| `comvivo keys verify-recovery` | Type the recovery key to check it against its slot (changes nothing) | `--recovery-key-file` | ✓ / ✖ | 0, 9 | M1 |
+| `comvivo keys rotate-master \| rotate-data [--reencrypt-blobs] \| rotate-recovery \| rotate-sessions \| recover \| add-passphrase \| remove-slot <id> \| purge-retired` | Key operations; mechanics, online/offline behavior and ceremony are normative in 08 §3.7.6–3.7.7. `rotate-recovery` prints a **new** recovery key once; the old one is never shown again (there is no "show recovery key" command, 08 SD-04) | `--yes`, `--recovery-key-out <file>` (rotate-recovery), `--recovery-key-file` (recover) | progress; new recovery key for rotate-recovery | 0, 6, 9, 10 | M1 (08 M1-T83), M9 |
+| `comvivo secrets set <NAME> [-]` / `unset` / `list` | Edit `.env` (0600) safely; offers `reload` | `--file <path>` | "Saved. Run comvivo restart to apply." (or reload) | 0, 3, 7 | M9 |
+| `comvivo config get\|set\|unset\|validate\|print` | Non-secret config in `comvivo.yaml`. `print --sources` shows the effective value and its source. | `--sources`, `--json` | | 0, 3 | M9 |
+| `comvivo sessions list\|revoke` | Dashboard sessions | `--all`, `--person <id>` | table | 0, 5 | M9 |
+| `comvivo channels test [name]` | Re-run channel probes | `--json` | probe report with fixes | 0, 8 | M9 |
+| `comvivo plugin add <spec>` / `remove <id>` / `list` / `info` / `update` / `outdated` / `restart` / `logs` / `secret set\|unset\|list` / `search` | Plugin management; semantics and the approval screen are owned by 10 §3.3. `add` and `update` show the manifest's permissions and ask for approval. | `--approve <perm,…>` (required with `--non-interactive`), `--version`, `--to <v>`, `--purge` | | 0, 3, 8 | M12 (10 owns) |
+| `comvivo skill …` / `comvivo mcp client …` (incl. `secret set`) / `comvivo mcp token create\|list\|revoke` | Skills, MCP client servers and member MCP tokens; semantics owned by 10 (§3.7.3 for tokens: `create --member <id>` only for the host's own membership; `list [--person \| --group]` metadata only; `revoke <mtk_…> \| --person <prs_…> \| --all`) | per 10 | | 0, 3, 5 | M12 (10 owns) |
+| `comvivo eval run\|replay\|lint\|generate\|calibrate\|label\|triage\|report\|inspect\|challenge` | Evals. Semantics in 11 §4.7; `challenge` per 13 §3.D.6. `@comvivo/evals` is a **published** package that `comvivo eval` imports **dynamically as an optional dependency** and prints an install hint when absent; `eval replay` lives in engine/server code and works without it (01 §14 A17). `eval run --suite smoke` (≤ 10 scenarios, < $0.01) validates the configured models | `--suite`, `--preset`, `--live` (costs money; asks first), `--report <file>`, others per 11 §4.7 | score table | 0, 1 | M9 (smoke, replay), M13 |
+| `comvivo bench` / `comvivo feedback report\|export` | Macro benchmarks (11 §3.9) / local human-feedback reports (11 §3.13) | per 11 §4.7 | | 0, 1 | M8 (feedback), M13 (bench) |
+| `comvivo version` | Version info | `--check` (one opt-in fetch of the release manifest; no identifiers) | `comvivo 1.0.0 · server 1.0.0 · node 26.x · linux-arm64 · docker` | 0 | M3 |
+| `comvivo update` | Update to the latest release (backup first) | `--to <version>`, `--channel stable\|beta`, `--yes`, `--check` (canary: run the target version's migrations on a restored copy with `--role=drill`; 12 §3.8.4) | | 0, 8, 10 | M14 |
+| `comvivo runtime install [ver] \| use <ver> \| list \| prune` | Native runtime management (12 §3.4.3) | | | 0, 8 | M14 |
+| `comvivo models list \| pull <id> \| verify` | Pinned model files (12 §3.2.4) | | | 0, 8, 9 | M11 |
+| `comvivo recovery status \| restore <backup> \| export-raw` | Recovery mode (12 §3.8.5) | | | 0, 5, 9 | M14 |
+| `comvivo db checkpoint` | WAL checkpoint through the control API (12 runbook R2) | | | 0, 5 | M14 |
+| `comvivo selftest` | Native-library self-test (12 §4.1) | `--json` | | 0, 1 | M3 |
+| `comvivo service install\|uninstall\|status\|start\|stop` | systemd (Linux) / launchd (macOS) unit for native mode; `start`/`stop`/`status` wrap `systemctl`/`launchctl` | `--user\|--system`, `--yes` | unit path + enable instructions | 0, 7 | M14 |
+| `comvivo host transfer --to <personId>` | Change the instance owner | | | 0, 5 | M15 |
+| `comvivo healthcheck` (hidden) | Exit 0 if `/healthz` is 200 on loopback (same check as the image's `/app/healthcheck.mjs`) | `--url` | none | 0, 1 | M14 |
+| `comvivo completion <bash\|zsh\|fish>` | Shell completion script | | | 0 | M15 |
 
 #### 3.11.4 Install modes
 
 | Mode | `start` / `stop` / `logs` | Server runtime | Data and permissions |
 |---|---|---|---|
 | `docker` (recommended) | `docker compose up -d` / `stop` / `logs`. The CLI waits for `/readyz` via the published port. | The image from 12. Init pulls it in the background immediately after step 1. | The compose file sets `user: "${COMVIVO_UID}:${COMVIVO_GID}"` from `.env`, which the wizard writes from `process.getuid()`. The host CLI can then read `data/keys/control.token`. The dashboard is mapped to `127.0.0.1:7777` unless the access choice is LAN. |
-| `native` | Foreground by default. `--detach` spawns a detached child with a pidfile at `data/run/village.pid` and logs at `data/logs/`. `stop` sends SIGTERM and waits. | The server-runtime package (`@comvivo/server@<cliVersion>`, names per 12 §3.1) is installed by `village runtime install` into the managed runtime directory (12 §3.4.3) in the background during the wizard. The CLI imports it dynamically. | Node ≥ 24.11 is required (checked); Node 26 recommended (01 §14 A1). |
-| `ha` | Managed by the Supervisor. The CLI is used only inside the container (`docker exec`), for `doctor`, `backup` and `keys`. | HA app image (`village-ha`, 12 §3.5) | Ingress (§3.9.10) |
+| `native` | Foreground by default. `--detach` spawns a detached child with a pidfile at `data/run/comvivo.pid` and logs at `data/logs/`. `stop` sends SIGTERM and waits. | The server-runtime package (`@comvivo/server@<cliVersion>`, names per 12 §3.1) is installed by `comvivo runtime install` into the managed runtime directory (12 §3.4.3) in the background during the wizard. The CLI imports it dynamically. | Node ≥ 24.11 is required (checked); Node 26 recommended (01 §14 A1). |
+| `ha` | Managed by the Supervisor. The CLI is used only inside the container (`docker exec`), for `doctor`, `backup` and `keys`. | HA app image (`comvivo-ha`, 12 §3.5) | Ingress (§3.9.10) |
 | `umbrel` / `casaos` | Managed by the app store. Same CLI usage as `ha`. | image | `trustProxy` per 12 |
 
-#### 3.11.5 `village init` wizard (exact copy)
+#### 3.11.5 `comvivo init` wizard (exact copy)
 
 - **Target:** under 5 minutes, measured by `--timing`. Downloads start in the background at step 1 (image pull or runtime install). Nothing is written to disk before step 7.
 - **Glyphs:** clack's (`┌ │ ◆ ◇ ● ○ ◼ ◻ ▲ ✖ └`), with an ASCII fallback.
@@ -1568,7 +1568,7 @@ apps/cli/src/
 
 **Step 0: welcome**
 ```
-┌  Village setup
+┌  Comvivo setup
 │
 │  This takes about 5 minutes. You'll need:
 │    • an API key from Anthropic, OpenAI or Google — or Ollama on this machine
@@ -1577,36 +1577,36 @@ apps/cli/src/
 ```
 If `comvivo.yaml` already exists in the target folder:
 ```
-◆  Village is already set up in ./village. What would you like to do?
+◆  Comvivo is already set up in ./comvivo. What would you like to do?
 │  ● Add or fix a chat app
 │  ○ Change AI models or API keys
 │  ○ Change spending limits
 │  ○ Show the claim code and invite links again
 │  ○ Quit
 ```
-Each option runs the matching steps (4, 3, 6, 9). **There is no "start over" option**: the wizard never deletes data. Starting over means choosing a new folder with `village init <newdir>`.
+Each option runs the matching steps (4, 3, 6, 9). **There is no "start over" option**: the wizard never deletes data. Starting over means choosing a new folder with `comvivo init <newdir>`.
 
 **Step 1: install mode**
 ```
-◆  How do you want to run Village?
+◆  How do you want to run Comvivo?
 │  ● Docker Compose (recommended) — isolated, restarts automatically, easy to update
 │  ○ Node.js on this computer — no Docker needed; you keep it running
 ```
 - **Docker missing** (`docker compose version` fails): the option is shown as "Docker Compose (Docker isn't installed or running)". Node becomes the default, and the step adds the note: "To use Docker later: {docs}/install/docker".
 - **Node < 24.11 in native mode:**
   ```
-  ▲  Village needs Node.js 24.11 or newer to run here (Node 26 recommended; you have {v}). Install it from https://nodejs.org, or choose Docker.
+  ▲  Comvivo needs Node.js 24.11 or newer to run here (Node 26 recommended; you have {v}). Install it from https://nodejs.org, or choose Docker.
   ```
 - After this choice, the background download starts:
   - Docker: `docker compose pull`.
   - Node: the runtime install.
 
-  It is shown later as `◇ Downloading Village in the background ({pct}%)` on step transitions.
+  It is shown later as `◇ Downloading Comvivo in the background ({pct}%)` on step transitions.
 
 **Step 2: folder and data**
 ```
-◆  Where should Village keep its files?
-│  ./village
+◆  Where should Comvivo keep its files?
+│  ./comvivo
 │  Settings, your encrypted database, keys and backups go here. Back up this folder.
 ```
 Validation is an async validator that returns one message:
@@ -1615,12 +1615,12 @@ Validation is an async validator that returns one message:
 |---|---|---|
 | Not writable | "Can't write to {path}. Choose another folder or fix its permissions." | error |
 | Synced folder (iCloud, Dropbox, OneDrive or Google Drive path patterns) | "This folder is synced to the cloud. Syncing a live database can corrupt it. Choose a folder outside {service}." | error; `--force` overrides |
-| Free disk < 1 GB | "Only {n} MB free here. Village needs at least 1 GB for the database, models and backups." | warning |
-| Existing Village data | "This folder already has Village data. Use `village init` inside it to reconfigure, or choose an empty folder." | error |
+| Free disk < 1 GB | "Only {n} MB free here. Comvivo needs at least 1 GB for the database, models and backups." | warning |
+| Existing Comvivo data | "This folder already has Comvivo data. Use `comvivo init` inside it to reconfigure, or choose an empty folder." | error |
 
 **Step 3: AI models**
 ```
-◆  Which AI should Village use?
+◆  Which AI should Comvivo use?
 │  ● Best — Claude Opus 5.5 for conversations (≈ ${best}/month for a family of 5)
 │  ○ Balanced — Claude Sonnet 5.5 (≈ ${balanced}/month)
 │  ○ Economy — Claude Haiku 5.5 (≈ ${economy}/month)
@@ -1667,7 +1667,7 @@ OpenAI and Google follow the same pattern through their probes.
 ```
 ◇  Looking for Ollama at http://localhost:11434…
 │  Found Ollama {version}.
-◆  Village recommends {model} ({size} GB) for this computer ({ram} GB memory). Download it now?
+◆  Comvivo recommends {model} ({size} GB) for this computer ({ram} GB memory). Download it now?
 │  ● Yes, download ({size} GB)   ○ Use a model I already have   ○ Skip for now
 ```
 - The recommendation comes from `@comvivo/models` `LOCAL_PRESETS`, chosen by total RAM (M2 decides the models).
@@ -1683,7 +1683,7 @@ OpenAI and Google follow the same pattern through their probes.
 │  ◻ Slack
 │  ◻ Matrix (beta)
 │  ◻ Signal (experimental)
-│  You can add more later with: village init
+│  You can add more later with: comvivo init
 ```
 Only channels whose packages are installed are listed. In M3–M9 that is Telegram only. The web chat is always on and isn't listed.
 
@@ -1691,10 +1691,10 @@ Only channels whose packages are installed are listed. In M3–M9 that is Telegr
 ```
 │  Create your Telegram bot (about 1 minute):
 │    1. Open https://t.me/BotFather and send /newbot
-│    2. Pick a name, like "Garcia Family Village", and a username ending in "bot"
+│    2. Pick a name, like "Garcia Family Comvivo", and a username ending in "bot"
 │    3. BotFather replies with a token like 123456789:AA…
 │    4. Recommended: send /setprivacy, choose your bot, then Disable
-│       (Village can then follow plans in the chat. It still only replies when asked.)
+│       (Comvivo can then follow plans in the chat. It still only replies when asked.)
 ◆  Paste the bot token
 │  ▪▪▪▪▪▪▪▪▪▪▪▪▪▪
 ```
@@ -1704,9 +1704,9 @@ The checks are run by 06's `TelegramProbe`:
 |---|---|---|
 | `getMe` | `◇  Connected to @{username}` | "Telegram didn't accept this token. Copy it again from @BotFather (it looks like 123456789:AA…)." |
 | `can_join_groups` | — | "Your bot can't be added to groups. In @BotFather send /setjoingroups, pick @{username}, then Enable." Options: Check again / Back |
-| `can_read_all_group_messages` | `◇  Privacy mode is off — Village can follow your group's plans` | `▲  Privacy mode is on, so Village will only see messages that mention it.` + "To fix: in @BotFather send /setprivacy, pick @{username}, choose Disable. If the bot is already in a group, remove it and add it again afterwards." Options: **I've changed it, check again** / **Continue anyway** |
-| `getWebhookInfo.url` empty | — | "This bot is connected to a webhook ({host}), maybe from another app. Village uses its own connection. Remove the webhook?" Options: **Yes, remove it** (calls `deleteWebhook`) / Back |
-| `getUpdates` 409 conflict | — | "Another program is already using this bot token. Stop it, or create a new bot for Village." |
+| `can_read_all_group_messages` | `◇  Privacy mode is off — Comvivo can follow your group's plans` | `▲  Privacy mode is on, so Comvivo will only see messages that mention it.` + "To fix: in @BotFather send /setprivacy, pick @{username}, choose Disable. If the bot is already in a group, remove it and add it again afterwards." Options: **I've changed it, check again** / **Continue anyway** |
+| `getWebhookInfo.url` empty | — | "This bot is connected to a webhook ({host}), maybe from another app. Comvivo uses its own connection. Remove the webhook?" Options: **Yes, remove it** (calls `deleteWebhook`) / Back |
+| `getUpdates` 409 conflict | — | "Another program is already using this bot token. Stop it, or create a new bot for Comvivo." |
 
 **Discord** (M10):
 ```
@@ -1716,7 +1716,7 @@ The checks are run by 06's `TelegramProbe`:
 ◆  Paste the bot token
 ```
 - The probe calls `GET /users/@me` and `GET /applications/@me`. Flags bits 18 or 19 (message content) and 14 or 15 (members) must be set.
-- Fail copy: "Message Content intent is off, so Village can't read messages. Turn it on in Bot → Privileged Gateway Intents, then check again."
+- Fail copy: "Message Content intent is off, so Comvivo can't read messages. Turn it on in Bot → Privileged Gateway Intents, then check again."
 - The install link is built later (step 9) from `application.id` and 06's `DISCORD_PERMISSIONS`.
 
 **Slack** (M10):
@@ -1742,8 +1742,8 @@ The checks are run by 06's `TelegramProbe`:
 │  │  RECOVERY KEY                                  │
 │  │  {recovery key in 08's format, grouped}         │
 │  └────────────────────────────────────────────────┘
-│  Write it down or save it in your password manager now. Village cannot show it
-│  again. (If you lose it, create a new one with: village keys rotate-recovery.)
+│  Write it down or save it in your password manager now. Comvivo cannot show it
+│  again. (If you lose it, create a new one with: comvivo keys rotate-recovery.)
 ◆  Type groups 3 and 11 of the key to confirm you saved it
 │  ____ ____
 ```
@@ -1755,7 +1755,7 @@ The checks are run by 06's `TelegramProbe`:
 ```
 ◆  Monthly spending limit for AI (USD)
 │  {presetMonthly}
-│  Near the limit, Village switches to a cheaper model, then pauses optional
+│  Near the limit, Comvivo switches to a cheaper model, then pauses optional
 │  messages. At the limit it only answers to tell admins.
 ◆  Daily limit (USD)
 │  {presetDaily}
@@ -1791,8 +1791,8 @@ Then:
 
 **Step 8: start**
 ```
-◒  Starting Village… (first start downloads about {n} MB)
-◇  Village is running — dashboard at {url}
+◒  Starting Comvivo… (first start downloads about {n} MB)
+◇  Comvivo is running — dashboard at {url}
 ```
 - The CLI waits on `/readyz` for up to 180 s.
 - **Port in use:**
@@ -1800,11 +1800,11 @@ Then:
   ▲  Port 7777 is already in use. Use 7779 instead?
   ```
   The new port is written into config. The suggestion is the next free port above 7778, which is reserved for 08 §3.8.11's optional ICS feed listener. MCP has no port of its own (`/mcp` on this listener, 10 §3.7.2).
-- **Timeout:** "Village didn't start in time. See what happened with: village logs". Exit 8.
+- **Timeout:** "Comvivo didn't start in time. See what happened with: comvivo logs". Exit 8.
 
 **Step 9: claim and add to the group**
 ```
-◆  Last step: add Village to your group chat.
+◆  Last step: add Comvivo to your group chat.
 │
 │  On your phone, open this link and pick your group:
 │    https://t.me/{bot}?startgroup=c_{LINK_TOKEN}
@@ -1814,78 +1814,78 @@ Then:
 │  This code makes you the host. It works once and expires at {time}.
 ```
 - `{CODE-FMT}` is the typed host claim code (`VLG-XXXX-XXXX`); `{LINK_TOKEN}` is its 128-bit link token (§3.9.1). Per-platform command syntax is owned by 06 §3.20.
-- **Discord:** "Invite the bot: {oauth url}, then in any channel type /village claim code:{CODE-FMT}".
-- **Slack:** "In a channel, type /invite @{bot}, then /village claim {CODE-FMT}".
+- **Discord:** "Invite the bot: {oauth url}, then in any channel type /comvivo claim code:{CODE-FMT}".
+- **Slack:** "In a channel, type /invite @{bot}, then /comvivo claim {CODE-FMT}".
 
 **Step 10: wait and celebrate**
 ```
-◒  Waiting for your group… (Ctrl+C to finish later — Village keeps running)
-◇  Village joined "{groupName}" on {Platform}. You're the host.
+◒  Waiting for your group… (Ctrl+C to finish later — Comvivo keeps running)
+◇  Comvivo joined "{groupName}" on {Platform}. You're the host.
 │
-│  Try it: in the group, say "Village, what can you do?"
-│  Dashboard: village login   ·   Health check: village doctor
-└  Set up in {m}m {s}s. Welcome to the village.
+│  Try it: in the group, say "Comvivo, what can you do?"
+│  Dashboard: comvivo login   ·   Health check: comvivo doctor
+└  Set up in {m}m {s}s. Welcome to the comvivo.
 ```
 - The wait listens on the control SSE for `group.bound`.
-- **Ctrl+C:** prints "No problem. Village is running. Use the link above any time in the next {n} minutes, or get a new one with: village init". Exit 0.
+- **Ctrl+C:** prints "No problem. Comvivo is running. Use the link above any time in the next {n} minutes, or get a new one with: comvivo init". Exit 0.
 
 **Non-interactive example** (CI / automation):
 ```bash
-# `npx village@latest` is the placeholder for `npx <cli>@latest` until owner decision D-2 (01 §14 A2)
-ANTHROPIC_API_KEY=… TELEGRAM_BOT_TOKEN=… npx village@latest init ./village \
+# `npx comvivo@latest` is the placeholder for `npx <cli>@latest` until owner decision D-2 (01 §14 A2)
+ANTHROPIC_API_KEY=… TELEGRAM_BOT_TOKEN=… npx comvivo@latest init ./comvivo \
   --non-interactive --mode docker --preset economy --channels telegram \
   --budget-monthly 10 --budget-daily 1 --access local \
-  --recovery-key-out ./village-recovery.txt --json
-# → {"ok":true,"data":{"dir":"./village","dashboard":"http://localhost:7777",
+  --recovery-key-out ./comvivo-recovery.txt --json
+# → {"ok":true,"data":{"dir":"./comvivo","dashboard":"http://localhost:7777",
 #     "claim":{"code":"VLG-7K2M-9QXA","telegram":"https://t.me/…?startgroup=c_<link token>","expiresAt":"…"}}}
 ```
 `--recovery-key-out` is **required** in non-interactive mode. Without it the run exits 3 with: "Non-interactive setup needs --recovery-key-out so your recovery key isn't lost."
 
-#### 3.11.6 `village doctor`
+#### 3.11.6 `comvivo doctor`
 
 - **Shared registry (the only one).** Checks live in `apps/server/src/diagnostics/checks/*.ts`. The CLI imports the registry for offline checks. The server exposes the online subset at `/control/v1/doctor` and `/api/v1/instance/health`. 08 §3.10 (security checks D-01…D-16, mapped to the ids below or to `security.*`), 11 §3.11 (native modules, audit chain, embeddings, observability, debug flags, test mode, recovery) and 12 (FS type, instance lock, sync markers) register their checks here; this document owns flags, output and exit codes.
 - **Check shape:** `{id, alias?, title, run(ctx) → {status:'pass'|'info'|'warn'|'fail'|'skip', detail, fix?:{text, command?, docs?}, fixable?:boolean}}`.
 
 | ID | Checks | Warn / fail when | Remediation copy (`fix.text`) |
 |---|---|---|---|
-| `runtime.node` | Node version (native mode); permission-model network flag (08 D-08) | < 24.11 → fail; 24.x → warn (plugin network not enforced) | "Village needs Node.js 24.11 or newer (26 recommended). Install it from https://nodejs.org or switch to Docker." |
-| `config.valid` | `comvivo.yaml` parses and validates (zod) | invalid → fail | "comvivo.yaml line {n}: {message}. Fix it, or run `village config validate` for details." |
-| `config.secrets` | Required env vars for enabled providers and channels | missing → fail | "{NAME} isn't set. Run: village secrets set {NAME}" |
-| `fs.folder` | Install and data dirs exist, are writable and owned by the running user | fail | "Village can't write to {path}. Run: sudo chown -R {user} {path}" |
-| `fs.modes` | `keys/` is 0700; `master.key`, `control.token` and `.env` are 0600 | looser → fail (`--fix` applies chmod) | "{file} can be read by other users. Run: chmod 600 {file} (or village doctor --fix)" |
-| `fs.cloudsync` | Data dir isn't under iCloud, Dropbox, OneDrive or Google Drive | warn | "Your data folder is synced to {service}. Move it: stop Village, move the folder, update instance.dataDir." |
-| `fs.disk` | Free space | < 2 GB warn, < 200 MB fail | "Only {n} free. Free up space or move the data folder; Village stops accepting messages when the disk is full." |
-| `keys.master` | Key present; DB opens with it (`SELECT count(*) FROM sqlite_master`) | fail | "The encryption key is missing or doesn't match this database. Restore data/keys/master.key from a backup, or use your recovery key: village restore --recovery-key-file …" |
-| `keys.recovery` | Recovery key confirmed | never confirmed → warn | "You haven't confirmed your recovery key. Run: village keys verify-recovery" |
-| `db.integrity` | `PRAGMA quick_check` (`--deep`: `integrity_check`) | not ok → fail | "Database check failed. Stop Village and restore the latest backup: village restore …" |
-| `db.migrations` | Schema version vs binary | pending → warn (auto-applied on start); DB newer → fail | "Database is from a newer Village ({v}). Update Village: village update" |
-| `server.running` | Control API reachable | fail (skip offline checks that need it) | "Village isn't running. Start it: village start" |
-| `server.version` | CLI vs server skew | minor skew → warn | "This CLI is {a}, the server is {b}. Use npx village@{b}." |
-| `server.ready` | `/readyz` | fail | "Village is up but not ready: {checks}. See: village logs --level warn" |
+| `runtime.node` | Node version (native mode); permission-model network flag (08 D-08) | < 24.11 → fail; 24.x → warn (plugin network not enforced) | "Comvivo needs Node.js 24.11 or newer (26 recommended). Install it from https://nodejs.org or switch to Docker." |
+| `config.valid` | `comvivo.yaml` parses and validates (zod) | invalid → fail | "comvivo.yaml line {n}: {message}. Fix it, or run `comvivo config validate` for details." |
+| `config.secrets` | Required env vars for enabled providers and channels | missing → fail | "{NAME} isn't set. Run: comvivo secrets set {NAME}" |
+| `fs.folder` | Install and data dirs exist, are writable and owned by the running user | fail | "Comvivo can't write to {path}. Run: sudo chown -R {user} {path}" |
+| `fs.modes` | `keys/` is 0700; `master.key`, `control.token` and `.env` are 0600 | looser → fail (`--fix` applies chmod) | "{file} can be read by other users. Run: chmod 600 {file} (or comvivo doctor --fix)" |
+| `fs.cloudsync` | Data dir isn't under iCloud, Dropbox, OneDrive or Google Drive | warn | "Your data folder is synced to {service}. Move it: stop Comvivo, move the folder, update instance.dataDir." |
+| `fs.disk` | Free space | < 2 GB warn, < 200 MB fail | "Only {n} free. Free up space or move the data folder; Comvivo stops accepting messages when the disk is full." |
+| `keys.master` | Key present; DB opens with it (`SELECT count(*) FROM sqlite_master`) | fail | "The encryption key is missing or doesn't match this database. Restore data/keys/master.key from a backup, or use your recovery key: comvivo restore --recovery-key-file …" |
+| `keys.recovery` | Recovery key confirmed | never confirmed → warn | "You haven't confirmed your recovery key. Run: comvivo keys verify-recovery" |
+| `db.integrity` | `PRAGMA quick_check` (`--deep`: `integrity_check`) | not ok → fail | "Database check failed. Stop Comvivo and restore the latest backup: comvivo restore …" |
+| `db.migrations` | Schema version vs binary | pending → warn (auto-applied on start); DB newer → fail | "Database is from a newer Comvivo ({v}). Update Comvivo: comvivo update" |
+| `server.running` | Control API reachable | fail (skip offline checks that need it) | "Comvivo isn't running. Start it: comvivo start" |
+| `server.version` | CLI vs server skew | minor skew → warn | "This CLI is {a}, the server is {b}. Use npx comvivo@{b}." |
+| `server.ready` | `/readyz` | fail | "Comvivo is up but not ready: {checks}. See: comvivo logs --level warn" |
 | `channels.<id>` | Probe: connectivity, identity, permissions (privacy mode, intents, socket token, webhook conflicts) | per check | Uses 06's probe copy, e.g. "Telegram privacy mode is on — in @BotFather: /setprivacy → @{bot} → Disable, then remove and re-add the bot to your group." |
-| `models.<route>` | Provider reachable; key valid; model accessible; local model present | fail | "Anthropic rejected the key in ANTHROPIC_API_KEY. Create a new key and run: village secrets set ANTHROPIC_API_KEY" |
+| `models.<route>` | Provider reachable; key valid; model accessible; local model present | fail | "Anthropic rejected the key in ANTHROPIC_API_KEY. Create a new key and run: comvivo secrets set ANTHROPIC_API_KEY" |
 | `time.clock` | Skew vs the `Date` header of a provider or Telegram response (08 D-14) | > 30 s warn, > 5 min fail | "This computer's clock is {n} off. Reminders may fire at the wrong time. Turn on automatic time sync." |
 | `time.zone` | Host TZ is a valid IANA zone; group timezones are valid | warn | "Group '{name}' has no valid timezone. Set it in the dashboard → Settings → General." |
-| `backups.recent` | Last successful backup < 36 h (if enabled; the same threshold as `/healthz` `degraded`, 12 §3.9); not on the same disk as data (warn) (08 D-06) | warn | "No backup in {n} days. Run: village backup — and check the logs for backup errors." |
-| `jobs.health` | Failed or dead jobs, stuck leases | > 0 dead → warn | "{n} background jobs failed. See: village logs --since 24h --level error" |
+| `backups.recent` | Last successful backup < 36 h (if enabled; the same threshold as `/healthz` `degraded`, 12 §3.9); not on the same disk as data (warn) (08 D-06) | warn | "No backup in {n} days. Run: comvivo backup — and check the logs for backup errors." |
+| `jobs.health` | Failed or dead jobs, stuck leases | > 0 dead → warn | "{n} background jobs failed. See: comvivo logs --since 24h --level error" |
 | `outbox.stuck` | Outbox rows pending > 10 min | warn | "{n} messages are waiting to send on {channel}. Check the channel status above." |
 | `budgets.status` | Any group ≥ 90 % of a cap | warn | "{group} has used {pct}% of its monthly AI budget. Raise it in the dashboard → Costs." |
 | `dashboard.exposure` | Bound to non-loopback without HTTPS `publicUrl` | warn | "The dashboard is reachable on your network without HTTPS. Fine at home; otherwise put it behind HTTPS: {docs}/dashboard/https" |
 | `dashboard.reachability` | Magic links would point to loopback while chat users are remote | warn | "Sign-in links only open on this computer. Set instance.publicUrl to an address your phone can reach." |
-| `docker.compose` | Docker running; container healthy; image tag = CLI version (docker mode) | fail / warn | "The Village container isn't healthy. See: village logs" |
-| `updates.available` | Only if `updates.check: true` | newer → warn | "Village {v} is available. Update with: village update" |
+| `docker.compose` | Docker running; container healthy; image tag = CLI version (docker mode) | fail / warn | "The Comvivo container isn't healthy. See: comvivo logs" |
+| `updates.available` | Only if `updates.check: true` | newer → warn | "Comvivo {v} is available. Update with: comvivo update" |
 | `security.*` | The remaining 08 §3.10 checks (`security.env-git`, `security.secrets-in-config`, `security.encryption`, `security.root`, `security.debug-and-key-source`, `security.egress`, `security.plugins`, `security.proxy`, `security.logs`) | per 08 §3.10 (`info`/`warn`/`fail`) | copy per 08 §3.10 |
 
 **Output:**
 ```
-Village doctor · v1.0.0 · docker mode
+Comvivo doctor · v1.0.0 · docker mode
 
   ✔ Configuration is valid
-  ✔ Data folder is writable (./village/data · 41 GB free)
+  ✔ Data folder is writable (./comvivo/data · 41 GB free)
   ▲ Recovery key was never confirmed
-      Run: village keys verify-recovery
+      Run: comvivo keys verify-recovery
   ✖ Telegram: privacy mode is on
-      Village only sees messages that mention it. In @BotFather: /setprivacy → @garcia_village_bot
+      Comvivo only sees messages that mention it. In @BotFather: /setprivacy → @garcia_comvivo_bot
       → Disable, then remove and re-add the bot to your group.
       Docs: {docs}/channels/telegram#privacy-mode
 
@@ -1895,7 +1895,7 @@ Exit codes: 4 on any fail. With `--strict`, warnings also exit 4. `info` never a
 
 ### 3.12 Copy and UX writing guidelines (dashboard and CLI)
 
-**Voice:** a capable, warm neighbor who helps out. Plain, brief and calm. Never cute, never alarmist. Village is "it"; the reader is "you".
+**Voice:** a capable, warm neighbor who helps out. Plain, brief and calm. Never cute, never alarmist. Comvivo is "it"; the reader is "you".
 
 **Rules:**
 1. **Say what happened, why (if known), and what to do next.** Every error has an action. Example: "Couldn't reach api.anthropic.com. Check your internet connection." Never write "Something went wrong" on its own; add the `requestId` and one step to try.
@@ -1910,7 +1910,7 @@ Exit codes: 4 on any fail. With `--strict`, warnings also exit 4. `info` never a
    | proactivity / interjection | "speaking up" |
    | consent `memory_off` | "Memory off for you" |
    | turn | "reply" |
-   | disposition | "why Village replied (or didn't)" |
+   | disposition | "why Comvivo replied (or didn't)" |
    | capability | "can …" |
    | proposal | "proposed change" |
    | constitution | "constitution" (subtitle "your group's rules") |
@@ -1921,7 +1921,7 @@ Exit codes: 4 on any fail. With `--strict`, warnings also exit 4. `info` never a
 6. **One exclamation mark at most**, and only for real celebrations (the end of setup). No emoji in UI chrome or CLI output. Bot messages follow 05's behavior charter.
 7. **Don't write "simply", "just", "easy" or "obviously".** Don't blame: write "That code expired", not "You entered an expired code".
 8. **Destructive copy names the object and the consequence**, and says whether it can be undone.
-9. **Explain privacy positively and precisely.** "Admins can't see your private chats with Village — not even the host through the dashboard." Never over-promise beyond the threat model. The host's machine access is documented in 08, and Security → About links to it.
+9. **Explain privacy positively and precisely.** "Admins can't see your private chats with Comvivo — not even the host through the dashboard." Never over-promise beyond the threat model. The host's machine access is documented in 08, and Security → About links to it.
 10. **CLI specifics:**
     - Lines are ≤ 80 columns.
     - Commands to run are on their own line, prefixed `Run:`.
@@ -2096,8 +2096,8 @@ export interface ChannelProbe {        // @comvivo/channel-<id>/probe (subpath e
 | 06 | In-chat commands `/dashboard`, `/pair`, `/claim`, `/logout-all`, `/why`, step-up buttons → `AuthService`; `ChannelProbe` + fix-it copy per adapter; web adapter `acceptInbound()` and SSE push hook |
 | 07 | `renderIcs(audience, range)`; fairness ledger view with explicit label; event occurrence expansion |
 | 08 | recovery-key format + `keys` primitives; token formats (§3.7.12); exposure modes and the A9 login rules (signed off) |
-| 10 | MCP token issue/revoke service (`village mcp token`); plugin manifest/permission model and the `village plugin`/`skill`/`mcp client` command semantics |
-| 12 | compose `user:` UID/GID mapping; image healthcheck (`/app/healthcheck.mjs`, same check as `village healthcheck`); HA app manifest values (§3.10.11); release manifest URL for update checks; the ops commands in 12 §4.1 (listed in §3.11.3) |
+| 10 | MCP token issue/revoke service (`comvivo mcp token`); plugin manifest/permission model and the `comvivo plugin`/`skill`/`mcp client` command semantics |
+| 12 | compose `user:` UID/GID mapping; image healthcheck (`/app/healthcheck.mjs`, same check as `comvivo healthcheck`); HA app manifest values (§3.10.11); release manifest URL for update checks; the ops commands in 12 §4.1 (listed in §3.11.3) |
 
 ---
 
@@ -2107,7 +2107,7 @@ export interface ChannelProbe {        // @comvivo/channel-<id>/probe (subpath e
 
 ```yaml
 instance:
-  publicUrl: null                   # https://village.example.com — used for links, cookies (Secure), CSRF origin
+  publicUrl: null                   # https://comvivo.example.com — used for links, cookies (Secure), CSRF origin
 deployment:
   mode: docker                      # docker | native | ha | umbrel | casaos — written by init; informational for server
 dashboard:
@@ -2158,7 +2158,7 @@ Constraints enforced by zod:
 
 - **DB layer** (dashboard-editable, per ADR-014): budgets, quiet hours, retention within bounds, model preset and per-route model overrides **among providers already configured in env/YAML**, channel `enabled` flags, `notifyOnSignIn`, `updates.check`, and backup schedule and `keep`.
 - **File/env only, shown read-only:** `bind`, `port`, `basePath`, `publicUrl`, `trustProxy`, `ingress.*`, `control.enabled`, all secrets, and every **host-only key** (01 §14 A14; marked ● in 08 §5): providers, base URLs and API keys, egress allowlists, plugins, MCP servers, debug-content logging, `dashboard.auth.magicLinks` and the rest of the exposure mode. DB values for these keys are ignored.
-- **Hot-reloadable** (`/control/v1/reload` or a DB change): budgets, quiet hours, retention, the model preset and routes (gateway rebuild), channel enable/disable (adapter start/stop), rate limits, and secrets after `village secrets set` (adapter or gateway restart).
+- **Hot-reloadable** (`/control/v1/reload` or a DB change): budgets, quiet hours, retention, the model preset and routes (gateway rebuild), channel enable/disable (adapter start/stop), rate limits, and secrets after `comvivo secrets set` (adapter or gateway restart).
 - **Restart required:** `bind`, `port`, `basePath`, `ingress.*`, `dataDir`. The UI shows a "Restart needed" chip next to these.
 
 ---
@@ -2189,7 +2189,7 @@ Constraints enforced by zod:
 | F20 | Windows | `chmod` is a no-op, so the doctor check `fs.modes` reports `skip` with "Make sure only your account can read {folder}". Paths are normalized. Native mode is supported and Docker is recommended. |
 | F21 | Ollama model pull fails because the disk is full | Clack progress shows the error. The wizard offers a smaller model or a cloud preset. |
 | F22 | Constitution validate endpoint is slow or unreachable while editing | Client-side syntax linting keeps working. The status shows "Can't check rules right now". Propose stays disabled until a validation succeeds. |
-| F23 | Budget exhausted while using web chat | Village's own budget message is shown as a normal message, plus the `budget.status` banner for `usage.read` viewers. |
+| F23 | Budget exhausted while using web chat | Comvivo's own budget message is shown as a normal message, plus the `budget.status` banner for `usage.read` viewers. |
 | F24 | A web-only person's session expires | They can't re-login without a linked chat app. This is prevented by the persistent "Link a chat app" banner (§3.9.11). The host can't impersonate. |
 | F25 | The host is not a member of any group | `/` routes to `/instance`. The group switcher shows "You're not in any groups yet" with an "Add a group" action. |
 
@@ -2227,7 +2227,7 @@ Constraints enforced by zod:
 | Server idle RSS impact of HTTP and dashboard | ≤ 25 MB of the 300 MB budget | no SSR, no in-memory asset copies beyond `index.html` |
 | Dashboard bundles | §3.10.10 | `size-limit` in CI |
 | Wizard wall time | ≤ 5 min (p50 ≤ 4 min) in dry runs | background downloads; `--timing` |
-| CLI startup (`village status`) | ≤ 300 ms | thin package; server runtime not loaded |
+| CLI startup (`comvivo status`) | ≤ 300 ms | thin package; server runtime not loaded |
 | Model cost added by this document | key test ≈ $0.0001 per test; web chat = normal turns; charter preview and constitution validation are deterministic (03), so $0 | `probe` rate class prevents abuse |
 
 ---
@@ -2239,12 +2239,12 @@ Constraints enforced by zod:
 | **API IFC property suite** | It generates random groups (roles, labels on every resource, DMs, traces with mixed manifests, audit) and random viewers. It then calls **every** `GET` route with `ifc:'readmodel'`, plus SSE replay. It asserts three things:<br>• every returned ID satisfies `canRead(label,{viewer})`;<br>• unreadable IDs give 404 bodies identical to those for nonexistent IDs (ignoring `requestId`);<br>• a canary string planted in every private item never appears.<br>A **coverage guard** fails if any `GET` route lacks a generator fixture. | `apps/server/test/ifc-api.prop.test.ts` (fast-check) |
 | Admin/host-cannot-read-DMs red-team | Zero leaks via memory search, traces, activity, audit, usage grouping, exports, SSE, ICS and the conversations list | shared with 11 |
 | Authority suite | For each `ifc:'command'` route × role × template, the outcome (done, needs_confirmation, contested, 403) matches 03's policy table. Driven by the route-meta `capability`. | Vitest + `app.request()` |
-| Contracts | No OpenAPI drift (`openapi:emit` + `git diff --exit-code`). The generated client compiles. Every problem `code` has an `errors:<code>` key. Every route has `x-village` metadata. | CI |
+| Contracts | No OpenAPI drift (`openapi:emit` + `git diff --exit-code`). The generated client compiles. Every problem `code` has an `errors:<code>` key. Every route has `x-comvivo` metadata. | CI |
 | Auth and security | Token reuse, expiry and instance mismatch. Fragment-only exchange. Rotation grace. Session fixation. The CSRF matrix (method × content type × Sec-Fetch-Site/Origin × header). The cookie matrix (http/https × basePath × proxy). Rate limits. The control API rejects cookies. Ingress allow-list (simulated `remoteAddress`). CSP is present on HTML. | Vitest |
 | SSE | Resume via `Last-Event-ID`. A gap triggers `resync`. Revocation and back-pressure close the stream. Per-subscriber filtering. | Vitest |
 | Dashboard | Unit tests: Vitest + Testing Library, with msw handlers generated from OpenAPI examples. Playwright e2e against `pnpm dev` with the simulator channel:<br>• magic link, pairing, setup;<br>• every screen's happy, empty, error and permission states;<br>• 375×812 and desktop, light and dark.<br>Also: axe on every screen, 12 visual snapshots, Lighthouse CI on Home, `size-limit`, i18n missing/unused keys, pseudo-locale overflow check. | `apps/dashboard/{src,e2e}` |
 | CLI | `execa` against built binaries in a temp folder. Provider and platform APIs mocked by msw/node fixtures (05/06). Scripted-TTY wizard golden path per mode (`node-pty`, dev-only). Non-interactive matrix. Copy snapshots. Every doctor check has pass, warn and fail fixtures. Exit codes asserted. | `apps/cli/test` |
-| Evals | Time-to-first-value dry runs (11 §3.13.6, 13 §9.3; 01 §14 A22): ≥ 40 fresh-user attempts with ≥ 95% success and median ≤ 5 minutes, `--timing` attached to the release checklist. `village eval run --suite smoke` validates the configured models. | release checklist |
+| Evals | Time-to-first-value dry runs (11 §3.13.6, 13 §9.3; 01 §14 A22): ≥ 40 fresh-user attempts with ≥ 95% success and median ≤ 5 minutes, `--timing` attached to the release checklist. `comvivo eval run --suite smoke` validates the configured models. | release checklist |
 
 ---
 
@@ -2256,12 +2256,12 @@ Constraints enforced by zod:
 
 | ID | Task | Files | Acceptance criteria | Depends on |
 |---|---|---|---|---|
-| M3-T901 | CLI skeleton | `apps/cli/{bin/village.mjs,src/main.ts,context.ts,output.ts,exit-codes.ts,copy/}` | `village --help` and `village version`. Node version shim. `--json` / `--non-interactive` plumbing. Exit-code table tests. | M0 |
+| M3-T901 | CLI skeleton | `apps/cli/{bin/comvivo.mjs,src/main.ts,context.ts,output.ts,exit-codes.ts,copy/}` | `comvivo --help` and `comvivo version`. Node version shim. `--json` / `--non-interactive` plumbing. Exit-code table tests. | M0 |
 | M3-T902 | HTTP foundation + health | `apps/server/src/http/{app.ts,listeners.ts,middleware/{request-id,security-headers,no-store,problem,body-limit}.ts}`, `routes/health.ts` | `/healthz` and `/readyz` follow §3.8 semantics (tests for draining, migrations pending and scheduler stale). problem+json `onError`. Binds `dashboard.bind:port`. | M1 |
 | M3-T903 | Control API (min) + token | `http/control/{app.ts,auth.ts}`, `routes: status, claim-codes, login-links(print only), events(SSE: group.bound)`; `storage` keygen of `control.token` | The CLI reaches the server with the bearer. Cookies are rejected. A wrong token gets 401. | M3-T902 |
 | M3-T904 | Host claim code (min) | `engine/auth/claim.ts`, boot banner | A code (typed `VLG-…` + 128-bit link token, 30-minute TTL) is generated at boot when unclaimed. It is redeemed through 06's Telegram `/start c_…` and `?startgroup=c_…`, and the group gets bound (placeholder constitution in M3, 01 §14 A27). Burned after 10 failures. Audit event. | M3-T903, 06 M3 Telegram + setup flow |
-| M3-T905 | `village init` (min, native, Telegram, Anthropic) | `apps/cli/src/wizard/{welcome,folder,models,telegram,keys,write,start,claim}.ts`, `probes/` | The wizard copy from §3.11.5, steps 0–3, 4 (Telegram only), 5, 7 (local access only), 8–10. It validates the key and token (getMe, privacy, webhook). Writes `comvivo.yaml`, `.env` (0600) and keys. Starts native `--detach`. Prints the startgroup link and waits for `group.bound`. Has a non-interactive mode. | M3-T903, M3-T904, M2 ProviderProbe, 06 TelegramProbe |
-| M3-T906 | `village start`/`status`/`doctor` (min) | `commands/{start,status,doctor}.ts`, `apps/server/src/diagnostics/checks/{config,fs,keys,db,server,telegram,models}.ts` | `start` runs in the foreground, plus `--detach` with a pidfile. `status` summary. `doctor` with 8 core checks and their remediation copy. Exit 4 on fail. | M3-T902 |
+| M3-T905 | `comvivo init` (min, native, Telegram, Anthropic) | `apps/cli/src/wizard/{welcome,folder,models,telegram,keys,write,start,claim}.ts`, `probes/` | The wizard copy from §3.11.5, steps 0–3, 4 (Telegram only), 5, 7 (local access only), 8–10. It validates the key and token (getMe, privacy, webhook). Writes `comvivo.yaml`, `.env` (0600) and keys. Starts native `--detach`. Prints the startgroup link and waits for `group.bound`. Has a non-interactive mode. | M3-T903, M3-T904, M2 ProviderProbe, 06 TelegramProbe |
+| M3-T906 | `comvivo start`/`status`/`doctor` (min) | `commands/{start,status,doctor}.ts`, `apps/server/src/diagnostics/checks/{config,fs,keys,db,server,telegram,models}.ts` | `start` runs in the foreground, plus `--detach` with a pidfile. `status` summary. `doctor` with 8 core checks and their remediation copy. Exit 4 on fail. | M3-T902 |
 
 ### M9 — full API, auth, dashboard and CLI
 
@@ -2294,7 +2294,7 @@ Constraints enforced by zod:
 | M9-T925 | Activity, audit and traces | `features/{activity,traces}/*` | §3.10.6.12–13. Hidden-item collapsing. Owner-only constraint sources. Integrity badge. | M9-T912 |
 | M9-T926 | Costs & budgets | `features/costs/*` | §3.10.6.14. KPI tiles, charts with tables, budget form. Local-preset variant. | M9-T912 |
 | M9-T927 | Settings (group, me, instance) | `features/settings/*`, `routes/_app/{me,instance}/*` | §3.10.6.16. Source and locked indicators. Restart chips. Recent-auth flows. Masked keys with Test. Channel fix-it hints. | M9-T912/T913 |
-| M9-T928 | Full `village init` | `apps/cli/src/wizard/*`, `modes/{docker,native}.ts` | Every step and all copy in §3.11.5 for Docker and native modes. Background downloads. Reconfigure menu. Dashboard access step (LAN/Tailscale detection). Port fallback. Non-interactive matrix. ≤ 5-minute dry run. | M3-T905, M9-T903 |
+| M9-T928 | Full `comvivo init` | `apps/cli/src/wizard/*`, `modes/{docker,native}.ts` | Every step and all copy in §3.11.5 for Docker and native modes. Background downloads. Reconfigure menu. Dashboard access step (LAN/Tailscale detection). Port fallback. Non-interactive matrix. ≤ 5-minute dry run. | M3-T905, M9-T903 |
 | M9-T929 | CLI commands (rest) | `commands/{stop,restart,logs,login,group,backup,restore,export,migrate,keys,secrets,config,sessions,channels,eval}.ts` | The §3.11.3 table with flags, outputs and exit codes. Restore safety (typed confirm, pre-restore copy, session revocation). No command can print an existing recovery key (08 SD-04). | M9-T903, 02 backup, 08 keys |
 | M9-T930 | Full `doctor` + `/instance/health` | `apps/server/src/diagnostics/checks/*` | All §3.11.6 checks with fixtures for pass, warn and fail. `--fix` for modes and dirs. The same registry is used online. | M9-T913 |
 | M9-T931 | Quality gates for the dashboard and API | `apps/dashboard/e2e/*`, `.size-limit.json`, `lighthouserc.json`, i18n checks, token contrast script | All §9 dashboard and CLI checks run in CI. Budgets enforced. | all M9 above |
@@ -2309,10 +2309,10 @@ Constraints enforced by zod:
 
 | ID | Task | Files | Acceptance criteria | Depends on |
 |---|---|---|---|---|
-| M14-T901 | Thin `village` package + on-demand runtime | `apps/cli/package.json`, `modes/native.ts` | `npx village@latest init` installs only the CLI. The native runtime is installed into `.runtime` in the background. The CLI and server versions are pinned together. Cold `npx` ≤ 20 s on broadband. | 12 npm publishing |
+| M14-T901 | Thin `comvivo` package + on-demand runtime | `apps/cli/package.json`, `modes/native.ts` | `npx comvivo@latest init` installs only the CLI. The native runtime is installed into `.runtime` in the background. The CLI and server versions are pinned together. Cold `npx` ≤ 20 s on broadband. | 12 npm publishing |
 | M14-T902 | Docker mode orchestration | `modes/docker.ts` | `start`, `stop`, `logs` and `status` via compose. UID/GID mapping. Waits for readiness. Image tag = CLI version. | 12 compose files |
 | M14-T903 | HA ingress mode | `http/middleware/ingress.ts`, `listeners.ts`, `routes/link-ha.tsx`, `engine/auth/ha-links.ts` | Socket allow-list, `X-Ingress-Path` base, header sessions, linking via pairing (or the host claim code while unclaimed), unlinked headers never authenticate (test), embedded UI mode, SSE through ingress. Tested with a simulated Supervisor proxy. | 12 HA app |
-| M14-T904 | `village healthcheck`, `update`, `version --check`, `service install` | `commands/{healthcheck,update,version,service}.ts` | Exit semantics. Pre-update backup. Opt-in manifest fetch with no identifiers. systemd and launchd units generated. | 12 release manifest |
+| M14-T904 | `comvivo healthcheck`, `update`, `version --check`, `service install` | `commands/{healthcheck,update,version,service}.ts` | Exit semantics. Pre-update backup. Opt-in manifest fetch with no identifiers. systemd and launchd units generated. | 12 release manifest |
 | M14-T905 | Cross-machine restore | `commands/restore.ts` | Restore onto a fresh machine with the recovery key. Control token rotated. Sessions revoked. Upgrade-path test with backups from the N-1 and N-2 versions. | 02/08 |
 
 ### M15 — polish
@@ -2333,21 +2333,21 @@ Constraints enforced by zod:
 | # | Question | Recommended default |
 |---|---|---|
 | Q-1 | Which preset should the wizard select by default? Best is the spine default and may surprise cost-sensitive hosts on $5 VPSes. | **Owner decision D-1 (15 §1); not decided here.** Until then: Best pre-selected with per-preset estimates and budgets (01 §14 A3). Revisit after M13 publishes measured costs. |
-| Q-2 | Should the dashboard ever write secrets? | **Only on appliance installs** (01 §14 A29; D-29): token-gated `/setup` or host step-up, into `keys/secrets.enc`. Elsewhere use `village secrets set`. |
+| Q-2 | Should the dashboard ever write secrets? | **Only on appliance installs** (01 §14 A29; D-29): token-gated `/setup` or host step-up, into `keys/secrets.enc`. Elsewhere use `comvivo secrets set`. |
 | Q-3 | Generic forward-auth (Authelia, oauth2-proxy `Remote-User` headers)? | **Not in 1.0.** HA ingress only. Design `trustedHeaderAuth` after launch, using the same `ha_links`-style linking. |
 | Q-4 | Personal REST API tokens for scripts? | **No** in 1.0. MCP tokens (10) cover agent integrations. Revisit with demand. |
 | Q-5 | Should traces show "{n} items not visible to you"? | **Show the count.** It is honest and reveals no owner or kind. 03 may disable it per constitution (`traces.hideHiddenCount`). |
 | Q-6 | Re-login for web-only people (no chat identity)? | Post-1.0 **passkeys** (WebAuthn) for web identities. In 1.0, a persistent "Link a chat app" banner. |
 | Q-7 | Pairing codes enable code-forwarding phishing ("send me the code you see"). | **Resolved (01 §14 A9):** pairing is the default login, with the warning copy and device details in the approval message. Hosts can disable it only where magic links are allowed (D-12). |
-| Q-8 | `village import` for logical exports? | **Not in 1.0.** `restore` covers machine moves. Logical import arrives with the Postgres backend. |
+| Q-8 | `comvivo import` for logical exports? | **Not in 1.0.** `restore` covers machine moves. Logical import arrives with the Postgres backend. |
 | Q-9 | Calendar: in-house views or Schedule-X? | **In-house** (D-22). Switch the Week view to Schedule-X only if M9-T922 slips by more than 3 days. |
 | Q-10 | Sign-in notifications default | **`host`** (notify only for host sessions). Quiet by default. |
 | Q-11 | Session lifetime for family phones | **Resolved by 08 §3.7.12:** 12-hour idle, 7-day absolute; not raisable. Members re-login with a pairing code (or `/dashboard` where magic links are allowed). |
 | Q-12 | Can the actor interleave dashboard commands during a long turn (05)? | **Yes:** commands run between model calls with `priority:'interactive'`. Until 05 confirms, the 8 s → 202 `queued` fallback covers it. |
 | Q-13 | Should `/openapi.json` be public? | **Session-only** on instances. The public docs site renders the committed spec. |
 | Q-14 | Should members (not admins) have dashboard access by default? | **Yes** for adult roles and teens (memory controls, traces, privacy). **No** for `child`. Configured by the `dashboard.access` capability per template (03). |
-| Q-15 | Who may create new groups? | **Host only** in 1.0. Group admins can add further chats to their own group with `/village addchat` (01 §14 A27, 06 §3.20.1). A `groups.create` instance setting comes later. |
-| Q-16 | Should `village eval run --suite smoke` ship to end users? | **Yes**, with ≤ 10 scenarios and a cost under $0.01, via the published `@comvivo/evals` loaded as an optional dependency (01 §14 A17). It validates Local models before people rely on them. |
+| Q-15 | Who may create new groups? | **Host only** in 1.0. Group admins can add further chats to their own group with `/comvivo addchat` (01 §14 A27, 06 §3.20.1). A `groups.create` instance setting comes later. |
+| Q-16 | Should `comvivo eval run --suite smoke` ship to end users? | **Yes**, with ≤ 10 scenarios and a cost under $0.01, via the published `@comvivo/evals` loaded as an optional dependency (01 §14 A17). It validates Local models before people rely on them. |
 
 ---
 

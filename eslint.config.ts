@@ -27,6 +27,7 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 import { comvivoPlugin } from './scripts/lint/no-secret-equality.js';
 import {
+  AFTER_COMMIT_BAN,
   CORE_PURITY_RULES,
   FC_CONFIG_BAN,
   FETCH_ALLOWED_GLOBS,
@@ -92,6 +93,7 @@ function restrictedSyntaxBlocks(): ReturnType<typeof defineConfig> {
   const base = [
     ...selectors(SECURITY_RULES),
     ...selectors(SYNC_TX_BAN),
+    ...selectors(AFTER_COMMIT_BAN),
     ...selectors(FC_CONFIG_BAN),
   ];
   const rawTx = selectors(RAW_TRANSACTION_BAN);
@@ -424,9 +426,16 @@ export default defineConfig(
       // *replaces* a rule's options rather than merging them, so the last block naming
       // `no-restricted-syntax` won, and this one did not name it. Measured by the M1 exit gate's
       // reviewer: identical source yields zero errors as `.mjs` and both bans as `.ts`. It
-      // matters here because `outbox/testing/crash-runner.mjs` opens transactions in exactly such
-      // a file — and that harness is what proves the outbox's exactly-once behaviour.
-      ...restrict([...selectors(RAW_TRANSACTION_BAN), ...selectors(SYNC_TX_BAN)]),
+      // matters here because `outbox/testing/crash-runner.mjs` is exactly such a file, and it is
+      // what proves the outbox's exactly-once behaviour: it writes through `store.write`, as it
+      // should, and the rule's scope is what keeps it that way. An earlier version of this note
+      // said the harness "opens transactions", which the M1 exit gate's second reviewer measured
+      // to be false — it does not, and the ban is still right to cover `.mjs`.
+      ...restrict([
+        ...selectors(RAW_TRANSACTION_BAN),
+        ...selectors(SYNC_TX_BAN),
+        ...selectors(AFTER_COMMIT_BAN),
+      ]),
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },

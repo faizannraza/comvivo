@@ -251,9 +251,11 @@ describe('the key transfer (02 §3.6.2)', () => {
 });
 
 describe('a worker reads while the main thread writes (02 D22)', { tags: ['db', 'slow'] }, () => {
-  it('opens read-only in the worker, by default', async () => {
+  it('opens read-only in the worker, with no way to ask otherwise', async () => {
     // A worker that wrote would be a second writer — which the instance lock exists to prevent and
-    // which SQLite's WAL would not stop.
+    // which SQLite's WAL would not stop. It was "by default" until the M1 exit gate, when the
+    // `readonly` option that made it a default was removed: `C1` is not something a caller opts
+    // out of with one property.
     await withDataDir(async (root) => {
       const path = join(root, 'd22.db');
       const key = randomBytes(32);

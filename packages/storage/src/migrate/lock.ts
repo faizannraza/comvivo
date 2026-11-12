@@ -66,7 +66,11 @@ export function readLock(path: string): MigrationLock {
   try {
     parsed = JSON.parse(raw);
   } catch (cause) {
-    throw new StorageError('MIGRATION_CHECKSUM_MISMATCH', `${path} is not valid JSON`, {
+    // `STORAGE_JSON_INVALID`, not `MIGRATION_CHECKSUM_MISMATCH`: a host who sees "checksum
+    // mismatch" for a merge-conflicted file goes looking for an edited migration. The code is what
+    // `doctor` and the exit-code map dispatch on, so it has to name the actual failure. Found by
+    // the M1 exit gate's reviewer.
+    throw new StorageError('STORAGE_JSON_INVALID', `${path} is not valid JSON`, {
       hint:
         'The checksum lock records which migrations have shipped, so a broken one cannot be ' +
         'ignored — that would let a released migration be edited unnoticed. If this is a merge ' +
@@ -77,7 +81,7 @@ export function readLock(path: string): MigrationLock {
   }
   const result = migrationLockSchema.safeParse(parsed);
   if (!result.success) {
-    throw new StorageError('MIGRATION_CHECKSUM_MISMATCH', `${path} is not a migration lock`, {
+    throw new StorageError('STORAGE_JSON_INVALID', `${path} is not a migration lock`, {
       hint:
         'Expected `{ "released": { "<migration id>": { "checksum": "<sha256>", "release": ' +
         '"<version>" } } }`. Regenerate it with the release tooling rather than by hand.',

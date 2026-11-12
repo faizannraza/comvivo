@@ -18,6 +18,7 @@ import tseslint from 'typescript-eslint';
 import { describe, expect, it } from 'vitest';
 import { comvivoPlugin, namesASecret, words } from '../../scripts/lint/no-secret-equality.js';
 import {
+  AFTER_COMMIT_BAN,
   CORE_PURITY_RULES,
   FC_CONFIG_BAN,
   FETCH_ALLOWED_GLOBS,
@@ -504,6 +505,57 @@ describe('only SqliteStore may open a transaction (02 §3.7.2)', { tags: ['slow'
     );
     expect(message).toMatch(/store\.write\(fn\)/);
     expect(message).toMatch(/IMMEDIATE lock/);
+  });
+});
+
+describe('an afterCommit hook must be synchronous (02 §3.7.2)', { tags: ['slow'] }, () => {
+  it.each([
+    ['an async arrow', 'export const f = (u: any) => u.afterCommit(async () => { await g(); });'],
+    [
+      'an async function expression',
+      'export const f = (u: any) => u.afterCommit(async function () { await g(); });',
+    ],
+  ])('rejects %s', async (_label, code) => {
+    expect(await rulesFiredFor(AFTER_COMMIT_BAN, code, 'packages/engine/src/a.ts')).toContain(
+      'no-restricted-syntax',
+    );
+  });
+
+  it.each([
+    ['a synchronous hook', 'export const f = (u: any) => u.afterCommit(() => g());'],
+    ['a hook that is merely named', 'export const afterCommit = 1;'],
+    [
+      'an async callback to something else',
+      'export const f = (u: any) => u.onDone(async () => 1);',
+    ],
+  ])('allows %s', async (_label, code) => {
+    expect(await rulesFiredFor(AFTER_COMMIT_BAN, code, 'packages/engine/src/a.ts')).not.toContain(
+      'no-restricted-syntax',
+    );
+  });
+
+  it('describes the post-commit consequence, not the transaction one', async () => {
+    // The reason this is a separate ban: `SYNC_TX_BAN`'s message says the transaction "commits an
+    // empty transaction and then does its work outside it", which is the wrong failure mode here
+    // and would send the reader looking for a lost write. Found by the M1 exit gate's reviewer,
+    // who also found that the `afterCommit` alternative had no test at all.
+    const message = await firstMessageFor(
+      AFTER_COMMIT_BAN,
+      'export const f = (u: any) => u.afterCommit(async () => { await g(); });',
+      'packages/engine/src/a.ts',
+    );
+    expect(message).toMatch(/unhandled rejection/);
+    expect(message).toMatch(/after the write has already landed/);
+    expect(message).not.toMatch(/empty transaction/);
+  });
+
+  it('is not what the transaction ban covers, so neither can be deleted for the other', async () => {
+    const byTxBan = await rulesFiredFor(
+      SYNC_TX_BAN,
+      'export const f = (u: any) => u.afterCommit(async () => { await g(); });',
+      'packages/engine/src/a.ts',
+    );
+    expect(byTxBan).not.toContain('no-restricted-syntax');
   });
 });
 

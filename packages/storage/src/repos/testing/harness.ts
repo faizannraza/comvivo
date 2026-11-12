@@ -159,12 +159,22 @@ export function withRepos<T>(fn: (world: World) => NotPromise<T>): T {
 export function eligibleAll(world: World, group: GroupId = world.groupId): EligibleLabelSet {
   const snapshot = world.repos.groups.snapshot(group);
   if (snapshot === undefined) throw new Error(`fixture: no group ${group}`);
-  return computeEligible(
-    world.repos.labels.groupLabels(group),
-    { kind: 'group', groupId: group },
-    snapshot,
-    { canRead: () => true },
-  );
+  const labels = world.repos.labels.groupLabels(group);
+  // **"All of nothing" is refused.** `02` §3.7.1's labeled reads return early for an empty set, so
+  // an accidentally empty "everything" set makes every negative assertion pass without the
+  // predicate under test ever running. That is not hypothetical: it happened in
+  // `tasks.contract.test.ts`, where the cross-group test interned a label in the *other* group
+  // only, and the M1 exit gate's reviewer proved the read was answering `1 = 0` rather than
+  // `group_id = ?`. `eligibleNone` is how a test asks for an empty set on purpose.
+  if (labels.size === 0) {
+    throw new Error(
+      `fixture: group ${group} has no interned labels, so "every label" is the empty set — ` +
+        'intern one, or use `eligibleNone` if that is what the test means',
+    );
+  }
+  return computeEligible(labels, { kind: 'group', groupId: group }, snapshot, {
+    canRead: () => true,
+  });
 }
 
 /**
@@ -184,6 +194,17 @@ export function eligibleOnly(
   if (snapshot === undefined) throw new Error(`fixture: no group ${group}`);
   const labels = world.repos.labels.groupLabels(group);
   const keep = new Set(ids);
+  // Every id must belong to this group, for the reason `eligibleAll` refuses an empty set: an id
+  // from another group — or a typo — silently drops out, the set collapses, and the read returns
+  // nothing for a reason that has nothing to do with what is being tested.
+  const unknown = [...keep].filter((id) => !labels.has(id));
+  if (keep.size === 0 || unknown.length > 0) {
+    throw new Error(
+      keep.size === 0
+        ? 'fixture: `eligibleOnly` with no ids is `eligibleNone` — say so'
+        : `fixture: label id(s) ${unknown.join(', ')} are not interned in group ${group}`,
+    );
+  }
   const idByLabel = new Map<Label, LabelId>();
   for (const [id, label] of labels) idByLabel.set(label, id);
   return computeEligible(labels, { kind: 'group', groupId: group }, snapshot, {

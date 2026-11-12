@@ -12,7 +12,11 @@
  * the wrong way round: an unreadable file is the one worth asking about.
  *
  * So: `ENOENT` is the race and is reported as `missing`; anything else is a `failed` with its code,
- * and each caller turns that into a finding. Found by the M1 exit gate's reviewer.
+ * and each caller turns that into a finding — `literal-secrets.ts` with a test of its own
+ * (`scanFiles`, in `literal-secrets.test.ts`), the other two with three lines each that this
+ * module's own tests make trustworthy. `read-listed.test.ts` covers all three outcomes, because
+ * `scripts/**` is outside the coverage thresholds and would otherwise have nothing proving them.
+ * Found by the M1 exit gate's reviewers.
  */
 import { readFileSync } from 'node:fs';
 

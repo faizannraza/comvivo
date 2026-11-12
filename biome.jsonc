@@ -54,8 +54,15 @@
         // own failure mode, sits around 16-17 with every branch earning its place. Splitting further
         // would trade readable code for artificial indirection. 20 keeps the rule biting on genuinely
         // tangled functions.
+        //
+        // **`error`, not `warn`.** It was `warn` until the M1 exit gate, and `pnpm lint` is
+        // `biome ci . && eslint . --max-warnings 0` — the `--max-warnings` binds eslint only, so
+        // Biome exited 0 with the warning printed. Two functions crossed the budget during the
+        // gate's own fixes and `pnpm verify` stayed green; a reviewer then measured that a planted
+        // function scoring 60 against a max of 20 still exited 0. A budget nothing enforces is not
+        // a budget, which is the same reasoning that split those two functions.
         "noExcessiveCognitiveComplexity": {
-          "level": "warn",
+          "level": "error",
           "options": { "maxAllowedComplexity": 20 }
         },
         "useLiteralKeys": "off"

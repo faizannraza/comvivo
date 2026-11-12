@@ -419,9 +419,12 @@ describe('a transaction nobody here opened (02 §3.7.2)', { tags: ['db', 'slow']
   it('refuses a write while the connection is already in a transaction', async () => {
     // `#depth` is this store's belief about the connection; `db.inTransaction` is the truth. The
     // allow-list in `scripts/lint/rules.ts` lets `migrate/runner.ts` hold a transaction on the
-    // same handle, so the two can disagree — and before this guard the symptom was
-    // better-sqlite3's *cannot start a transaction within a transaction*, which names neither
-    // side. Found by the M1 exit gate's reviewer.
+    // same handle, so the two can disagree — and the consequence is measured, not cosmetic:
+    // `immediate()` inside a foreign transaction **does not throw**, it nests as a `SAVEPOINT`, so
+    // the write succeeded while this store believed it was outermost and ran every `afterCommit`
+    // hook after the `RELEASE`. An enclosing rollback then erased work the hooks had already
+    // announced — `I6` and `I7` both breached in silence. Found by the M1 exit gate's reviewers,
+    // the second of whom corrected the first's diagnosis.
     await withStore(({ store, db, rows }) => {
       db.exec('BEGIN');
       try {
@@ -440,6 +443,15 @@ describe('a transaction nobody here opened (02 §3.7.2)', { tags: ['db', 'slow']
           // The hint names the one sanctioned holder, because "something else has a transaction"
           // is not actionable and "the migration runner" is.
           expect((caught as StorageError).hint).toContain('migrate/runner.ts');
+        }
+        // And the same for `read`, which would otherwise nest as a savepoint over somebody
+        // else's snapshot.
+        expect(() => store.read(() => 1)).toThrow(StorageError);
+        try {
+          store.read(() => 1);
+        } catch (caught) {
+          expect((caught as StorageError).storageCode).toBe('STORAGE_TX_FOREIGN');
+          expect((caught as StorageError).hint).toContain('own snapshot');
         }
       } finally {
         db.exec('ROLLBACK');

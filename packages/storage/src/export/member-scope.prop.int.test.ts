@@ -61,8 +61,8 @@ const temporaries: string[] = [];
  * data directories accumulate on disk and are then deleted in one teardown. A suite whose
  * correctness depends on its run count is a suite that is only green by habit. Found by running it.
  */
-function sweepTemporaries(): void {
-  for (const path of temporaries.splice(0)) rmSync(path, { recursive: true, force: true });
+function sweepTemporaries(from = 0): void {
+  for (const path of temporaries.splice(from)) rmSync(path, { recursive: true, force: true });
 }
 
 afterEach(sweepTemporaries);
@@ -263,11 +263,15 @@ describe('export.member-scope.property (02 §9.3)', () => {
 });
 
 async function runCase(shape: readonly number[]): Promise<void> {
+  // From this case's own high-water mark, so a caller holding a directory across `runCase` keeps
+  // it: `splice(0)` would have deleted every registered path, which is a trap for the next test
+  // rather than a bug in this one. Found by the M1 exit gate's reviewer.
+  const mark = temporaries.length;
   try {
     await runCaseInner(shape);
   } finally {
     // Per case, so disk use is bounded by one archive rather than by the run count.
-    sweepTemporaries();
+    sweepTemporaries(mark);
   }
 }
 

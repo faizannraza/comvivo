@@ -313,7 +313,11 @@ function applyOne(
  * `M9` — so the first host whose upgrade failed was told to run something that answers "command
  * not found" at the one moment they need the instruction to be exact. Found by the M1 exit gate's
  * reviewer. The file-copy wording stays correct after the CLI lands, and `recovery` carries the
- * path so the dashboard and `doctor` can offer it without re-deriving anything.
+ * path so the dashboard and `doctor` can offer it without re-deriving anything — from the **error
+ * object**, not from the log: `isSafeDetailValue` caps a `detail` string at 120 characters, and a
+ * real `backups/pre-migrate/…` path under a home directory is usually longer, so the log line
+ * carries the id and drops the path. The hint, which is not length-capped, is where a host reads
+ * it.
  */
 function asMigrationFailure(
   id: string,

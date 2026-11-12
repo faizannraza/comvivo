@@ -53,7 +53,7 @@ permanent regression suite (`02` M1-T2).
 3. **Group isolation is enforced by generated triggers, not by a convention about columns.** The
    precise shape, because the convenient summary — "the group id is in every table and every
    index" — is false and was in this document until the M1 exit gate: **51 of 78** tables carry
-   `group_id` and **45 of 109** indexes lead with it. The rest reach their group through a parent,
+   `group_id` and **45 of 125** indexes lead with it. The rest reach their group through a parent,
    which `02` §3.3 intends. What is uniform is the guard set, generated from the schema by
    `pnpm --filter @comvivo/storage db:guards`:
    - a **label** trigger per labeled column, refusing a row whose label belongs to another group

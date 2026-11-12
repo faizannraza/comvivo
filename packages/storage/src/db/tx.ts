@@ -178,14 +178,24 @@ export class SqliteStore implements Store {
 
     const outer = this.#depth === 0;
     // `#depth` is this store's belief about the connection, and the connection can contradict it.
-    // `02` §3.7.2's own allow-list lets `migrate/runner.ts` hold a transaction on the same handle
-    // (it is the layer below this one, and it creates the schema these repositories read), so a
-    // `store.write` reached from inside one would see `#depth === 0`, call `immediate()`, and
-    // surface better-sqlite3's *cannot start a transaction within a transaction* — a message that
-    // names neither the store nor the runner. Joining it as a savepoint would be worse: `outer`
-    // would be false, so this write's `afterCommit` hooks would sit in `#hooks` with nothing to
-    // run them. Refusing is the only honest answer, and it says who the other holder can be.
-    // Found by the M1 exit gate's reviewer.
+    // `scripts/lint/rules.ts`'s `RAW_TRANSACTION_ALLOWED_GLOBS` lets `migrate/runner.ts` hold a
+    // transaction on the same handle — it is the layer below this one, and it creates the schema
+    // these repositories read — so the two can disagree.
+    //
+    // **What happened without this guard is an `I6`/`I7` breach, not an ugly message.** Measured on
+    // better-sqlite3 13.0.3 / SQLite 3.53.4: `immediate()` inside a foreign transaction does not
+    // throw. The driver checks `inTransaction` itself and silently nests as a `SAVEPOINT`, so the
+    // write *succeeded* — and because `#depth` was 0 this store still believed it was the
+    // outermost one, cleared `#hooks`, and ran every `afterCommit` hook after the `RELEASE`. A
+    // `RELEASE` is not a commit: if the enclosing transaction then rolled back, the hooks had
+    // already announced effects for work that no longer existed — exactly-once intent and
+    // acknowledged effects, both gone, silently. The first version of this comment said the
+    // symptom was *cannot start a transaction within a transaction*; the M1 exit gate's reviewer
+    // measured that it is not, which is the more important half of the finding.
+    //
+    // Joining it deliberately would be no better: `outer` would be false and this write's hooks
+    // would sit in `#hooks` with nothing to run them. Refusing is the only honest answer, and it
+    // says who the other holder can be.
     if (outer && this.#db.inTransaction) {
       throw new StorageError(
         'STORAGE_TX_FOREIGN',
@@ -260,6 +270,26 @@ export class SqliteStore implements Store {
 
   read<T>(fn: (scope: ReadScope) => NotPromise<T>, meta?: TxMeta): T {
     const outer = this.#readDepth === 0;
+    // The same guard as `write`, for the same measured reason: a `BEGIN DEFERRED` inside a foreign
+    // transaction nests as a savepoint instead of taking its own snapshot, so a `read` that
+    // believes it is isolated would see the other holder's uncommitted rows and would miss
+    // anything committed after they began. A read whose snapshot is somebody else's is not the
+    // read its caller asked for. Added with the `write` guard at the M1 exit gate.
+    if (outer && this.#db.inTransaction) {
+      throw new StorageError(
+        'STORAGE_TX_FOREIGN',
+        'a transaction is already open on this connection, and `SqliteStore` did not open it',
+        {
+          hint:
+            'Something outside `SqliteStore` holds a transaction on this database handle, so this ' +
+            'read cannot take its own snapshot \u2014 it would see that holder\u2019s uncommitted ' +
+            'rows. The only sanctioned case is `migrate/runner.ts`, which runs before the store ' +
+            'is used.',
+          category: 'bug',
+          ...(meta === undefined ? {} : { detail: { op: meta.op } }),
+        },
+      );
+    }
     const startedAt = performance.now();
 
     const run = this.#db.transaction(() => {

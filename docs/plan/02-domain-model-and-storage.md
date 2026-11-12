@@ -2120,10 +2120,24 @@ export class SqliteStore implements Store {
   }
 }
 ```
+- **Who may open a transaction.** `SqliteStore` is the only *domain* entry point, and the ban is a
+  lint rule rather than a convention — but a rule has an allow-list, and amended at the M1 exit
+  gate it names **three paths** (`scripts/lint/rules.ts`, `RAW_TRANSACTION_ALLOWED_GLOBS`):
+  `db/tx.ts` is the implementation; `migrate/runner.ts` is the layer *below* this one and creates
+  the schema these repositories read; `spike/**` measures the driver rather than the wrapper. So
+  two holders of one connection are possible by design, and `write`/`read` therefore refuse to run
+  while `db.inTransaction` is true and `#depth`/`#readDepth` is 0 (`STORAGE_TX_FOREIGN`, §4.3).
+  **Measured, because the failure is silent:** `immediate()` inside a foreign transaction does not
+  throw — better-sqlite3 nests it as a `SAVEPOINT` — so the write succeeded while the store
+  believed it was outermost and ran its `afterCommit` hooks after the `RELEASE`. An enclosing
+  rollback then erased work the hooks had announced, which is `I6` and `I7` lost without an error.
 - **Static guards.**
   - (1) The `NotPromise<T>` return type turns `async` callbacks into compile errors.
-  - (2) A typescript-eslint `no-restricted-syntax` rule in `eslint.config.js`:
-    `{ selector: "CallExpression[callee.property.name=/^(write|read|transaction)$/] > :function[async=true]", message: "Transaction callbacks must be synchronous (01 §1)." }`
+  - (2) A typescript-eslint `no-restricted-syntax` rule in `eslint.config.ts`, over
+    `write`, `read`, `transaction` **and `afterCommit`** (the last added at the M1 exit gate: a
+    post-commit hook that returns a promise turns a rejection into an unhandled rejection *after*
+    the write has committed):
+    `{ selector: "CallExpression[callee.property.name=/^(write|read|transaction|afterCommit)$/] > :function[async=true]", message: … }`
   - (3) `@typescript-eslint/no-floating-promises` catches un-awaited promises created inside callbacks.
   - (4) A unit test asserts that an async callback throws `STORAGE_TX_ASYNC_CALLBACK` and that nothing is committed.
 - **Slow transactions.** `storage.slowTxMs` (default 50) logs `STORAGE_SLOW_TX` with `op` and duration (never parameters). A Pi-specific bench gate fails CI if any repository method takes > 50 ms at p99 on the 50k/1M fixture (§9.6).
@@ -2682,7 +2696,7 @@ The envelope, header fields, slot constructions and recovery-key format are **ow
 2. Run `PRAGMA quick_check` on the snapshot; anything other than `ok` → `BACKUP_INTEGRITY` and abort.
 3. Build `manifest.json` (below) with per-table row counts and the sha256 of the snapshot file.
 4. Shared blob store: for each `blobs` row, copy-if-absent `data/blobs/<path>` → `<backups>/blobstore/<addr>.vblob`. Use a hardlink when on the same filesystem. Files are already encrypted and immutable.
-5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/comvivo-<first 6 chars of instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
+5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/comvivo-<first 6 chars of the instanceId's TypeID suffix>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
 6. Rotation: keep the newest `backups.keep` (14) archives. Remove `blobstore/` files not listed in any retained manifest's `blobs.jsonl`.
 
 The `--portable` flag (CLI) also embeds the referenced blob files under `blobs/` in the tar, giving a single file for off-site copies.
@@ -2828,7 +2842,7 @@ Audit growth dominates long-run size in busy groups. If it exceeds 25% of the DB
 #### 3.16.4 Latencies — **measured on arm64** (`M1-T33`); the Pi column remains an estimate
 
 > **Measured** on the `stress-50k-1m` fixture, Apple M1 (arm64), Node v26.13.0, `cache_size`
-> 192 MiB, five repetitions of 200 iterations (`11` §3.9.2's protocol).
+> 192 MiB, five repetitions, with the iteration count declared per row (`11` §3.9.2's protocol; the counts are in `packages/storage/bench/storage.bench.ts` and listed in `docs/architecture/storage-benchmarks.md`).
 > `docs/architecture/storage-benchmarks.md` carries the method, the machine and the reproduction
 > command. **Every row is inside its budget**, so there is no `15` deviation.
 >
@@ -2974,9 +2988,10 @@ export type StorageErrorCode =
   | 'STORAGE_LOCKED' | 'STORAGE_BUSY' | 'STORAGE_CORRUPT' | 'STORAGE_DISK_SPACE_LOW' | 'STORAGE_IO'
   | 'STORAGE_TX_ASYNC_CALLBACK' | 'STORAGE_WRITE_IN_READ' | 'STORAGE_JSON_INVALID' | 'STORAGE_ID_INVALID'
   // Added at the M1 exit gate: `#depth` is `SqliteStore`'s belief about the connection, and the
-  // connection can contradict it — §3.7.2's own allow-list lets `migrate/runner.ts` hold a
-  // transaction on the same handle. Without a code of its own, a `store.write` in that state
-  // surfaced better-sqlite3's "cannot start a transaction within a transaction".
+  // connection can contradict it — the raw-transaction allow-list in `scripts/lint/rules.ts` lets
+  // `migrate/runner.ts` hold a transaction on the same handle (§3.7.2). Without this code the
+  // write *succeeded* as a nested savepoint and the hooks ran after a `RELEASE`, so there was no
+  // error to map at all.
   | 'STORAGE_TX_FOREIGN'
   | 'STORAGE_CONSTRAINT' | 'I4_LABEL_GROUP_MISMATCH' | 'MEMORY_CONTENT_IMMUTABLE' | 'AUDIT_APPEND_ONLY'
   // Added at M1-T13: §3.3.6 and §204 state these immutabilities in prose, and a `RAISE(ABORT, …)`

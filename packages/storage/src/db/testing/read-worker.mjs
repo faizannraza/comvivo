@@ -13,10 +13,15 @@
  * Protocol: the parent sends the handshake on `port`, then one `{ sql }` message per query; this
  * worker replies `{ ok, rows }` or `{ ok: false, error }`. It exits when the port closes.
  *
- * `{ kind: 'exec', sql }` runs `db.exec` instead of a prepared statement, which is the only way to
- * hold a transaction open **across** messages: better-sqlite3 refuses transaction control in
- * `prepare`. The concurrency test needs it — a reader that is merely *between* queries proves
- * nothing about a writer, because the read lock it would take has already been released.
+ * `{ kind: 'exec', sql }` runs `db.exec` instead of a prepared statement. The concurrency test uses
+ * it to hold a transaction open **across** messages, which is what makes the test mean anything: a
+ * reader that is merely *between* queries proves nothing about a writer, because the read lock it
+ * would have taken has already been released.
+ *
+ * `exec` rather than the `query` path for no deep reason — the first version of this note claimed
+ * better-sqlite3 "refuses transaction control in `prepare`", and the M1 exit gate's reviewer
+ * measured that it does not: `prepare('BEGIN DEFERRED')` prepares, reports `reader === false`, and
+ * runs. `exec` is simply the more direct way to say "run this statement, return nothing".
  */
 import { parentPort, workerData } from 'node:worker_threads';
 

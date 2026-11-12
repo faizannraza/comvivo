@@ -645,11 +645,20 @@ describe('MemoryRepository', () => {
             'a memory elsewhere',
           ),
         );
-        // Two sets, because an eligible set belongs to a group: the forged helper this replaced
-        // put the *other* group's label into a set stamped with this group's id, which is a value
-        // `computeEligible` refuses to produce. A label in this group as well, so the set below is
-        // non-empty — an empty one satisfies these assertions through `02` §3.7.1's early return
-        // without the `group_id` predicate they are about ever running.
+        // Two sets, because an eligible set belongs to a group: the forged helper this replaced put
+        // the *other* group's label into a set stamped with this group's id, which is a value
+        // `computeEligible` refuses to produce. A label in this group as well, so the set is
+        // non-empty and `02` §3.7.1's empty-set early return is not what makes the assertions pass.
+        //
+        // **What this asserts is the outcome, not one predicate.** With a real eligible set a
+        // cross-group row is excluded twice over — by `group_id = ?` and by `label_id IN (…)`,
+        // since a set for this group cannot contain the other group's label — and no test can
+        // isolate the group predicate, because the two groups share no label id by construction.
+        // The group scoping is isolated where it can be: on the write side by the generated I4
+        // triggers (`schema/i4-trigger.prop.int.test.ts`, which plants a cross-group write
+        // directly in SQL), and on the read side by `repos/eligibility-equivalence.prop.int.test.ts`
+        // comparing the SQL filter against `computeEligible` over generated label sets. An earlier
+        // version of this comment claimed the opposite; the M1 exit gate's reviewer was right.
         world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
         const here = eligibleAll(world);
         const there = eligibleOnly(world, [elsewhere.labelId], world.otherGroupId);

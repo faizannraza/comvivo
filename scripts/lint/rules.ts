@@ -158,29 +158,56 @@ export const UNFILTERED_READ_BAN: Linter.RulesRecord = {
  * catches it at the type level; this one catches the cases the type cannot reach — a widened
  * return type, an untyped call site, a callback written against `any`.
  *
- * The selector is `02` §3.7.2's, plus `afterCommit`. It matches an `async` function passed directly
- * to anything named `write`, `read`, `transaction` or `afterCommit`, which does mean a false
- * positive is possible on an unrelated `read` — accepted, because the alternative is narrowing it
- * to one receiver type that a lint rule cannot see, and because an `async` callback to a method
- * called `read` is worth a second look anyway.
+ * The selector is `02` §3.7.2's, verbatim. It matches an `async` function passed directly to
+ * anything named `write`, `read` or `transaction`, which does mean a false positive is possible on
+ * an unrelated `read` — accepted, because the alternative is narrowing it to one receiver type that
+ * a lint rule cannot see, and because an `async` callback to a method called `read` is worth a
+ * second look anyway.
  *
- * `afterCommit` was added at the M1 exit gate. It is the same bivariance hole one step later: the
- * hook runs after the commit, so an `async` one turns a rejection into an unhandled rejection and,
- * on Node's default, exits the process having already written. `tx.ts` catches it at run time as
- * well, because a lint rule only sees a callback written at the call site.
+ * `afterCommit` is the same bivariance hole one step later and has its own ban below, because the
+ * *consequence* is different and a fix-it message that describes an empty transaction would send
+ * the reader looking in the wrong place.
  */
 export const SYNC_TX_BAN: Linter.RulesRecord = {
   'no-restricted-syntax': [
     'error',
     {
       selector:
-        'CallExpression[callee.property.name=/^(write|read|transaction|afterCommit)$/] > ' +
-        ':function[async=true]',
+        'CallExpression[callee.property.name=/^(write|read|transaction)$/] > :function[async=true]',
       message:
         'Transaction callbacks must be synchronous (01 §1, 02 §3.7.2). better-sqlite3 commits when ' +
         'the callback returns, so an async one commits an empty transaction and then does its work ' +
         'outside it — no isolation, no rollback, and nothing thrown. Move the awaiting outside the ' +
         'transaction, or gather what you need first and pass it in.',
+    },
+  ],
+};
+
+/**
+ * An `afterCommit` hook must be synchronous too (`02` §3.7.2, amended at the M1 exit gate).
+ *
+ * The same hole as `SYNC_TX_BAN` above — TypeScript's void-return rule accepts an `async` function
+ * wherever `() => void` is expected — one step later in the sequence, and with a different
+ * consequence. The hook runs *after* the commit, so nothing is lost or un-isolated; what happens is
+ * that a rejection becomes an unhandled rejection, and on Node's default the process exits having
+ * already written. A successful turn, reported as a crash.
+ *
+ * Its own rule rather than another alternative in the transaction selector, because the message is
+ * the point: the transaction ban's wording ("commits an empty transaction and then does its work
+ * outside it") is wrong here and would send the reader looking for a lost write. `tx.ts` catches it
+ * at run time as well — a lint rule only sees a callback written at the call site.
+ */
+export const AFTER_COMMIT_BAN: Linter.RulesRecord = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector: "CallExpression[callee.property.name='afterCommit'] > :function[async=true]",
+      message:
+        'An `afterCommit` hook must be synchronous (02 §3.7.2). It runs after the transaction has ' +
+        'committed, so an `async` one cannot be rolled back: its rejection becomes an unhandled ' +
+        'rejection and, on Node\u2019s default, exits the process after the write has already ' +
+        'landed — a successful turn reported as a crash. Do the awaiting in a job (`jobs.enqueue` ' +
+        'inside the transaction), which is what the outbox and the queue are for.',
     },
   ],
 };

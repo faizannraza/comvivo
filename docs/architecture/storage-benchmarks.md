@@ -106,10 +106,12 @@ The queue's own round trip is the one row whose budget is a **floor** rather tha
 ±5% across six runs on two days**, which is the precision a micro-benchmark on a laptop has; the
 number that matters is that it is four times the floor.
 
-`11` §3.9.1's share column **inverts a throughput row**, which is why the gate prints 21–23% here
-rather than 450%: the share is "how much of the budget is used", so for a floor it is
-`floor / measured`. An earlier version of this paragraph called that figure "21% of that floor",
-which reads as the opposite of what it is.
+The share column **inverts a throughput row**, which is why the gate prints 21–23% here rather
+than 450%: the share is "how much of the budget is used", so for a floor it is `floor / measured`.
+That is `budgetShare()` in `packages/evals/src/perf/bench-result.ts`, the behaviour `11` §3.9.2
+describes — not §3.9.1, which is the budget table itself and has no share column; the citation was
+wrong here until the M1 exit gate. An earlier version of this paragraph also called the figure
+"21% of that floor", which reads as the opposite of what it is.
 
 ### What the exercise was for: two query plans
 

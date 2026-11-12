@@ -327,7 +327,10 @@ describe('erasure.person (02 §9.3)', () => {
       world.db.exec(
         'CREATE TABLE canary_probe (a TEXT, b TEXT GENERATED ALWAYS AS (canary_boom()) VIRTUAL)',
       );
-      world.db.prepare('INSERT INTO canary_probe (a) VALUES (?)').run('harmless');
+      // The canary goes in the readable column, so "the readable sibling is still searched" below
+      // is an assertion rather than a tautology: with `'harmless'` in `a` it held whether or not
+      // `a` was scanned at all. Found by the M1 exit gate's reviewer.
+      world.db.prepare('INSERT INTO canary_probe (a) VALUES (?)').run(`x ${CANARY} y`);
       armed = true;
 
       // `table_info` does not list a generated column at all — measured here, and the reason
@@ -349,8 +352,11 @@ describe('erasure.person (02 §9.3)', () => {
       expect(unchecked.every((hit) => hit.count === 0)).toBe(true);
       // And the failure says so in words, because `×0` reads as a bug in the helper.
       expect(() => assertNoCanary(world.db, CANARY)).toThrow(/not checked: unreadable/);
-      // The readable sibling column is still searched: the failure is per column, not per table.
-      expect(hits.some((hit) => hit.where === 'canary_probe.a')).toBe(false);
+      // The readable sibling column is still searched, and found: the scan is per column, not
+      // per table, so one unreadable column does not take the rest of the row with it.
+      const sibling = hits.filter((hit) => hit.where === 'canary_probe.a');
+      expect(sibling.length).toBeGreaterThan(0);
+      expect(sibling.every((hit) => hit.count === 1 && hit.unreadable === undefined)).toBe(true);
     });
   });
 

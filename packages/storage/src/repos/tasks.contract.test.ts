@@ -48,8 +48,6 @@ function task(
   };
 }
 
-/** An eligible set over every label in the database. */
-
 /**
  * 400 tasks with a realistic spread of status, assignee and due date.
  *
@@ -821,6 +819,12 @@ describe('TaskRepository', () => {
             'a task elsewhere',
           ),
         );
+        // A label in **this** group, so the eligible set is non-empty and the assertion is about
+        // the `group_id` predicate rather than about `02` §3.7.1's empty-set early return. Before
+        // this the group had only the *other* group's label, so `eligibleAll` was the empty set and
+        // the read answered `1 = 0`: the test passed whether or not the scoping existed. Found by
+        // the M1 exit gate's reviewer, and the harness now refuses to build such a set at all.
+        world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
         expect(
           world.repos.tasks.byId(world.groupId, elsewhere.id, eligibleAll(world)),
         ).toBeUndefined();

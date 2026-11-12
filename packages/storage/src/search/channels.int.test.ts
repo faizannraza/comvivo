@@ -16,6 +16,7 @@ import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleAll,
   eligibleOnly,
   entityId,
   fingerprintFor,
@@ -204,11 +205,18 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
            VALUES (?, ?, 'sam', 'Sam', ?)`,
         )
         .run(entity, world.otherGroupId, item.labelId);
+      // A label in **this** group, so the eligible set is one a real caller could hold and is not
+      // empty: `02` §3.7.1's labeled reads return early on an empty set, which would satisfy the
+      // assertion below without the `group_id` predicate it is about ever running. The other
+      // group's label cannot be in a set for this group — `computeEligible` refuses it — which is
+      // what the forged helper this replaced was quietly doing. Found by the M1 exit gate's
+      // reviewer, and by the harness now refusing to build such a set.
+      world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
       expect(
         world.repos.memorySearch.aliases({
           groupId: world.groupId,
           aliasNorms: ['sam'],
-          eligible: eligibleOnly(world, [item.labelId]),
+          eligible: eligibleAll(world),
         }),
       ).toEqual([]);
     });

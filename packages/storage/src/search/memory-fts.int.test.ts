@@ -12,6 +12,7 @@
 
 import type { EligibleLabelSet } from '@comvivo/core';
 import { expectWritten, type Label, type NotPromise } from '@comvivo/core';
+import type { LabelId } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import {
   eligibleOnly,
@@ -26,6 +27,18 @@ import {
   withRepos,
 } from '../repos/testing/harness.js';
 import { trigramCanMatch } from './fts-query.js';
+
+/**
+ * The first of the two label ids a cross-group fixture writes: the one in **this** group.
+ *
+ * Named rather than indexed inline, because which of the two is eligible is the point of those
+ * tests and `ids[0]` reads like an accident.
+ */
+function here(ids: readonly LabelId[]): LabelId {
+  const first = ids[0];
+  if (first === undefined) throw new Error('fixture: no label was interned');
+  return first;
+}
 
 describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
   /** A world with `items` memories indexed, returning their ids and the eligible set. */
@@ -232,13 +245,20 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
       // The scope token intersects the group's doclist (`02` §3.4). Both items have the identical
       // statement, so a missing scope filter would return both — which is `I4` through a search
       // index rather than through a query.
+      //
+      // **Only this group's label is eligible**, which is the only set a real caller could hold:
+      // an eligible set belongs to a group, and `computeEligible` refuses one carrying another
+      // group's label. The forged helper this replaced carried both ids, and the M1 exit gate's
+      // reviewer was right that the test was then asserting something no caller can ask. The
+      // other group's row is excluded by the scope token and the `group_id` predicate, which is
+      // what the test is for.
       const hits = world.repos.memorySearch.text({
         groupId: world.groupId,
         query: 'dentist',
         mode: 'word',
         limit: 10,
         maxState: 1,
-        eligible: eligibleOnly(world, ids),
+        eligible: eligibleOnly(world, [here(ids)]),
       });
       expect(hits.map((hit) => hit.ref)).toEqual([memoryId('g1f')]);
     });
@@ -273,14 +293,15 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
       });
       // `memory_fts_tri` has no `scope` column, so the only thing keeping the groups apart is the
       // `m.group_id = ?` predicate on the joined base row (`02` §3.4). This is the test that the
-      // join is actually doing it.
+      // join is actually doing it — and the eligible set carries this group's label only, for the
+      // reason the test above gives.
       const hits = world.repos.memorySearch.text({
         groupId: world.groupId,
         query: 'hofstrasse',
         mode: 'trigram',
         limit: 10,
         maxState: 1,
-        eligible: eligibleOnly(world, ids),
+        eligible: eligibleOnly(world, [here(ids)]),
       });
       expect(hits.map((hit) => hit.ref)).toEqual([memoryId('h1f')]);
     });
