@@ -51,7 +51,7 @@ export interface OutboxReader {
     readonly messageClass: OutboxMessage['messageClass'];
     readonly since: Temporal.Instant;
   }): number;
-  /** Rows in a terminal failure state, for the dashboard and `village doctor`. */
+  /** Rows in a terminal failure state, for the dashboard and `comvivo doctor`. */
   dead(limit: number): readonly OutboxMessage[];
 }
 

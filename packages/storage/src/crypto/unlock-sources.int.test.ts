@@ -94,10 +94,10 @@ describe('nodeUnlockIo against the real environment', { tags: ['slow'] }, () => 
     // test: the default returned `Promise.resolve(undefined)` and never reached `keychain.ts`, so
     // a key written by `storeMasterKey` could never be read back. The test documented the gap.
     //
-    // `@napi-rs/keyring` is deliberately not a declared dependency (`08` §3.7.3: keychain mode is
-    // not for headless Linux, and every install would pay for a per-platform native addon), so on
-    // this machine the correct answer is `KeychainUnavailable` with installation advice — not
-    // silence. Either outcome is acceptable here, because a developer machine with the addon
+    // `@napi-rs/keyring` is declared in no manifest here (`08` §3.7.3: keychain mode is not for
+    // headless Linux, and every install would pay for a per-platform native addon — `keychain.ts`
+    // records why an optional peer was measured and rejected), so on this machine the correct
+    // answer is `KeychainUnavailable` with installation advice — not silence. Either outcome is acceptable here, because a developer machine with the addon
     // present and an empty keychain legitimately answers `undefined`; what is **not** acceptable
     // is the old unconditional `undefined`, which the second half rules out.
     let caught: unknown;

@@ -116,7 +116,7 @@ function quote(path: string): string {
 }
 
 /**
- * `02` §3.14.1's name: `village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak`.
+ * `02` §3.14.1's name: `comvivo-<first 6 chars of instanceId>-<YYYYMMDDTHHmmssZ>.vbak`.
  *
  * `08` §3.7.11 says "filenames carry no sensitive metadata" and gives the first six characters of
  * the instance id, which is the stronger reading — a full id in a filename copied to cloud storage
@@ -129,7 +129,13 @@ export function archiveName(instanceId: string, createdAt: string): string {
   // fallback that nothing could reach — when the id contains `_`, `split('_')[1]` is a string — and
   // an unreachable fallback is a branch no test can cover and nobody has proven works.
   const suffix = instanceId.split('_').at(-1) ?? instanceId;
-  return `village-${suffix.slice(0, 6)}-${stamp}${ARCHIVE_EXTENSION}`;
+  // `BRAND.slug`, not the literal `village-` this carried: the product is Comvivo (ADR-024), and
+  // a host's `backups/` directory filled with files named after a codename they have never seen.
+  // `scripts/brand/check.ts` could not catch it — it looks for the *current* name escaping
+  // `brand.ts`, not for leftovers of a previous one — and the weekly rename drill would not have
+  // carried it either. Found by the M1 exit gate's reviewer. Nothing parses the prefix:
+  // `pruneArchives` filters on the extension and a restore takes a path.
+  return `${BRAND.slug}-${suffix.slice(0, 6)}-${stamp}${ARCHIVE_EXTENSION}`;
 }
 
 /** Row counts for every real table, which is `02` §3.14.3's `tables`. */

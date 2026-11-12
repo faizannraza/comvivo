@@ -52,7 +52,7 @@ export function dataMigrationFor(id: string): DataMigration | undefined {
   return REGISTRY.find((migration) => migration.id === id);
 }
 
-/** Every registered data migration, for tests and for `village migrate status`. */
+/** Every registered data migration, for tests and for `comvivo migrate status`. */
 export function dataMigrations(): readonly DataMigration[] {
   return REGISTRY;
 }

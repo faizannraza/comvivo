@@ -23,7 +23,7 @@ import { derivePurposeKey, KEY_PURPOSE, wrappersSecretStream } from '@comvivo/sh
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { openDatabase } from '../db/open.js';
 import { createBackup } from './create.js';
-import type { BackupManifest } from './manifest.js';
+import { BACKUP_MANIFEST_FORMAT, type BackupManifest } from './manifest.js';
 import { type HeaderKeys, headerFor } from './testing/header.js';
 import { recordWrite, resetWriteLog, writeLog } from './testing/write-log.js';
 
@@ -76,7 +76,7 @@ function keysOf(): HeaderKeys {
 
 function manifestStub(): Omit<BackupManifest, 'db' | 'tables' | 'blobs'> {
   return {
-    format: 'village-backup',
+    format: BACKUP_MANIFEST_FORMAT,
     formatVersion: 1,
     createdAt: CREATED,
     instanceId: INSTANCE,

@@ -41,7 +41,11 @@ permanent regression suite (`02` M1-T2).
 1. **A transaction never spans an `await`.** better-sqlite3 is synchronous, and an `await` inside a
    transaction yields the event loop while holding a write lock. `SqliteStore.write(fn)` takes a
    synchronous callback and the type system enforces it (`NotPromise`); a lint rule refuses a raw
-   `connection.transaction(…)` anywhere but `tx.ts`.
+   `connection.transaction(…)` outside three allow-listed paths, which
+   `scripts/lint/rules.ts` names with its reasons: `db/tx.ts` is the implementation,
+   `migrate/runner.ts` sits *below* the wrapper and installs the schema the repositories read, and
+   `spike/**` measures the driver rather than our wrapper. Everything else goes through
+   `SqliteStore`.
 2. **Every read is label-filtered.** A repository read takes an `EligibleLabelSet` and applies it
    in SQL. The handful of deliberate exceptions are named `…Unfiltered`, and dependency-cruiser
    restricts who may call them: the tool executor, which has already applied the requester's

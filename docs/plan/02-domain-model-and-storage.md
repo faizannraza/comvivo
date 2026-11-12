@@ -2682,7 +2682,7 @@ The envelope, header fields, slot constructions and recovery-key format are **ow
 2. Run `PRAGMA quick_check` on the snapshot; anything other than `ok` → `BACKUP_INTEGRITY` and abort.
 3. Build `manifest.json` (below) with per-table row counts and the sha256 of the snapshot file.
 4. Shared blob store: for each `blobs` row, copy-if-absent `data/blobs/<path>` → `<backups>/blobstore/<addr>.vblob`. Use a hardlink when on the same filesystem. Files are already encrypted and immutable.
-5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/village-<instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
+5. Generate a random per-backup DEK; stream `tar(manifest.json, db/comvivo.db)` → secretstream(DEK) inside the `VBK1` envelope → `<backups>/comvivo-<first 6 chars of instanceId>-<YYYYMMDDTHHmmssZ>.vbak.part`. Then fsync, rename and unlink the tmp snapshot. No key material is inside the body; the header's `keyringSnapshot` carries the wrapped RDK (below).
 6. Rotation: keep the newest `backups.keep` (14) archives. Remove `blobstore/` files not listed in any retained manifest's `blobs.jsonl`.
 
 The `--portable` flag (CLI) also embeds the referenced blob files under `blobs/` in the tar, giving a single file for off-site copies.
@@ -2708,7 +2708,7 @@ rewrites the slots and an AD over all of it would make every rewrapped archive u
 #### 3.14.3 Manifest
 ```ts
 export const BackupManifestSchema = z.object({
-  format: z.literal('village-backup'), formatVersion: z.literal(1),
+  format: z.literal('comvivo-backup'), formatVersion: z.literal(1),
   createdAt: z.string(), instanceId: idSchema('inst'),
   app: z.object({ version: z.string(), node: z.string(), sqlite: z.string(), sqlite3mc: z.string(), sqliteVec: z.string() }),
   schema: z.object({ lastMigrationId: z.string(), migrationCount: z.number().int() }),

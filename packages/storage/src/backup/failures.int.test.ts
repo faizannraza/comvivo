@@ -19,6 +19,7 @@ import { join } from 'node:path';
 import { BRAND } from '@comvivo/shared';
 import {
   AAD,
+  BACKUP_MANIFEST_FORMAT,
   derivePurposeKey,
   KEY_PURPOSE,
   unwrap,
@@ -67,7 +68,7 @@ function manifestStub(
   overrides: Partial<Omit<BackupManifest, 'db' | 'tables' | 'blobs'>> = {},
 ): Omit<BackupManifest, 'db' | 'tables' | 'blobs'> {
   return {
-    format: 'village-backup',
+    format: BACKUP_MANIFEST_FORMAT,
     formatVersion: 1,
     createdAt: CREATED,
     instanceId: INSTANCE,

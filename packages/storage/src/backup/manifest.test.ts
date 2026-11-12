@@ -5,6 +5,7 @@
  * line that is malformed rather than absent, a row-count comparison where a table exists on only
  * one side, and an archive whose name must not carry an instance's whole id.
  */
+import { BRAND } from '@comvivo/shared';
 import { BACKUP_ENTRY } from '@comvivo/shared/crypto';
 import { describe, expect, it } from 'vitest';
 import { archiveName } from './create.js';
@@ -80,21 +81,26 @@ describe('archiveName (02 §3.14.1, 08 §3.7.11)', () => {
     // cloud storage identifies the instance across every archive it ever wrote; six characters of
     // a TypeID suffix tells two instances' archives apart in one directory and is not a
     // fingerprint.
+    // Built from `BRAND.slug`, which is also what `archiveName` reads: the filename is not a
+    // frozen token — nothing parses it — so the assertion is about the *shape*, and spelling the
+    // brand here would be the hard-coded literal the brand guard exists to catch.
     expect(archiveName('inst_01jbkm0000000000000000000000', '2026-11-11T12:34:56Z')).toBe(
-      'village-01jbkm-20261111T123456Z.vbak',
+      `${BRAND.slug}-01jbkm-20261111T123456Z.vbak`,
     );
   });
 
   it('drops sub-second precision, which a filename has no use for', () => {
     expect(archiveName('inst_01jbkm0000000000000000000000', '2026-11-11T12:34:56.789Z')).toBe(
-      'village-01jbkm-20261111T123456Z.vbak',
+      `${BRAND.slug}-01jbkm-20261111T123456Z.vbak`,
     );
   });
 
   it('handles an id with no prefix separator', () => {
     // Not reachable from `instanceId`, which is always a TypeID — and asserted anyway, because the
-    // alternative is a `split('_')[1]` that is `undefined` and a filename reading `village-undefi`.
-    expect(archiveName('bare', '2026-11-11T12:34:56Z')).toBe('village-bare-20261111T123456Z.vbak');
+    // alternative is a `split('_')[1]` that is `undefined` and a filename reading `<slug>-undefi`.
+    expect(archiveName('bare', '2026-11-11T12:34:56Z')).toBe(
+      `${BRAND.slug}-bare-20261111T123456Z.vbak`,
+    );
   });
 });
 

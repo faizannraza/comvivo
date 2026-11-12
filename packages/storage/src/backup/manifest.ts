@@ -28,10 +28,17 @@
  * and content-addressed) and `embedded` (`--portable`, one file to copy off-site).
  */
 import { z } from '@comvivo/shared';
-import { BACKUP_ENTRY } from '@comvivo/shared/crypto';
+import { BACKUP_ENTRY, BACKUP_MANIFEST_FORMAT } from '@comvivo/shared/crypto';
 
-/** `02` §3.14.3's `format` literal. */
-export const BACKUP_MANIFEST_FORMAT = 'village-backup';
+/**
+ * `02` §3.14.3's `format` literal, re-exported from the frozen set.
+ *
+ * It lived here as a literal and was still spelling the pre-`ADR-024` codename at `M1`'s exit
+ * gate. Both halves of that are now fixed in one place: `shared/src/crypto/labels.ts` holds every
+ * string whose change makes an existing archive unopenable, it is the file the brand guard
+ * exempts and the rename codemod skips, and `labels.test.ts` pins the bytes.
+ */
+export { BACKUP_MANIFEST_FORMAT } from '@comvivo/shared/crypto';
 
 /**
  * The three entry paths inside the archive, from `shared/src/crypto/labels.ts`.

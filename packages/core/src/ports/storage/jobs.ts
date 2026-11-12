@@ -106,7 +106,7 @@ export interface ClaimedJob {
   readonly startedAt: Temporal.Instant;
 }
 
-/** A queued or finished job, for the dashboard and `village doctor` (`09`, `11`). */
+/** A queued or finished job, for the dashboard and `comvivo doctor` (`09`, `11`). */
 export interface Job {
   readonly id: JobId;
   readonly kind: string;

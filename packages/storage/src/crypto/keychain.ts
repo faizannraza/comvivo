@@ -1,8 +1,9 @@
 /**
- * The OS keychain, behind a lazy optional import (`08` §3.7.3).
+ * The OS keychain, behind a lazy host-installed import (`08` §3.7.3).
  *
- * `@napi-rs/keyring` is an **optional** dependency and is loaded only when keychain mode is
- * actually configured. Three reasons, and the third is the one that matters:
+ * `@napi-rs/keyring` is **declared in no manifest in this repository** — not as a dependency, not
+ * as an optional one, not as a peer — and is loaded only when keychain mode is actually
+ * configured. Three reasons, and the third is the one that matters:
  *
  *  - it is a native addon with a per-platform binary, so requiring it would make every install
  *    download one whether or not the host uses it;
@@ -12,11 +13,20 @@
  *    loaded it eagerly would be slower and more fragile for the majority of installs in order to
  *    serve a minority better.
  *
- * **Not installed today.** Keychain mode is reachable only when a host configures it, so the
- * dependency is declared `optional` and absent from a default `pnpm install`. The import is
- * therefore both lazy *and* allowed to fail, and the failure is a clear message rather than a
- * stack trace: `08` §3.7.3's table promises desktop users this mode, and the honest version of
- * "not available" names what to install.
+ * **Why not `optionalDependencies` or an optional peer**, which is what "optional dep" in `08`
+ * SD-03 sounds like: measured on 2026-11-12 with pnpm 12.16.1, both forms **install** the addon in
+ * this workspace — an optional peer is auto-installed like any other. That would put a real OS
+ * keyring behind `keychainGet()` in the test suite, where `unlock-sources.int.test.ts` reads it,
+ * and on a headless CI runner with no D-Bus the answer is a native error rather than this module's
+ * advice. An undeclared import is the only form that keeps the test suite off the host's real
+ * keyring. The version this adapter is written against is in `loadKeyring`'s hint, so a host gets
+ * a compatible one rather than whatever is newest.
+ *
+ * The import is therefore both lazy *and* allowed to fail, and the failure is a clear message
+ * rather than a stack trace: `08` §3.7.3's table promises desktop users this mode, and the honest
+ * version of "not available" names what to install. `keychain.test.ts` holds the absence to
+ * account — it asserts that `loadKeyring()` fails with advice, so adding the package to a manifest
+ * turns this comment's claim into a red test rather than into a lie.
  */
 import { BRAND } from '@comvivo/shared';
 import { zeroize } from '@comvivo/shared/crypto';
@@ -84,7 +94,8 @@ export async function loadKeyring(): Promise<NapiKeyring> {
   } catch (cause) {
     throw new KeychainUnavailable(
       'keychain mode needs @napi-rs/keyring, which is not installed',
-      'Install it with `pnpm add -w @napi-rs/keyring`, or switch to the default keyfile mode: ' +
+      'Install it with `pnpm add -w @napi-rs/keyring@^2.1.2`, or switch to the default keyfile ' +
+        'mode: ' +
         `\`${BRAND.cliName} keys rotate-master --key-store keyfile\`. On a headless Linux host ` +
         'keyfile mode is the right answer anyway — the OS keychain needs D-Bus and an unlocked ' +
         'session.',

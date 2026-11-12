@@ -467,7 +467,7 @@ function assertSchemaKnown(manifest: BackupManifest, known: readonly string[]): 
 }
 
 /**
- * `village backup verify <file>`: steps 2–5 into a temporary directory, then delete it.
+ * `comvivo backup verify <file>`: steps 2–5 into a temporary directory, then delete it.
  *
  * The same code path as a restore, deliberately. A verification that used its own reader would
  * answer a question about itself — and this is the command a host runs to find out whether their
@@ -581,7 +581,7 @@ function restoreSwapFailed(
  * Step 7's first half: move the existing database aside rather than deleting it.
  *
  * A restore is the most destructive thing a host can do, and the one they are most likely to do by
- * mistake — `village restore` with the wrong archive, at two in the morning, after a scare. The
+ * mistake — `comvivo restore` with the wrong archive, at two in the morning, after a scare. The
  * old files are still there afterwards, under a stamped directory, and `09`'s CLI prints where.
  */
 function setAsideExistingDb(options: RestoreOptions): string | undefined {

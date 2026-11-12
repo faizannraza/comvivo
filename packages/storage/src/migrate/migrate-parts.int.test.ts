@@ -443,9 +443,48 @@ describe('the runner’s failure paths', { tags: ['db'] }, () => {
         attempt();
       } catch (error) {
         expect((error as StorageError).storageCode).toBe('MIGRATION_FAILED');
-        // The hint names the recovery command, built from `BRAND` so a rename stays one edit.
-        expect((error as StorageError).hint).toContain(`${BRAND.cliName} restore`);
+        // No `backupDir` here, so there is no backup — and the hint has to say that rather than
+        // point at a rollback that does not exist.
+        expect((error as StorageError).hint).toContain('no pre-migration backup');
+        // And names no command: `${BRAND.cliName} …` in a hint is a promise the M1 binary cannot
+        // keep, which is the defect this pair of tests pins.
+        expect((error as StorageError).hint).not.toContain(`${BRAND.cliName} `);
       }
+    } finally {
+      db.close();
+    }
+  });
+
+  it('names the backup file in the hint when the run took one', () => {
+    // The reason this is asserted on the *path*: the hint used to read `comvivo restore
+    // pre-migrate:latest`, a command that does not exist until the CLI ships in `M9`, so a host
+    // whose upgrade failed was given an instruction that answers "command not found". Found by the
+    // M1 exit gate's reviewer.
+    const root = tempDir();
+    const backupDir = join(root, 'backups');
+    const db = seededDb(join(root, 'data.db'));
+    try {
+      let hint = '';
+      let detail: unknown;
+      try {
+        migrate(db, staticMigrationSource([migrationOf('0007_bad', ['NOT SQL AT ALL'])]), {
+          appVersion: '1',
+          backupDir,
+          nowMs: () => 1,
+        });
+      } catch (error) {
+        hint = (error as StorageError).hint ?? '';
+        detail = (error as StorageError).detail;
+      }
+      const written = readdirSync(join(backupDir, PRE_MIGRATE_DIR));
+      expect(written).toHaveLength(1);
+      const path = join(backupDir, PRE_MIGRATE_DIR, written[0] ?? '');
+      // The exact file, not the directory: at two in the morning the difference is whether the
+      // host has to pick between three snapshots by reading mtimes.
+      expect(hint).toContain(path);
+      expect(hint).toContain(join(root, 'data.db'));
+      expect(hint).toContain('-wal');
+      expect(detail).toMatchObject({ id: '0007_bad', backupPath: path });
     } finally {
       db.close();
     }

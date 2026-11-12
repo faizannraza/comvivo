@@ -695,7 +695,7 @@ describe('KEK rotation (02 §3.11)', () => {
       expect(rotated.stat(fixture.world.groupId, result.sha256)?.kekVersion).toBe(2);
       // **The file is byte-identical.** That is the point of wrapping a per-blob DEK: a rotation
       // touches a few hundred bytes per blob rather than re-encrypting gigabytes, which is what
-      // makes `village keys rotate-data` something a host will actually run on a Pi.
+      // makes `comvivo keys rotate-data` something a host will actually run on a Pi.
       expect(await readFile(path)).toEqual(before);
       expect(await drain(rotated.open(fixture.world.groupId, result.sha256))).toEqual(content);
       // Idempotent: a second pass finds nothing stale, so a chunked rotation terminates.

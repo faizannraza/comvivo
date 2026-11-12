@@ -27,7 +27,12 @@ wrong.
    otherwise, and a default of `''` is a decision about meaning, not a formality.
 3. **A table rebuild must recreate its triggers and FTS/vec links in the same migration.**
    drizzle-kit's `__new_<table>` pattern drops and recreates the table, which drops every trigger
-   on it. `migrations.fresh-equals-migrated` catches a missing one; nothing catches it at review.
+   on it. `guards.int.test.ts`'s "installs a trigger for every guarded table" is what catches a
+   dropped guard: it applies the committed migrations and asks the resulting database. Not
+   `migrations.fresh-equals-migrated` — that applies the same committed SQL to both sides, so a
+   trigger no migration creates is missing from both and the comparison is happy. Nothing catches
+   it at review. The test checks each guarded table has *a* trigger, so a rebuild that recreates
+   the I4 guard and loses the FTS link still needs the review this rule is asking for.
 4. **Adding an enum value means rebuilding the table**, because the `CHECK` constraint names the
    values. Plan for the cost.
 5. **A long data migration must be chunked and safe to run twice.** The runner commits each
@@ -53,8 +58,11 @@ wrong.
   the migration broke a reference;
 - runs `PRAGMA optimize` at the end, so the planner's statistics describe the new schema.
 
-If migration *k* fails, *k−1* stays applied and the error names *k*. Recover with
-`comvivo restore pre-migrate:latest`.
+If migration *k* fails, *k−1* stays applied and the error names *k*. Recovery is the file the run
+wrote to `backups/pre-migrate/<from>__<to>__<ms>.db`: stop the server, copy it over
+`db/comvivo.db`, and delete the `-wal` and `-shm` files beside it. The error's hint names the exact
+path. `comvivo restore pre-migrate:latest` (`09` §C) is the shorthand for those three steps and
+arrives with the CLI in `M9`, which is why the hint describes the copy instead.
 
 ## Snapshots
 

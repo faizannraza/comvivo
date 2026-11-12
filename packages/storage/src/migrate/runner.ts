@@ -27,7 +27,7 @@
 import { BRAND, StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { isThenable } from '../db/tx.js';
-import { preMigrationBackup } from './backup.js';
+import { mainDatabaseFile, preMigrationBackup } from './backup.js';
 import type { DataMigrationCtx } from './data/index.js';
 import type { Migration, MigrationSource } from './source.js';
 
@@ -192,7 +192,7 @@ export function migrate(
   const ctx: DataMigrationCtx = { appVersion: options.appVersion, nowMs: nowMs() };
 
   for (const migration of pending) {
-    applyOne(db, migration, ctx, options, nowMs);
+    applyOne(db, migration, ctx, options, nowMs, backupPath);
   }
 
   // `optimize` updates the statistics the query planner uses. After a migration the old ones
@@ -230,6 +230,7 @@ function applyOne(
   ctx: DataMigrationCtx,
   options: MigrateOptions,
   nowMs: () => number,
+  backupPath: string | undefined,
 ): void {
   // Outside the transaction: a `PRAGMA foreign_keys` inside one is silently ignored.
   db.pragma('foreign_keys = OFF');
@@ -295,21 +296,50 @@ function applyOne(
     // possible moment (`02` D10).
     run.immediate();
   } catch (cause) {
-    throw asMigrationFailure(migration.id, cause);
+    throw asMigrationFailure(migration.id, cause, {
+      backupPath,
+      dbFile: mainDatabaseFile(db),
+    });
   } finally {
     db.pragma('foreign_keys = ON');
   }
 }
 
-/** Keep our own errors intact and wrap anything else with the migration that produced it. */
-function asMigrationFailure(id: string, cause: unknown): unknown {
+/**
+ * Keep our own errors intact and wrap anything else with the migration that produced it.
+ *
+ * The hint names **the file**, not a command. It used to read `comvivo restore
+ * pre-migrate:latest`, which is `09` §C's shorthand and does not exist until the CLI ships in
+ * `M9` — so the first host whose upgrade failed was told to run something that answers "command
+ * not found" at the one moment they need the instruction to be exact. Found by the M1 exit gate's
+ * reviewer. The file-copy wording stays correct after the CLI lands, and `recovery` carries the
+ * path so the dashboard and `doctor` can offer it without re-deriving anything.
+ */
+function asMigrationFailure(
+  id: string,
+  cause: unknown,
+  recovery: { backupPath: string | undefined; dbFile: string | undefined },
+): unknown {
   if (cause instanceof StorageError) return cause;
+  const preamble =
+    'Earlier migrations stay applied — upgrades are forward-only — so the database is at a ' +
+    'known point. ';
   return new StorageError('MIGRATION_FAILED', `migration ${id} failed`, {
     hint:
-      'Earlier migrations stay applied — upgrades are forward-only — so the database is at a ' +
-      'known point. Restore the pre-migration backup to go back: ' +
-      `\`${BRAND.cliName} restore pre-migrate:latest\`.`,
-    detail: { id },
+      recovery.backupPath === undefined
+        ? // No backup means `backupDir` was not configured or the database held no user tables —
+          // in the second case there is nothing to lose, and in the first the host needs to know
+          // that going back is not on offer rather than to be pointed at an empty directory.
+          `${preamble}This run took no pre-migration backup, so there is nothing to restore: fix ` +
+          'the migration and run the upgrade again.'
+        : `${preamble}The way back is the pre-migration backup this run took. Stop the server, ` +
+          `then copy \`${recovery.backupPath}\` over ` +
+          `\`${recovery.dbFile ?? `db/${BRAND.slug}.db`}\` and delete the \`-wal\` and ` +
+          '`-shm` files next to it.',
+    detail: {
+      id,
+      ...(recovery.backupPath === undefined ? {} : { backupPath: recovery.backupPath }),
+    },
     cause,
   });
 }

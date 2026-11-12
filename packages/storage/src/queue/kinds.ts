@@ -183,7 +183,7 @@ export const JOB_KIND_CATALOG: readonly JobKindSpec[] = [
 
 const BY_KIND = new Map(JOB_KIND_CATALOG.map((spec) => [spec.kind, spec]));
 
-/** The catalog as a lookup, for the registry and for `village doctor --check jobs`. */
+/** The catalog as a lookup, for the registry and for `comvivo doctor --check jobs`. */
 export function catalogEntry(kind: string): JobKindSpec | undefined {
   return BY_KIND.get(kind);
 }
@@ -258,7 +258,7 @@ export class JobKindRegistry {
    *
    * Returns the catalog kinds nobody registered. Not a throw: `M1` registers none of them, and a
    * boot that refused to start until every one of forty kinds had an owner would make the queue
-   * unusable until `M11`. `apps/server` reports the list at boot and `village doctor --check jobs`
+   * unusable until `M11`. `apps/server` reports the list at boot and `comvivo doctor --check jobs`
    * shows it, so a kind whose owner forgot to register it is visible rather than silent.
    */
   unregistered(): readonly string[] {

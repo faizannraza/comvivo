@@ -86,7 +86,7 @@ export const LOG_EVENTS = {
    * than an error.
    */
   'job.lease_lost': 'a job lease was lost before the handler finished',
-  /** `02` §3.10.3's dead letter. Visible in the dashboard and `village doctor --check jobs`. */
+  /** `02` §3.10.3's dead letter. Visible in the dashboard and `comvivo doctor --check jobs`. */
   'job.dead': 'a job will not be retried',
   /**
    * The worker's own machinery threw, outside the handler.

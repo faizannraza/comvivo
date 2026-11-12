@@ -4,7 +4,10 @@
  * `02` §3.12.2 is forward-only: each migration commits on its own, so if migration *k* fails the
  * earlier ones stay applied. There is no "down" migration, by design — a reversal script is code
  * nobody tests and that runs exactly once, in an emergency. The backup **is** the rollback path,
- * and `village restore pre-migrate:latest` (`09` §C) is how it is used.
+ * and the files it leaves in `backups/pre-migrate/` are how it is used: a host stops the server and
+ * puts the newest one back over the database file. `comvivo restore pre-migrate:latest` (`09` §C)
+ * is the shorthand for exactly that, and arrives with the CLI in `M9` — which is why the runner's
+ * fix-it message names the file rather than the command.
  *
  * `VACUUM INTO` rather than a file copy, for two reasons that both matter here. It takes a
  * consistent snapshot without stopping writers, so the backup does not need the database to be
@@ -95,11 +98,22 @@ export function assertSpaceForBackup(
   );
 }
 
-/** The database file's size on disk, including its WAL, or 0 when it cannot be read. */
-export function databaseBytesOf(db: Database.Database): number {
+/**
+ * The path of `main`'s file, or `undefined` for an in-memory database.
+ *
+ * Exported because a failed migration's fix-it message has to name the file a host puts the backup
+ * back over, and the runner is given a connection rather than a data directory.
+ */
+export function mainDatabaseFile(db: Database.Database): string | undefined {
   const rows = db.pragma('database_list') as { name: string; file: string }[];
   const file = rows.find((row) => row.name === 'main')?.file ?? '';
-  if (file === '') return 0;
+  return file === '' ? undefined : file;
+}
+
+/** The database file's size on disk, including its WAL, or 0 when it cannot be read. */
+export function databaseBytesOf(db: Database.Database): number {
+  const file = mainDatabaseFile(db);
+  if (file === undefined) return 0;
   let total = 0;
   for (const candidate of [file, `${file}-wal`]) {
     try {
@@ -194,10 +208,11 @@ export function preMigrationBackup(
 
   // A snapshot that fails verification is **removed**, not left in the directory.
   //
-  // `pruneOldBackups` sorts by mtime, so the corrupt copy would be the newest — and the error this
-  // path raises recommends `restore pre-migrate:latest`, which would then select the file that
-  // just failed `quick_check`. The upgrade is refused either way; the difference is whether the
-  // rollback path a host reaches for is the broken one. Found by the M1 exit gate's reviewer.
+  // `pruneOldBackups` sorts by mtime, so the corrupt copy would be the newest — and the newest is
+  // what a rollback reaches for, whether the host copies it by hand or `restore pre-migrate:latest`
+  // picks it once the CLI exists. The upgrade is refused either way; the difference is whether the
+  // file they fall back to is the one that just failed `quick_check`. Found by the M1 exit gate's
+  // reviewer.
   try {
     verifyBackup(path, options.key);
   } catch (cause) {

@@ -22,6 +22,7 @@ import {
   AAD,
   BACKUP_ENTRY,
   BACKUP_FORMAT,
+  BACKUP_MANIFEST_FORMAT,
   DOMAIN_SEPARATOR_PARTS,
   KEY_PURPOSE,
   KEYRING_FORMAT,
@@ -107,6 +108,10 @@ describe('AEAD additional data (08 §3.7.4, §3.7.10)', () => {
     // path **inside a container format**: the file in `data/db` follows a rename and an archive
     // written last year must still restore (`M1-T27`).
     expect(BACKUP_FORMAT).toBe('comvivo-backup/1');
+    // The manifest's, which is the envelope's without the version — the manifest carries
+    // `formatVersion` as its own field. Pinned here because both are frozen at the first release
+    // and this file is the one the brand guard exempts.
+    expect(BACKUP_MANIFEST_FORMAT).toBe('comvivo-backup');
     expect(BACKUP_ENTRY.db).toBe('db/comvivo.db');
     expect(BACKUP_ENTRY.manifest).toBe('manifest.json');
     expect(BACKUP_ENTRY.blobIndex).toBe('blobs.jsonl');

@@ -33,7 +33,10 @@ schema, and `02` §3.3.13's entity checklist must still resolve.
 
 - **A transaction never spans an `await`.** better-sqlite3 is synchronous; an `await` inside a
   transaction yields the event loop while holding a write lock. Use `store.write(fn)` with a
-  synchronous callback — a lint rule refuses a raw `connection.transaction(…)` outside `db/tx.ts`.
+  synchronous callback — a lint rule refuses a raw `connection.transaction(…)` outside the three
+  paths `scripts/lint/rules.ts` allow-lists and explains: `db/tx.ts`, `migrate/runner.ts` (the
+  layer below the wrapper, which creates the schema the repositories read) and `spike/**` (which
+  measures the driver, not the wrapper).
 - **Reads take an `EligibleLabelSet` and apply it in SQL.** The exceptions are named
   `…Unfiltered`, and dependency-cruiser restricts who may call them. An unfiltered read reached
   from the wrong place is invariant `I1` deleted in one import.

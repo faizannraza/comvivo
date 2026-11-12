@@ -23,7 +23,7 @@ export function errorInfoOf(error: unknown): ErrorInfo {
   if (error instanceof StorageError) {
     return {
       // The storage code rather than the generic `ErrorCode`: it is what `exitCodeForStorageCode`
-      // and `village doctor` dispatch on, so a dead letter says what a host can act on.
+      // and `comvivo doctor` dispatch on, so a dead letter says what a host can act on.
       code: error.storageCode,
       message: error.message.slice(0, ERROR_INFO_MESSAGE_MAX),
       // `02` §3.6/§3.7 makes `STORAGE_BUSY` the one storage failure worth retrying — a lock

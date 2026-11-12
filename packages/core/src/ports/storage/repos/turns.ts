@@ -73,7 +73,7 @@ export interface TurnJournalReader {
   /**
    * `02` §3.8's I7 audit: effects covered **only** by a dead outbox row.
    *
-   * Read by the chaos tests and `village doctor`. An effect acked by a row that then died is worse
+   * Read by the chaos tests and `comvivo doctor`. An effect acked by a row that then died is worse
    * than an unacked one, because the journal says the group was told and the message never arrived.
    */
   effectsAckedByDeadSends(limit: number): readonly TurnEffect[];

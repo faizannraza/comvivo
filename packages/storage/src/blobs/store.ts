@@ -35,7 +35,7 @@ import { createReadStream } from 'node:fs';
 import { mkdir, open as openFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { BlobStorePort, SyncTxRunner, TxToken } from '@comvivo/core';
-import { type GroupId, type Logger, StorageError } from '@comvivo/shared';
+import { BRAND, type GroupId, type Logger, StorageError } from '@comvivo/shared';
 import {
   AAD,
   blobAddress,
@@ -170,7 +170,12 @@ export class BlobStore implements BlobStorePort {
     const row = this.stat(groupId, sha256);
     if (row === undefined) {
       throw new StorageError('BLOB_MISSING_FILE', 'there is no blob with that hash', {
-        hint: 'The attachment row points at a blob this group does not have. `village doctor --check blobs` lists them.',
+        // `BRAND.cliName`, interpolated: this hint was a literal naming the pre-rename CLI, so the
+        // first host to hit a missing blob was told to run a command that would answer "command not
+        // found". `keychain.ts` already had the right pattern. Found by the M1 exit gate's reviewer.
+        hint:
+          'The attachment row points at a blob this group does not have. ' +
+          `\`${BRAND.cliName} doctor --check blobs\` lists them.`,
         category: 'io.failed',
       });
     }
@@ -495,7 +500,7 @@ export class BlobStore implements BlobStorePort {
    *
    * The **files are not rewritten** — that is the whole point of wrapping a per-blob DEK. A
    * rotation touches a few hundred bytes per blob rather than re-encrypting gigabytes, which is
-   * what makes `village keys rotate-data` something a host will actually run.
+   * what makes `comvivo keys rotate-data` something a host will actually run.
    */
   rewrap(_uow: TxToken, limit: number): number {
     const keys = this.#options.keys();

@@ -21,7 +21,7 @@
  * ## The chunk-0 AD is the header's immutable core, not the whole header
  *
  * `08` §3.7.11 says `first-chunk AD = SHA-256(header bytes)` and, three lines later, that
- * `village backup rewrap` "rewrites only the header". **Both cannot hold**: a rewrap replaces the
+ * `comvivo backup rewrap` "rewrites only the header". **Both cannot hold**: a rewrap replaces the
  * slots — that is what it is for, after a recovery-key rotation — so an AD over the whole header
  * would make every rewrapped archive undecryptable. Found at `M1-T27`; both specs amended.
  *

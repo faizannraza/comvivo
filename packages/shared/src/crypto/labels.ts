@@ -89,6 +89,24 @@ export const KEYRING_FORMAT = `${DOMAIN}-keyring/1`;
 export const BACKUP_FORMAT = `${DOMAIN}-backup/1`;
 
 /**
+ * The `format` field of the `manifest.json` *inside* a `VBK1` archive (`02` §3.14.3).
+ *
+ * Not the same token as `BACKUP_FORMAT` above, and deliberately so: the header's declares the
+ * envelope and carries its version in the string, while this one declares the tar's payload and
+ * has a separate `formatVersion` beside it. Validated independently, so a restore can tell "this
+ * is not one of our archives" from "the envelope opened and the manifest inside is from a shape we
+ * do not know".
+ *
+ * Here rather than in `storage` for the reason this whole file exists: after the first release it
+ * is a `z.literal` an archive must match to restore, so a rename codemod touching it would make
+ * every archive written before the rename unopenable. It reached `M1`'s exit gate still spelling
+ * the pre-`ADR-024` codename — free to correct only because no release had written an archive yet,
+ * and a demonstration that a literal of this class does not survive in `storage` where the brand
+ * guard is right to object to it.
+ */
+export const BACKUP_MANIFEST_FORMAT = `${DOMAIN}-backup`;
+
+/**
  * The entry paths inside a `VBK1` archive's tar (`02` §3.14.3).
  *
  * Frozen for the same reason the magic and the domain separators are, and the file's header

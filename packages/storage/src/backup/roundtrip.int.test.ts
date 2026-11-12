@@ -37,7 +37,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/open.js';
 import { exportDomainState } from '../testing/domain-state.js';
 import { createBackup } from './create.js';
-import type { BackupManifest } from './manifest.js';
+import { BACKUP_MANIFEST_FORMAT, type BackupManifest } from './manifest.js';
 import { type RestoreUnlock, restoreBackup, verifyBackup } from './restore.js';
 import {
   BACKUP_FORMAT_LITERAL,
@@ -147,7 +147,7 @@ function seedBlob(dataDir: string, fill: number): { addr: string; path: string; 
 
 function manifestStub(): Omit<BackupManifest, 'db' | 'tables' | 'blobs'> {
   return {
-    format: 'village-backup',
+    format: BACKUP_MANIFEST_FORMAT,
     formatVersion: 1,
     createdAt: CREATED,
     instanceId: INSTANCE,

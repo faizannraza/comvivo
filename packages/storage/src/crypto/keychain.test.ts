@@ -203,10 +203,11 @@ describe('storeMasterKey', () => {
 
 describe('the optional dependency', () => {
   it('explains what to install, and offers keyfile mode instead', async () => {
-    // `@napi-rs/keyring` is deliberately not a declared dependency: it is a native addon with a
-    // per-platform binary, and `08` §3.7.3 says keychain mode is "not for headless Linux", so
-    // every install would pay for a mode most hosts do not use. This asserts the failure is
-    // advice rather than a module-resolution stack trace.
+    // `@napi-rs/keyring` is declared in no manifest here — see `keychain.ts` for why an optional
+    // dependency and an optional peer were both measured and rejected (pnpm installs them, which
+    // would put a real OS keyring behind the test suite). This asserts the failure is advice
+    // rather than a module-resolution stack trace, and it is also the guard on that absence: add
+    // the package to a manifest and this test goes red instead of the comment going stale.
     try {
       await loadKeyring();
       expect.unreachable('@napi-rs/keyring is deliberately not installed');
@@ -214,7 +215,9 @@ describe('the optional dependency', () => {
       expect(caught).toBeInstanceOf(KeychainUnavailable);
       const error = caught as KeychainUnavailable;
       expect(error.message).toContain('@napi-rs/keyring');
-      expect(error.hint).toContain('pnpm add -w @napi-rs/keyring');
+      // With the version range: a host who installs "whatever is newest" is one major release
+      // away from a native addon this adapter was never written against.
+      expect(error.hint).toContain('pnpm add -w @napi-rs/keyring@^2.1.2');
       expect(error.hint).toContain(`${BRAND.cliName} keys rotate-master --key-store keyfile`);
       expect(error.hint).toContain('headless Linux');
       expect(error.cause).toBeDefined();

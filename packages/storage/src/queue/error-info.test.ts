@@ -17,7 +17,7 @@ describe('errorInfoOf', () => {
       new StorageError('STORAGE_BUSY', 'the database is locked by another writer'),
     );
     // The **storage** code, not the generic `ErrorCode`: it is what `exitCodeForStorageCode` and
-    // `village doctor` dispatch on, so a dead letter says something a host can act on.
+    // `comvivo doctor` dispatch on, so a dead letter says something a host can act on.
     expect(info.code).toBe('STORAGE_BUSY');
     expect(info.message).toContain('locked');
     // `02` §3.6: a lock somebody else holds is the one storage failure worth retrying.

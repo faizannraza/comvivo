@@ -194,7 +194,7 @@ export class SqliteTurnJournal implements TurnJournalReader, TurnJournal {
    *
    * Worse than an unacked effect, because the journal says the group was told and the message
    * never arrived — so the recovery query would skip it. Read by the chaos tests and
-   * `village doctor`, and expected to be empty on a healthy instance.
+   * `comvivo doctor`, and expected to be empty on a healthy instance.
    *
    * **Every terminal status but `sent`**, which it was not: the predicate was `status = 'dead'`
    * alone, and `TERMINAL_OUTBOX_STATUSES` has three undelivered members. `expired` is the one that
