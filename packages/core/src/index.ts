@@ -424,6 +424,49 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+// --- Ports: the model gateway (M2-T1) -----------------------------------------------------------
+//
+// From the root, like the storage ports: `05` §4.1 cites it as `@comvivo/core/ports/model.ts` and a
+// subpath export would make every consumer spell out a second entry point for one file. The
+// restricted ports — `unfiltered` and `memory-search` — are subpaths because dependency-cruiser
+// limits *who may import them*, which is not true here: everything that talks to a model talks to
+// this interface.
+export {
+  type AssistantMessage,
+  type AssistantPart,
+  type BatchHandle,
+  type BatchStatus,
+  type CacheHint,
+  continuesToolLoop,
+  EFFORT_LEVELS,
+  type Effort,
+  isIncomplete,
+  isRefusal,
+  isStructuredOk,
+  isStructuredRetryable,
+  ModelCallError,
+  type ModelCallErrorKind,
+  type ModelFeatureSet,
+  type ModelGateway,
+  type ModelMessage,
+  type ModelRoute,
+  type ModelTurnRequest,
+  type ModelTurnResult,
+  type ProviderId,
+  type RouteInfo,
+  type RouteVariant,
+  type SchemaLike,
+  type StopInfo,
+  type StopReason,
+  type StructuredKind,
+  type StructuredRequest,
+  type StructuredResult,
+  type SystemBlock,
+  type ToolSpec,
+  type UsageIteration,
+  type UserPart,
+  usageOf,
+} from './ports/model.js';
 export type {
   BlobInfo,
   BlobPutArgs,

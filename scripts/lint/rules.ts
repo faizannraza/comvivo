@@ -47,6 +47,35 @@ export const CORE_RESTRICTED_GLOBALS = [
     message:
       'core is pure (01 §4): configuration arrives as an argument, never from the environment.',
   },
+  // ── Added at `M2-T1`, when `packages/core/tsconfig.json` gained `"types": ["node"]`.
+  //
+  // `01` §7.5 and `05` §4.1 both give `ModelGateway.run` an `AbortSignal`, which is a platform
+  // global in neither `lib.es2024` nor an empty `types` array — so the port could not be written
+  // as the spine specifies without Node's types. Until then `types: []` was doing part of the
+  // purity enforcement by accident: a `setTimeout` in core did not *compile*. Trading an accident
+  // for a rule means naming the globals that accident was covering, which is these four.
+  {
+    name: 'setTimeout',
+    message:
+      'core is pure (01 §4): a delay is a decision for the caller, from the injected Clock and ' +
+      'the job queue. A timer in core is a behaviour no test can fast-forward.',
+  },
+  {
+    name: 'setInterval',
+    message:
+      'core is pure (01 §4): nothing in the domain may schedule itself. `02` §3.10 owns recurring ' +
+      'work, where it is durable and visible.',
+  },
+  {
+    name: 'setImmediate',
+    message: 'core is pure (01 §4): Node-only, and ordering is not a domain concern.',
+  },
+  {
+    name: 'Buffer',
+    message:
+      'core is pure (01 §4): Node-only. Use `Uint8Array`, which is what the ports already carry ' +
+      'and what runs in a browser too.',
+  },
 ] as const;
 
 /**

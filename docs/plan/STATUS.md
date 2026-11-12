@@ -1233,9 +1233,9 @@ fixes the first four produced — and found what no test had:
 
 ### M2 — Model gateway
 
-Status: not started · Tasks: 0/20 · Gate: —
+Status: **in progress** (started 2026-11-12) · Tasks: 1/20 · Gate: —
 
-- [ ] M2-T1 Canonical model port types
+- [x] M2-T1 Canonical model port types — `05` §4.1's port in `packages/core/src/ports/model.ts`, exported from the root like the storage ports, with `model.types.test.ts` holding the type-level contract. **The request type is the first guard on `01` §2.1**: there is no `temperature`, `top_p`, `top_k`, prefill or `thinking` field to set and `toolChoice` is `'auto' | 'none'`, each pinned by a `@ts-expect-error` that fails the build if the field ever becomes settable; `M2-T6`'s captured-request assertions are the second guard and the provider's 400 the third. The `StopInfo` and `StructuredResult` helpers are **total `Record` mappings**, which is the house idiom (`shared/assert-never.ts`) rather than a `switch` with a `default` that silently stops matching its union — `continuesToolLoop` wrong in the permissive direction is an infinite tool loop, and `isStructuredRetryable` treats `refused` as final because a retry around a policy decline launders a refusal into an answer. **Three facts re-verified against the live API rather than recalled** (`CLAUDE.md` §6), and the `claude-api` skill's own model table turned out to be cached from June and three releases stale: effort has **five** levels (`low`…`max`, `output_config.effort`, GA) where §4.1 declared three and §3.5.2's registry already said five; the default differs per model (`medium` on Opus 5.5 and Haiku 5.5, `high` on Sonnet 5.5), which is why `effort` is required; and `adaptive` is a thinking mode, not an effort level. The plan's model IDs were **confirmed correct** — `claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5` are live. `StrictJsonSchema` lands in `@comvivo/shared` as the one definition `models` and `plugin-sdk` share (`M2-T4` adds the converter beside it). 19 tests here, **4,472 total**, 96.71% statements / 90.27% branches, 0 depcruise violations over 517 modules, `pnpm verify` **exit 0** on Node v26.13.0
 - [ ] M2-T2 Capability registry, presets, route resolver
 - [ ] M2-T3 Price tables & cost calculator
 - [ ] M2-T4 Strict JSON-schema converter (single implementation)

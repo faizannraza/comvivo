@@ -1555,7 +1555,13 @@ Copy lives in `copy/runtime.<locale>.json` (ICU) and is reviewed like UI copy.
 export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openai-compatible' | 'fake';
 export type ModelRoute = 'chat' | 'route' | 'extract' | 'declassify' | 'guard' | 'consolidate';
 export type RouteVariant = 'default' | 'economy';             // economy = budget step ≥ 1 (chat only)
-export type Effort = 'low' | 'medium' | 'high';
+// Amended at `M2-T1`: **five** levels, verified against the live API documentation on 2026-11-12
+// (`output_config.effort`, GA, no beta header). All five are accepted by Opus 5.5, Sonnet 5.5 and
+// Haiku 5.5; §3.5.2's capability registry already listed five, so this line was the outlier. The
+// API default differs per model — `medium` on Opus 5.5 and Haiku 5.5, `high` on Sonnet 5.5 and
+// Fable 5.2 — which is why `ModelTurnRequest.effort` is **required** rather than optional.
+// `adaptive` is a `thinking` mode and is deliberately not an effort value.
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export interface CacheHint { readonly ttl: '5m' | '1h' }
 
 export interface SystemBlock { readonly id: string; readonly text: string; readonly cache?: CacheHint }
@@ -1625,7 +1631,10 @@ export interface StructuredRequest<T> {
   readonly route: ModelRoute; readonly variant?: RouteVariant; readonly purpose: string;
   readonly system: readonly SystemBlock[];
   readonly input: readonly UserPart[];
-  readonly schema: z.ZodType<T>; readonly schemaName: string;
+  // `SchemaLike<T>` (a `safeParse`), not `z.ZodType<T>`: amended at `M2-T1`, because
+  // `@comvivo/core` must not take a validation library's type surface into a port. The engine
+  // passes whatever zod gives it and `@comvivo/models` does the parsing.
+  readonly schema: SchemaLike<T>; readonly schemaName: string;
   readonly effort: Effort; readonly maxOutputTokens: number;
   readonly correlation: { readonly groupId?: GroupId; readonly turnId?: TurnId; readonly jobId?: JobId };
 }

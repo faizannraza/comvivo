@@ -285,13 +285,37 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
       .sort();
   };
 
-  it('bans Date, process and fetch inside core — the options, not just the rule', async () => {
+  it('bans every impure global inside core — the options, not just the rule', async () => {
+    // Sorted, so the assertion is a set rather than an ordering. The four timer/Node names joined
+    // the three originals at `M2-T1`, when `packages/core/tsconfig.json` gained `"types":
+    // ["node"]` so the model port could name an `AbortSignal` as `01` §7.5 specifies: until then
+    // an empty `types` array had been refusing them by accident, and an accident is not a rule.
     expect(await restrictedGlobalsFor('packages/core/src/policy/authorize.ts')).toEqual([
+      'Buffer',
       'Date',
       'fetch',
       'process',
+      'setImmediate',
+      'setInterval',
+      'setTimeout',
     ]);
   });
+
+  it.each(['setTimeout', 'setInterval', 'setImmediate', 'Buffer'])(
+    'refuses %s in core, which `types: []` used to refuse by accident',
+    async (name) => {
+      // Planted through the real rule rather than asserted from the config: the four exist because
+      // Node's types now make them compile in core, so the thing worth proving is that they still
+      // fail.
+      const code =
+        name === 'Buffer'
+          ? 'export const f = () => Buffer.alloc(1);'
+          : `export const f = () => ${name}(() => undefined, 1);`;
+      expect(
+        await rulesFiredFor(CORE_PURITY_RULES, code, 'packages/core/src/policy/authorize.ts'),
+      ).toContain('no-restricted-globals');
+    },
+  );
 
   it('bans only fetch outside core, where a clock is legitimate', async () => {
     // `storage` must be able to call `Date.now()`. If this ever returns `Date`, a block has

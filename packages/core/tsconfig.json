@@ -3,7 +3,17 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "tsBuildInfoFile": "dist/.tsbuildinfo"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    // `AbortSignal` is a platform global in neither `lib.es2024` nor an empty `types` array, and
+    // `01` §7.5 gives `ModelGateway.run` one (`M2-T1`). Node's types are the narrowest way to get
+    // it — the DOM lib would bring `window` and `document` into the pure package.
+    //
+    // This does **not** relax the purity rule, which is lint-enforced: `no-restricted-globals`
+    // over `packages/core/**` bans `Date`, `process` and `fetch`, and `M2-T1` added `setTimeout`,
+    // `setInterval`, `setImmediate` and `Buffer` — the four that an empty `types` array had been
+    // refusing by accident rather than by rule. `test/boundaries/lint-bans.int.test.ts` proves
+    // each of them bites.
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "references": [

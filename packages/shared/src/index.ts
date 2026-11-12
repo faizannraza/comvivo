@@ -281,6 +281,7 @@ export {
   timestampOf,
   UuidV7Source,
 } from './uuidv7.js';
+export type { StrictJsonSchema, StrictJsonSchemaType } from './zod/strict-json-schema.js';
 export {
   type Branded,
   capped,
