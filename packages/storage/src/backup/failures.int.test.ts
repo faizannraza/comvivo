@@ -28,7 +28,7 @@ import { pack as tarPack } from 'tar-stream';
 import { afterEach, describe, expect, it } from 'vitest';
 import { sealBackup } from '../crypto/backup-envelope.js';
 import { openDatabase } from '../db/open.js';
-import { createBackup, pruneArchives, tableRowCounts } from './create.js';
+import { archiveName, createBackup, pruneArchives, tableRowCounts } from './create.js';
 import {
   type BackupManifest,
   BLOB_INDEX_ENTRY,
@@ -287,6 +287,99 @@ describe('createBackup refusals (02 §3.14.1)', () => {
     expect(readdirSync(join(dataDir, 'backups', '.tmp'))).toEqual([]);
   });
 
+  it('reports a blob it cannot read instead of abandoning the write and ending the process', async () => {
+    // An embedded blob whose file is missing: `addFile` throws inside the `fill` promise, which is
+    // the half of `writeArchive` nobody awaits until after the seal. Before the M1 exit gate that
+    // rejection was abandoned whenever the seal failed — and Node 26 ends the process on an
+    // abandoned rejection, *after* the caller has already caught and reported the real error. Here
+    // the failure has to come back as a thrown error from `createBackup`, not as a dead process.
+    await wrappersSecretStream.ready();
+    const keys = keysOf();
+    const dataDir = tempDir('blobgone');
+    mkdirSync(join(dataDir, 'db'), { recursive: true, mode: 0o700 });
+    mkdirSync(join(dataDir, 'backups'), { recursive: true, mode: 0o700 });
+    const dbKey = derivePurposeKey(keys.rootDataKey, INSTANCE, KEY_PURPOSE.db);
+    const opened = openDatabase({
+      path: join(dataDir, 'db', `${BRAND.slug}.db`),
+      key: dbKey,
+      role: 'main',
+      loadVec: false,
+    });
+    opened.db.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY)');
+    const dek = Buffer.from(wrappersSecretStream.keygen());
+
+    await expect(
+      createBackup({
+        db: opened.db,
+        key: dbKey,
+        backupDir: join(dataDir, 'backups'),
+        tier: 'manual',
+        stream: wrappersSecretStream,
+        dek,
+        header: headerFor({ instanceId: INSTANCE, createdAt: CREATED, dek, keys }),
+        manifest: manifestStub(),
+        // A real blob reference whose **file** is gone: the shape the manifest accepts, with
+        // nothing behind it. The first version of this test passed a made-up shape and was
+        // refused by the manifest's own schema instead — it never reached `writeArchive` at all,
+        // which the coverage of the path it claimed to exercise is what revealed.
+        blobs: [{ ...seedBlob(dataDir), path: join(dataDir, 'blobs', 'gone.blob') }],
+        blobMode: 'embedded',
+        keep: 14,
+      }),
+    ).rejects.toThrow(/ENOENT|no such file/);
+    opened.db.close();
+
+    // No half-written archive left claiming to be a rollback path, and no snapshot either.
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(join(dataDir, 'backups', '.tmp'))).toEqual([]);
+    expect(
+      readdirSync(join(dataDir, 'backups', 'manual')).filter((n) => n.endsWith('.vbak')),
+    ).toEqual([]);
+  });
+
+  it('surfaces a write error instead of hanging on a drain that can never come', async () => {
+    // The output stream failing mid-archive. Before the M1 exit gate the stream had no `'error'`
+    // listener and the drain promise had no reject path, so `ENOSPC` either threw an unhandled
+    // `'error'` or waited forever for a drain. Reproduced root-proof by putting a **directory**
+    // where the `.part` file goes: `createWriteStream` then fails with `EISDIR`, which is the same
+    // shape as a full disk from this code's point of view.
+    await wrappersSecretStream.ready();
+    const keys = keysOf();
+    const dataDir = tempDir('eisdir');
+    mkdirSync(join(dataDir, 'db'), { recursive: true, mode: 0o700 });
+    const tier = join(dataDir, 'backups', 'manual');
+    mkdirSync(tier, { recursive: true, mode: 0o700 });
+    mkdirSync(join(tier, `${archiveName(INSTANCE, CREATED)}.part`), { recursive: true });
+    const dbKey = derivePurposeKey(keys.rootDataKey, INSTANCE, KEY_PURPOSE.db);
+    const opened = openDatabase({
+      path: join(dataDir, 'db', `${BRAND.slug}.db`),
+      key: dbKey,
+      role: 'main',
+      loadVec: false,
+    });
+    opened.db.exec('CREATE TABLE notes (id INTEGER PRIMARY KEY)');
+    const dek = Buffer.from(wrappersSecretStream.keygen());
+
+    await expect(
+      createBackup({
+        db: opened.db,
+        key: dbKey,
+        backupDir: join(dataDir, 'backups'),
+        tier: 'manual',
+        stream: wrappersSecretStream,
+        dek,
+        header: headerFor({ instanceId: INSTANCE, createdAt: CREATED, dek, keys }),
+        manifest: manifestStub(),
+        blobs: [],
+        blobMode: 'shared',
+        keep: 14,
+      }),
+    ).rejects.toThrow();
+    opened.db.close();
+    const { readdirSync } = await import('node:fs');
+    expect(readdirSync(join(dataDir, 'backups', '.tmp'))).toEqual([]);
+  }, 20_000);
+
   it('embeds the blobs when asked, and a restore finds them inside the archive', async () => {
     const made = await make('embed', { embedded: true });
     expect(made.manifest.blobs.mode).toBe('embedded');
@@ -323,10 +416,15 @@ describe('createBackup refusals (02 §3.14.1)', () => {
       // creating it succeeds and querying it does not, which is exactly the shape.
       opened.db.exec('CREATE VIEW v AS SELECT 1');
       opened.db.exec(`CREATE VIRTUAL TABLE broken USING fts5vocab('nope', 'row')`);
-      const counts = tableRowCounts(opened.db);
+      const { counts, skipped } = tableRowCounts(opened.db);
       expect(counts['a']).toBe(2);
       expect(counts['v']).toBeUndefined();
       expect(counts['broken']).toBeUndefined();
+      // **Named, not just skipped.** A table counted by the restoring build and skipped by the
+      // backing one read as `expected 0 ≠ actual N` and refused a sound archive, so the manifest
+      // carries the skips and `tableCountDifferences` ignores them. Found at the M1 exit gate.
+      expect(skipped).toContain('broken');
+      expect(skipped).not.toContain('a');
     } finally {
       opened.db.close();
     }

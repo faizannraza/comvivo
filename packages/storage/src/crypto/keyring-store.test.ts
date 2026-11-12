@@ -166,9 +166,16 @@ describe('crash-resume: a fault at each step of the write', () => {
       why: 'the old file had not moved, so it is still exactly where a reader looks',
     },
     {
+      // Amended at the M1 exit gate. This case used to expect `old-in-prev` — the old keyring
+      // left under `.prev`, with the live path empty — on the reasoning that `.prev` exists for
+      // exactly this. It does, but nothing in production reads it: `read()` raised
+      // `KEYRING_MISSING`, whose hint suggests `init`, which walks a host with an unlockable
+      // instance *away* from the keyring sitting beside it. `write()` now puts the old file back,
+      // so the host needs no intervention at all — and if that second rename fails too, the
+      // outcome is the old one, which is why `.prev` still exists.
       point: 'renameTempIntoPlace',
-      expect: 'old-in-prev',
-      why: 'the old file had already moved to `.prev`, which is why `.prev` exists',
+      expect: 'old-still-live',
+      why: 'the old file is put back, so a reader finds it where it looks',
     },
     {
       point: 'syncDirectory',

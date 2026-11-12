@@ -162,8 +162,16 @@ export const nodeUnlockIo: UnlockIo = {
     try {
       await readFile(path);
       return true;
-    } catch {
-      return false;
+    } catch (cause) {
+      // **Only `ENOENT` means absent.** `EACCES`, `EISDIR` and `EIO` are a key that is there and
+      // cannot be read, and swallowing them told the host the opposite: step 4 was skipped, the
+      // resolver fell through to `MASTER_KEY_NOT_FOUND`, and its hint — "your key file is missing
+      // — restore it, or recover with your recovery key" — sent them to the recovery ceremony for
+      // a file sitting right there with the wrong owner. One `chown` after a `docker run -u`
+      // change is enough to reach it. Found by the M1 exit gate's reviewer; steps 1 and 5 already
+      // got this right with `MASTER_KEY_UNREADABLE`.
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false;
+      throw cause;
     }
   },
   keychainGet(service) {
@@ -196,6 +204,33 @@ export interface ResolveOptions {
  * Returns `PassphraseRequired` rather than prompting: a prompt needs a TTY, and this function runs
  * in the server, the CLI and tests. The caller decides how to ask.
  */
+/**
+ * `io.fileExists`, with an unreadable file raised rather than reported as absent.
+ *
+ * An injected `UnlockIo` is free to implement `fileExists` the old way — the in-memory one in the
+ * tests does — so the distinction is enforced here, at the one call site that decides between
+ * "use this keyfile" and "there is no key anywhere".
+ */
+async function exists(io: UnlockIo, path: string): Promise<boolean> {
+  try {
+    return await io.fileExists(path);
+  } catch (cause) {
+    throw unreadableKeyfile(path, cause);
+  }
+}
+
+/** The error a keyfile that is present and unreadable deserves: a fix, not a recovery ceremony. */
+function unreadableKeyfile(path: string, cause: unknown): UnlockError {
+  return new UnlockError(
+    'MASTER_KEY_UNREADABLE',
+    `the master key at ${path} exists but could not be read`,
+    'Check its owner and mode — it must be a file, readable by the user running ' +
+      `${BRAND.displayName} (0600, owned by that user). This is not a missing key, so do not ` +
+      'start a recovery: something is there.',
+    { cause },
+  );
+}
+
 export async function resolveUnlock(options: ResolveOptions): Promise<UnlockOutcome> {
   const io = options.io ?? nodeUnlockIo;
 
@@ -255,8 +290,16 @@ export async function resolveUnlock(options: ResolveOptions): Promise<UnlockOutc
   }
 
   // 4. The keyfile. The default, and the reason `comvivo init` hits five minutes.
-  if (options.configured !== 'passphrase' && (await io.fileExists(options.keyfilePath))) {
-    const text = await io.readFile(options.keyfilePath);
+  if (options.configured !== 'passphrase' && (await exists(io, options.keyfilePath))) {
+    let text: string;
+    try {
+      text = await io.readFile(options.keyfilePath);
+    } catch (cause) {
+      // The window between "it is there" and "read it": a permission change, a vanished mount.
+      // Raised as unreadable rather than escaping as a raw `EACCES`, because the hint is what the
+      // host acts on.
+      throw unreadableKeyfile(options.keyfilePath, cause);
+    }
     return { kind: 'keyfile', key: decodeMasterKey(text), detail: options.keyfilePath };
   }
 

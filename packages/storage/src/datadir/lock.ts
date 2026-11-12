@@ -32,10 +32,9 @@
  * fake clock".
  */
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, readFile, rm } from 'node:fs/promises';
+import { link, mkdir, open, readFile, rm, stat } from 'node:fs/promises';
 import { hostname } from 'node:os';
 import { StorageError, z } from '@comvivo/shared';
-import { writeFileAtomic } from './atomic.js';
 import { DIR_MODE, dataDirLayout, FILE_MODE } from './layout.js';
 
 /** `12` §3.7: how often the holder refreshes `heartbeatAt`. */
@@ -190,9 +189,16 @@ export async function acquireLock(
   // independent ways to tell, because neither is sufficient alone.
   const existing = await readLock(path);
   if (existing === undefined) {
-    // Unreadable or malformed. A lock file nobody can parse cannot be proof of a live process, and
-    // leaving it forever would require manual intervention — the thing the heartbeat exists to
-    // avoid. Replaced, with the same `O_EXCL` dance so two processes racing here cannot both win.
+    // Unreadable or malformed — and **not** automatically replaceable. This branch used to replace
+    // unconditionally, on the reasoning that a file nobody can parse is not proof of a live
+    // process. True of a corrupt file; false of one being written, which is how the cold-start
+    // race above reached a second writer. A file younger than the stale window is treated as a
+    // holder whose details are unknown, and the next attempt a few seconds later either parses it
+    // or ages it out — so no manual intervention is needed either way, which is what the original
+    // reasoning was protecting.
+    if (!(await olderThanStaleWindow(path))) {
+      return { acquired: false, heldBy: await describeHolder(path, environment) };
+    }
     return (await replaceLock(path, next))
       ? { acquired: true, lock: next }
       : { acquired: false, heldBy: await describeHolder(path, environment) };
@@ -245,12 +251,64 @@ export async function heartbeat(
 ): Promise<boolean> {
   const role = options.role ?? 'main';
   const path = lockPath(root, role, environment.pid);
-  const existing = await readLock(path);
-  if (existing === undefined) return false;
-  if (!ownedBy(existing, environment, role)) return false;
 
-  await writeLock(path, { ...existing, heartbeatAt: environment.now().toISOString() });
-  return true;
+  // **One descriptor for the check and the write**, which is what makes this a compare-and-swap
+  // rather than a read followed by a hopeful overwrite.
+  //
+  // The old shape — `readLock(path)`, then `writeFileAtomic(path, …)` — passed its ownership check
+  // against content read *before* the write, and the atomic write replaced whatever was at the
+  // path by then. A holder that stalled past the stale window (which `HEARTBEAT_STALE_MS`'s own
+  // comment says a Pi does during a migration) would be taken over correctly, and then put its
+  // own claim back over the new holder's: the M1 exit gate's reviewer measured that 5 times out of
+  // 5, with both processes believing they held the lock.
+  //
+  // Writing through the descriptor cannot do that. If a takeover has unlinked the file, the write
+  // lands in an inode nothing points at and the new holder's claim is untouched; the `fstat`
+  // comparison afterwards reports the loss immediately rather than one interval later.
+  let handle: Awaited<ReturnType<typeof open>>;
+  try {
+    handle = await open(path, 'r+');
+  } catch {
+    return false;
+  }
+  try {
+    const existing = parseLock(await handle.readFile('utf8'));
+    if (existing === undefined) return false;
+    if (!ownedBy(existing, environment, role)) return false;
+
+    const text = serialise({ ...existing, heartbeatAt: environment.now().toISOString() });
+    await handle.truncate(0);
+    await handle.write(text, 0, 'utf8');
+    await handle.sync();
+
+    // Did the file we just wrote stay the live one? A takeover replaces the inode, so comparing it
+    // with the path's current inode is the whole question.
+    const written = await handle.stat();
+    const live = await stat(path).catch(() => undefined);
+    return live !== undefined && live.ino === written.ino;
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * Is an unreadable lock file old enough to be a corpse rather than a lock being written?
+ *
+ * `mtime`, because the content cannot be parsed — that is the whole situation. The same window the
+ * heartbeat uses, so the answer agrees with `isStale` for a file whose content *can* be read.
+ *
+ * **Against the real clock, not the injected one.** Every other comparison in this module reads a
+ * timestamp the module itself wrote, so an injected clock is the right thing to compare it with;
+ * an `mtime` is a fact recorded by the kernel, and comparing it to a fake clock is a category
+ * error — a test with a clock in 2026 and a file written today gets a negative age and the branch
+ * never fires. A test that needs to drive this backdates the file with `utimes`, which is the
+ * real-world shape anyway.
+ */
+async function olderThanStaleWindow(path: string): Promise<boolean> {
+  const info = await stat(path).catch(() => undefined);
+  // Gone between the failed create and this check: the next attempt will create it.
+  if (info === undefined) return true;
+  return Date.now() - info.mtimeMs > HEARTBEAT_STALE_MS;
 }
 
 /** Release the lock, if this process holds it. A lock held by somebody else is left alone. */
@@ -380,29 +438,55 @@ async function describeHolder(path: string, environment: LockEnvironment): Promi
     : toHolder(existing, environment.now());
 }
 
-/** `O_EXCL`: create, or report that somebody else already has. */
+/**
+ * Create the lock, or report that somebody else already has — **with its content already in it**.
+ *
+ * This was `open(O_CREAT|O_EXCL)` followed by a write, and the gap between the two was a hole
+ * straight through `C1`. The file existed and was **empty**; `readLock` reports unparseable as
+ * absent; and `acquireLock`'s absent branch replaced it with no liveness check. So the loser of
+ * the `O_EXCL` race deleted the winner's file and created its own, and both processes went on to
+ * open the writer connection. The M1 exit gate's reviewer measured **112 of 200** cold starts
+ * taking both locks, and 13 of 40 with two real processes — no misbehaviour required, just
+ * `systemctl restart` racing a container start.
+ *
+ * Write-then-`link` closes it. `link` fails with `EEXIST` if the target exists, so it is as
+ * exclusive as `O_CREAT|O_EXCL`, and the inode it publishes already holds the full claim: there is
+ * no instant at which the lock is readable and empty. The temp name carries the pid, so two
+ * processes never share one.
+ */
 async function writeExclusive(path: string, lock: LockFile): Promise<boolean> {
-  let handle: Awaited<ReturnType<typeof open>>;
+  const temp = `${path}.${String(lock.pid)}.new`;
   try {
-    handle = await open(
-      path,
-      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_EXCL,
+    const handle = await open(
+      temp,
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC,
       FILE_MODE,
     );
+    try {
+      await handle.writeFile(serialise(lock), 'utf8');
+      await handle.sync();
+    } finally {
+      await handle.close();
+    }
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') return false;
     throw new StorageError('STORAGE_IO', `the lock file ${path} could not be created`, {
       hint: 'Check that the data directory exists and the service user can write to it.',
       cause,
     });
   }
   try {
-    await handle.writeFile(serialise(lock), 'utf8');
-    await handle.sync();
+    await link(temp, path);
+    return true;
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw new StorageError('STORAGE_IO', `the lock file ${path} could not be created`, {
+      hint: 'Check that the data directory exists and the service user can write to it.',
+      cause,
+    });
   } finally {
-    await handle.close();
+    // The temp is this process's own name, so removing it can never touch another holder's file.
+    await rm(temp, { force: true });
   }
-  return true;
 }
 
 /**
@@ -417,23 +501,6 @@ async function replaceLock(path: string, lock: LockFile): Promise<boolean> {
   return writeExclusive(path, lock);
 }
 
-/**
- * Replace the lock file atomically.
- *
- * It was a plain `writeFile` over the live path. A reader that caught the heartbeat mid-write saw
- * truncated JSON, `readLock` reports unparseable as **absent**, and `acquireLock` then replaces an
- * absent lock with no liveness check — so a second process could take the lock from a live holder
- * and both would believe they had it. That is the two-writer state **C1** forbids, reached without
- * either process doing anything wrong. Found by the M1 independent review.
- *
- * `readLock`'s comment — "a lock file is not evidence of anything unless it can be read" — is a
- * sound argument about a *corrupt* file and was being asked to cover a file that was merely
- * *being written*. With the rename it only has to cover the case it was written for.
- */
-async function writeLock(path: string, lock: LockFile): Promise<void> {
-  await writeFileAtomic(path, serialise(lock));
-}
-
 async function readLock(path: string): Promise<LockFile | undefined> {
   let text: string;
   try {
@@ -441,6 +508,11 @@ async function readLock(path: string): Promise<LockFile | undefined> {
   } catch {
     return undefined;
   }
+  return parseLock(text);
+}
+
+/** The parse half of `readLock`, for the heartbeat, which reads through its own descriptor. */
+function parseLock(text: string): LockFile | undefined {
   try {
     return lockSchema.parse(JSON.parse(text));
   } catch {

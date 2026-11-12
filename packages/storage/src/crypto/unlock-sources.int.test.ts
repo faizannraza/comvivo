@@ -155,21 +155,25 @@ describe('nodeUnlockIo against a real filesystem', { tags: ['slow'] }, () => {
     });
   });
 
-  it('reports a directory as not a usable key file', async () => {
-    // `readFile` on a directory raises `EISDIR`, so this answers false. That is the right answer
-    // for the question being asked — "is there a key file here I can read" — and the
-    // misconfiguration (a directory where the keyfile should be) still ends in
-    // `MASTER_KEY_NOT_FOUND` with the path named, rather than in an unhandled EISDIR at boot.
+  it('raises rather than reporting a directory as an absent key file', async () => {
+    // `readFile` on a directory raises `EISDIR`, and **only `ENOENT` means absent** (amended at
+    // the M1 exit gate). This assertion used to expect `false`, with the reasoning that the
+    // question is "is there a key file here I can read" — but the answer flows into a hint, and
+    // the hint for absent says *"your key file is missing — restore it, or recover with your
+    // recovery key"*. A host who follows that performs a recovery ceremony and rotates the master
+    // key, when the fix was a path or a `chown`.
     await withDir(async (dir) => {
-      expect(await nodeUnlockIo.fileExists(dir)).toBe(false);
+      await expect(nodeUnlockIo.fileExists(dir)).rejects.toMatchObject({ code: 'EISDIR' });
     });
   });
 
-  it('reports an unreadable file as absent, which the final hint accounts for', async () => {
-    // A deliberate conflation, documented here because it is a support-call shape: a key file the
-    // service user cannot read is indistinguishable from a missing one through this interface. The
-    // `MASTER_KEY_NOT_FOUND` hint therefore names the path and says "missing — restore it", and
-    // `KeyringStore.auditPermissions` is what actually diagnoses a permission problem.
+  it('raises for a key file it cannot read, so the host is told to fix the mode', async () => {
+    // The support-call shape this is really about: after a `docker run -u` change or a wrong
+    // `chown`, `keys/master.key` is right there and unreadable. Conflating that with "absent" —
+    // which this interface used to do, deliberately — pointed the host at
+    // `MASTER_KEY_NOT_FOUND`'s recovery advice for a file that was present, so an `EACCES` now
+    // surfaces as `MASTER_KEY_UNREADABLE` through `resolveUnlock`. `auditPermissions` still
+    // diagnoses mode problems in general; this is about the one decision that leads to a recovery.
     //
     // Skipped when the test runs as root, where mode bits do not deny the owner.
     if (process.getuid?.() === 0) return;
@@ -177,7 +181,12 @@ describe('nodeUnlockIo against a real filesystem', { tags: ['slow'] }, () => {
       const path = join(dir, 'master.key');
       await writeFile(path, KEY_B64URL);
       await chmod(path, 0o000);
-      expect(await nodeUnlockIo.fileExists(path)).toBe(false);
+      await expect(nodeUnlockIo.fileExists(path)).rejects.toMatchObject({ code: 'EACCES' });
+
+      // And the whole sequence says so, with a hint that does not mention recovery.
+      await expect(
+        resolveUnlock({ keyfilePath: path, configured: 'keyfile', io: nodeUnlockIo }),
+      ).rejects.toMatchObject({ code: 'MASTER_KEY_UNREADABLE' });
     });
   });
 });

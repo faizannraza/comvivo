@@ -38,7 +38,17 @@ import type {
   TxToken,
 } from '@comvivo/core';
 import { JOB_PAYLOAD_INVALID, POOL_LIMITS } from '@comvivo/core';
-import { type Logger, parse, type TimerHandle, type Timers } from '@comvivo/shared';
+import {
+  err,
+  type Logger,
+  parse,
+  type Result,
+  type TimerHandle,
+  type Timers,
+  toLoggedError,
+  ValidationError,
+  type z,
+} from '@comvivo/shared';
 import { errorInfoOf } from './error-info.js';
 import type { JobKindRegistry } from './kinds.js';
 import { DEFAULT_CLAIM_LEASE_MS } from './queue.js';
@@ -148,10 +158,27 @@ export class PoolWorker {
     });
     for (const job of claimed) {
       this.#inFlight += 1;
-      void this.#run(job).finally(() => {
-        this.#inFlight -= 1;
-        this.wake();
-      });
+      void this.#run(job)
+        // The last-resort handler, and the reason it exists is measured: `#run`'s own `try` starts
+        // at the handler call, so anything before it — a `payload` column that is not JSON, or the
+        // database refusing the write that records a failure (`SQLITE_BUSY`, `SQLITE_FULL`) —
+        // became an **unhandled rejection**, and Node 26 ends the process on one. The lease then
+        // expired, the job was re-claimed on the next boot, and it ended the process again: a
+        // crash loop whose only visible cause was a stack trace. Now it is a line in the log and
+        // one expired lease. Found by the M1 exit gate's reviewer.
+        .catch((error: unknown) => {
+          this.#options.logger.error('job.crashed', {
+            jobId: job.id,
+            jobKind: job.kind,
+            partitionKey: job.partitionKey,
+            attempt: job.attempts,
+            err: toLoggedError(error),
+          });
+        })
+        .finally(() => {
+          this.#inFlight -= 1;
+          this.wake();
+        });
     }
     return claimed;
   }
@@ -232,7 +259,10 @@ export class PoolWorker {
       return;
     }
 
-    const parsed = parse(def.payload, JSON.parse(job.payload) as unknown);
+    // `JSON.parse` inside the guard, not above it: a `payload` column that is not JSON is the
+    // same failure as one that does not match the schema — `02` §3.10.1's `JOB_PAYLOAD_INVALID ⇒
+    // dead` — and it used to throw past every handler instead.
+    const parsed = parsePayload(def, job.payload);
     if (!parsed.ok) {
       // `02` §3.10.1: `JOB_PAYLOAD_INVALID ⇒ dead`. Non-retryable, because the payload will not
       // start parsing on the next attempt and eight retries would hide the real cause.
@@ -339,6 +369,32 @@ export class PoolWorker {
 /** Every pool's worker, which is what `apps/server` starts (`02` §3.10.4). */
 export function makeWorkers(options: WorkerOptions): readonly PoolWorker[] {
   return (Object.keys(POOL_LIMITS) as JobPool[]).map((pool) => new PoolWorker(pool, options));
+}
+
+/**
+ * A job's payload, parsed from the column and checked against its kind's schema.
+ *
+ * Both failures are the same failure. `02` §3.10.1 maps `JOB_PAYLOAD_INVALID` to *dead*, and a
+ * `payload` column that is not JSON at all is no more retryable than one that parses into the
+ * wrong shape — but `JSON.parse` threw past the caller instead of landing here, which the M1 exit
+ * gate's reviewer traced to a crash loop. A row can outlive the code that wrote it, so this is
+ * reachable by an upgrade and not only by a bug.
+ */
+function parsePayload(
+  def: { readonly payload: z.ZodType },
+  payload: string,
+): Result<unknown, ValidationError> {
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(payload) as unknown;
+  } catch (cause) {
+    return err(
+      new ValidationError('a job payload is not JSON', [
+        { path: 'payload', message: (cause as Error).message.slice(0, 200) },
+      ]),
+    );
+  }
+  return parse(def.payload, decoded);
 }
 
 function payloadInvalid(kind: string): ErrorInfo {

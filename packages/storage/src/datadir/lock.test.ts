@@ -11,7 +11,7 @@
  * and be the flakiest test in the suite. The liveness probe is fake for a stronger reason — a test
  * that killed real processes to check PID detection would be a test that can kill the wrong one.
  */
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, utimes, writeFile } from 'node:fs/promises';
 import { describe, expect, it } from 'vitest';
 import {
   acquireLock,
@@ -31,6 +31,88 @@ import { fakeEnvironment, withDataDir } from './testing/data-dir.js';
 async function onDisk(root: string, role = 'main'): Promise<LockFile> {
   return JSON.parse(await readFile(lockPath(root, role), 'utf8')) as LockFile;
 }
+
+describe('two processes starting at once (C1)', { tags: ['slow'] }, () => {
+  /**
+   * The race the M1 exit gate's reviewer measured at **112 of 200** cold starts, reproduced.
+   *
+   * The old acquisition created the lock file with `O_CREAT|O_EXCL` and wrote its content
+   * afterwards, so the loser of that race read an **empty** file, `readLock` reported unparseable
+   * as absent, and the absent branch replaced it — deleting the winner's lock. Both processes then
+   * opened the writer connection: two outboxes, two turn journals, every message sent twice.
+   *
+   * Every lock test in this file was sequential before this one, which is exactly why the defect
+   * survived to the gate. `Promise.all` is the whole point of the test.
+   */
+  it('lets exactly one of two concurrent cold starts acquire it', async () => {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await withDataDir(async (root) => {
+        const first = fakeEnvironment({ pid: 101, hostname: 'alpha', alive: [101, 102] });
+        const second = fakeEnvironment({ pid: 102, hostname: 'alpha', alive: [101, 102] });
+        const [a, b] = await Promise.all([acquireLock(root, first), acquireLock(root, second)]);
+        const winners = [a, b].filter((result) => result.acquired);
+        expect(winners, `attempt ${String(attempt)}: ${JSON.stringify([a, b])}`).toHaveLength(1);
+        // And the loser is told who holds it, with a parseable claim on disk — not an empty file
+        // that the next process would treat as free.
+        const held = await onDisk(root);
+        expect([101, 102]).toContain(held.pid);
+      });
+    }
+  });
+
+  it('refuses a lock file it cannot parse until that file is old enough to be a corpse', async () => {
+    await withDataDir(async (root) => {
+      const environment = fakeEnvironment({ pid: 200 });
+      // An acquire first, so `run/` exists — then the claim is corrupted in place. This is what a
+      // reader saw mid-create before the content-first fix, and what a torn write would still look
+      // like. Replacing it on sight is what made the race above a second writer, so a young one is
+      // treated as a holder.
+      await acquireLock(root, fakeEnvironment({ pid: 199, alive: [199] }));
+      await writeFile(lockPath(root), '{"pid":1', 'utf8');
+      const refused = await acquireLock(root, environment);
+      expect(refused.acquired).toBe(false);
+
+      // Once it is older than the stale window it is a corpse, and no human has to delete it —
+      // which is the property the old unconditional replacement was protecting. Backdated with
+      // `utimes` rather than by advancing the fake clock: the age of an unparseable file is an
+      // `mtime`, which the kernel wrote, so the comparison is against the real clock.
+      const old = new Date(Date.now() - HEARTBEAT_STALE_MS - 60_000);
+      await utimes(lockPath(root), old, old);
+      const taken = await acquireLock(root, environment);
+      expect(taken.acquired).toBe(true);
+    });
+  });
+
+  /**
+   * The second race, measured at 5 of 5: a holder that stalls past the stale window is taken over
+   * correctly, and then puts its own claim back over the new holder's.
+   *
+   * The heartbeat now checks ownership and writes through **one descriptor**, so a write after a
+   * takeover lands in the unlinked inode and the new holder's file is untouched.
+   */
+  it('does not let a stalled holder take the lock back from the process that took over', async () => {
+    await withDataDir(async (root) => {
+      const stalled = fakeEnvironment({ pid: 301, hostname: 'alpha', alive: [301, 302] });
+      const taker = fakeEnvironment({ pid: 302, hostname: 'alpha', alive: [301, 302] });
+      expect((await acquireLock(root, stalled)).acquired).toBe(true);
+
+      // Six missed intervals: the takeover is legitimate.
+      stalled.advance(HEARTBEAT_STALE_MS + 1_000);
+      taker.advance(HEARTBEAT_STALE_MS + 1_000);
+      const takeover = await acquireLock(root, taker);
+      expect(takeover.acquired).toBe(true);
+
+      // The stalled process wakes up and heartbeats. It must be told it no longer holds the lock,
+      // and the file must still be the taker's.
+      expect(await heartbeat(root, stalled)).toBe(false);
+      expect((await onDisk(root)).pid).toBe(302);
+      // And the taker's own heartbeat still works, which is what makes the assertion above about
+      // the right thing rather than about a broken heartbeat.
+      expect(await heartbeat(root, taker)).toBe(true);
+      expect((await onDisk(root)).pid).toBe(302);
+    });
+  });
+});
 
 describe('taking the lock', { tags: ['slow'] }, () => {
   it('creates the lock and records who holds it', async () => {
@@ -275,12 +357,18 @@ describe('stale takeover (12 §3.7)', { tags: ['slow'] }, () => {
     });
   });
 
-  it('replaces a lock file that cannot be parsed', async () => {
+  it('replaces a lock file that cannot be parsed once it is old enough', async () => {
     // A lock nobody can read is not evidence of a live process, and leaving it would require the
-    // manual intervention the heartbeat exists to avoid.
+    // manual intervention the heartbeat exists to avoid — so it is still replaced, but **only
+    // after the stale window**. This test used to corrupt the file and take the lock immediately,
+    // which is the behaviour that turned a cold-start race into two writers: the loser of the
+    // `O_EXCL` race read the winner's not-yet-written file and replaced it on sight. Amended at
+    // the M1 exit gate; `two processes starting at once (C1)` covers the young case.
     await withDataDir(async (root) => {
       await acquireLock(root, fakeEnvironment({ pid: 100 }));
       await writeFile(lockPath(root), 'this is not json');
+      const old = new Date(Date.now() - HEARTBEAT_STALE_MS - 60_000);
+      await utimes(lockPath(root), old, old);
 
       const result = await acquireLock(root, fakeEnvironment({ pid: 200, alive: [200] }));
       expect(result.acquired).toBe(true);
@@ -301,6 +389,10 @@ describe('stale takeover (12 §3.7)', { tags: ['slow'] }, () => {
         lockPath(root),
         JSON.stringify({ ...first.lock, heartbeatAt: 'some time last tuesday' }),
       );
+      // Backdated for the same reason as the test above: an unreadable claim is a holder until it
+      // is old enough to be a corpse.
+      const old = new Date(Date.now() - HEARTBEAT_STALE_MS - 60_000);
+      await utimes(lockPath(root), old, old);
 
       const result = await acquireLock(root, fakeEnvironment({ pid: 200, alive: [200] }));
       expect(result.acquired).toBe(true);

@@ -334,6 +334,40 @@ describe('labels.intern-idempotent.property', { tags: ['prop', 'db'] }, () => {
     }, 'lsr');
   });
 
+  it('caches nothing when a transaction that interned the same value twice rolls back', () => {
+    // The case the test above could not reach, and the one that mattered: interning **twice** in
+    // one transaction. The first call inserts; the second finds the row the first inserted and
+    // took the "already committed by someone, so caching it now is safe" fast path — which cached
+    // an id that the rollback then took away. Every later write with that audience was refused by
+    // the I4 trigger as `I4_LABEL_GROUP_MISMATCH`, for the life of the process: an
+    // information-flow violation reported for a cache bug. Found by the M1 exit gate's reviewer.
+    withWorld((world) => {
+      const value = label(world.groupId, { kind: 'group', groupId: world.groupId });
+
+      expect(() =>
+        world.store.write((uow) => {
+          const first = world.labels.intern(uow, value);
+          const second = world.labels.intern(uow, value);
+          // Same transaction, same value, same id — the staging has to serve the second call.
+          expect(second).toBe(first);
+          throw new Error('the caller changed its mind');
+        }),
+      ).toThrow('changed its mind');
+
+      expect(world.labels.cacheSize.labels).toBe(0);
+      expect(world.labels.cacheSize.readerSets).toBe(0);
+      expect(count(world.db, 'labels')).toBe(world.baseline.labels);
+
+      // And the id handed out next is one a row actually has: the proof is a labeled write, which
+      // is what the I4 trigger refused before.
+      const id = world.store.write((uow) => world.labels.intern(uow, value));
+      const row = world.db.prepare('SELECT group_id FROM labels WHERE id = ?').get(id) as
+        | { group_id: string }
+        | undefined;
+      expect(row?.group_id).toBe(world.groupId);
+    }, 'lsr2');
+  });
+
   it('fills the cache only after the commit, not during it', () => {
     // The rule stated directly: inside the transaction the cache must still be empty, because the
     // transaction may yet fail. Observed from inside `write`, which is the only place it is

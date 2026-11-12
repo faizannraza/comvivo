@@ -105,11 +105,18 @@ interface LabelRow {
   readonly untrusted: number;
 }
 
-/** What `intern` put in the caches, once the transaction committed. */
+/**
+ * What one transaction has interned, waiting for its commit.
+ *
+ * Three maps rather than a list, because the staged entries are also *read* during the
+ * transaction: interning the same audience twice in one turn must return the same id without a
+ * second `SELECT`, and must do so without the durable cache learning anything a rollback would
+ * invalidate.
+ */
 interface PendingIntern {
-  readonly labelId: LabelId;
-  readonly key: string;
-  readonly label: Label;
+  readonly labels: Map<string, LabelId>;
+  readonly readerSets: Map<string, ReaderSetId>;
+  readonly byId: Map<LabelId, Label>;
 }
 
 /**
@@ -123,6 +130,24 @@ export class LabelStore {
   readonly #db: Database.Database;
   /** `canonical_key` → id, per group. The group is in the key, because ids are not global. */
   readonly #idByKey = new Map<string, LabelId>();
+  /**
+   * Ids interned by a transaction that has not committed yet, keyed by its own token.
+   *
+   * The header's rule — caches are filled in `afterCommit` and nowhere else — had an exception
+   * that broke it: when the `SELECT` **found** a row, both fast paths cached immediately, on the
+   * reasoning that a committed row has no insert to roll back. That is true unless the row was
+   * inserted by an earlier `intern` in the *same open transaction*, which is the ordinary shape of
+   * a turn: ingest a message, then extract memories under the same audience. On rollback the
+   * durable cache kept an id no row had, every later write with that audience was refused by the
+   * I4 trigger, and the symptom was `I4_LABEL_GROUP_MISMATCH` — an information-flow violation
+   * reported for a cache bug, for the life of the process. `label_id` carries no foreign key
+   * (`_columns.ts` promises one), so the trigger was the only thing that noticed.
+   *
+   * A `WeakMap` keyed by the transaction's token is what makes a rollback free: a rolled-back
+   * token is unreachable afterwards, so its staged ids are collected and can never be consulted.
+   * Found by the M1 exit gate's reviewer.
+   */
+  readonly #pendingByUow = new WeakMap<TxToken, PendingIntern>();
   /** id → the label it stands for, for the eligibility map `M1-T17` builds. */
   readonly #labelById = new Map<LabelId, Label>();
   readonly #readerSetIdByKey = new Map<string, ReaderSetId>();
@@ -139,20 +164,23 @@ export class LabelStore {
    * opened its own would commit around part of a logical change.
    */
   intern(_uow: TxToken, label: Label): LabelId {
-    const readerSetId = this.#internReaderSet(label.groupId, label.readers);
+    const readerSetId = this.#internReaderSet(_uow, label.groupId, label.readers);
     const key = labelCanonicalKey(readerSetId, label);
     const cacheKey = `${label.groupId}|${key}`;
 
     const cached = this.#idByKey.get(cacheKey);
     if (cached !== undefined) return cached;
+    const staged = this.#pending(_uow).labels.get(cacheKey);
+    if (staged !== undefined) return staged;
 
     const found = this.#db
       .prepare('SELECT id FROM labels WHERE group_id = ? AND canonical_key = ?')
       .get(label.groupId, key) as { id: number } | undefined;
     if (found !== undefined) {
-      // Already committed by someone, so caching it now is safe — there is no insert to roll back.
+      // **Staged, not cached.** The row may have been inserted by an earlier `intern` in this very
+      // transaction — see `#pendingByUow` — so it is only durable once the transaction is.
       const labelId = internedId(found.id, 'labels');
-      this.#remember({ labelId, key: cacheKey, label });
+      this.#stage(_uow, { labelId, key: cacheKey, label });
       return labelId;
     }
 
@@ -182,9 +210,7 @@ export class LabelStore {
 
     const labelId = internedId(inserted.id, 'labels');
     // **Only** in `afterCommit`. See the header: a rolled-back insert must not leave a cached id.
-    _uow.afterCommit(() => {
-      this.#remember({ labelId, key: cacheKey, label });
-    });
+    this.#stage(_uow, { labelId, key: cacheKey, label });
     return labelId;
   }
 
@@ -206,9 +232,29 @@ export class LabelStore {
     return { labels: this.#idByKey.size, readerSets: this.#readerSetIdByKey.size };
   }
 
-  #remember(pending: PendingIntern): void {
-    this.#idByKey.set(pending.key, pending.labelId);
-    this.#labelById.set(pending.labelId, pending.label);
+  /**
+   * Everything this transaction has interned, with one `afterCommit` hook to make it durable.
+   *
+   * One hook per transaction rather than one per `intern`: a turn interns the same audience
+   * repeatedly, and a hook each time is a list that grows with the work for no benefit.
+   */
+  #pending(uow: TxToken): PendingIntern {
+    const existing = this.#pendingByUow.get(uow);
+    if (existing !== undefined) return existing;
+    const pending: PendingIntern = { labels: new Map(), readerSets: new Map(), byId: new Map() };
+    this.#pendingByUow.set(uow, pending);
+    uow.afterCommit(() => {
+      for (const [key, id] of pending.labels) this.#idByKey.set(key, id);
+      for (const [key, id] of pending.readerSets) this.#readerSetIdByKey.set(key, id);
+      for (const [id, label] of pending.byId) this.#labelById.set(id, label);
+    });
+    return pending;
+  }
+
+  #stage(uow: TxToken, entry: { labelId: LabelId; key: string; label: Label }): void {
+    const pending = this.#pending(uow);
+    pending.labels.set(entry.key, entry.labelId);
+    pending.byId.set(entry.labelId, entry.label);
   }
 
   /**
@@ -218,18 +264,21 @@ export class LabelStore {
    * a label it has no `afterCommit` of its own — the enclosing `intern` call registers one hook
    * covering both, because they succeed or fail together.
    */
-  #internReaderSet(groupId: GroupId, audience: Audience): ReaderSetId {
+  #internReaderSet(uow: TxToken, groupId: GroupId, audience: Audience): ReaderSetId {
     const key = readerSetCanonicalKey(audience);
     const cacheKey = `${groupId}|${key}`;
     const cached = this.#readerSetIdByKey.get(cacheKey);
     if (cached !== undefined) return cached;
+    const staged = this.#pending(uow).readerSets.get(cacheKey);
+    if (staged !== undefined) return staged;
 
     const found = this.#db
       .prepare('SELECT id FROM reader_sets WHERE group_id = ? AND canonical_key = ?')
       .get(groupId, key) as { id: number } | undefined;
     if (found !== undefined) {
+      // Staged for the same reason as a found label: this row may be this transaction's own.
       const readerSetId = internedId(found.id, 'reader_sets');
-      this.#readerSetIdByKey.set(cacheKey, readerSetId);
+      this.#pending(uow).readerSets.set(cacheKey, readerSetId);
       return readerSetId;
     }
 

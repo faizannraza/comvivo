@@ -34,6 +34,8 @@ function workerFor(
   kinds: readonly string[],
   handlers: ReadonlyMap<string, JobHandler<never>>,
   queue: World['repos']['jobs'] = world.repos.jobs,
+  /** A logger that records, for the one test that asserts a line was written. */
+  recorder?: { error: (event: string) => void },
 ): { worker: PoolWorker; registry: JobKindRegistry; clock: VirtualClock } {
   const registry = new JobKindRegistry();
   for (const kind of kinds) registry.register(kind, PayloadSchema);
@@ -43,7 +45,15 @@ function workerFor(
     registry,
     store: world.store,
     timers: clock,
-    logger: silentLogger,
+    logger:
+      recorder === undefined
+        ? silentLogger
+        : ({
+            ...silentLogger,
+            error: (event: string) => {
+              recorder.error(event);
+            },
+          } as unknown as typeof silentLogger),
     bootId: 'boot-01',
     handlers,
     idleMs: 10,
@@ -168,6 +178,73 @@ describe('the worker loop (02 §3.10.4)', () => {
       // The message says nothing about the payload's contents: `02` §3.3.9 forbids content in
       // `last_error`, and a validation message is exactly where a value tends to be quoted.
       expect(row?.lastError?.message).not.toContain('-1');
+    });
+  });
+
+  it('kills a job whose payload is not JSON at all, instead of crashing the worker', async () => {
+    await withReposAsync(async (world) => {
+      let ran = false;
+      const handlers = new Map<string, JobHandler<never>>([
+        [
+          'poll.close',
+          (async () => {
+            ran = true;
+          }) as JobHandler<never>,
+        ],
+      ]);
+      const { worker, registry } = workerFor(world, 'io', ['poll.close'], handlers);
+      enqueue(world, registry, 'poll.close');
+      // Not a schema mismatch — not JSON. A truncated write, a column edited by hand, a row from a
+      // build that stored something else. `JSON.parse` used to throw past `#run`'s caller, which
+      // on Node 26 ends the **process**: the lease expired, the job was re-claimed on the next
+      // boot and ended it again. Found by the M1 exit gate's reviewer.
+      world.db.prepare(`UPDATE jobs SET payload = '{"n":'`).run();
+
+      const [job] = worker.tick();
+      await settle();
+      expect(ran).toBe(false);
+      const row = world.repos.jobs.job(job?.id ?? ('x' as never));
+      expect(row?.status).toBe('dead');
+      expect(row?.lastError?.code).toBe('JOB_PAYLOAD_INVALID');
+      // And the worker is still running: it claims the next job rather than having died with it.
+      enqueue(world, registry, 'poll.close');
+      const [next] = worker.tick();
+      await settle();
+      expect(ran).toBe(true);
+      expect(world.repos.jobs.job(next?.id ?? ('x' as never))?.status).toBe('succeeded');
+    });
+  });
+
+  it('logs and survives a failure in its own machinery, rather than ending the process', async () => {
+    await withReposAsync(async (world) => {
+      const handlers = new Map<string, JobHandler<never>>([
+        ['poll.close', (() => Promise.reject(new Error('handler down'))) as JobHandler<never>],
+      ]);
+      // The queue itself refusing the write that records a failure — `SQLITE_BUSY` on a loaded
+      // host, or `SQLITE_FULL`. `fail` is called from outside `#run`'s `try`, so before the M1
+      // exit gate this became an **unhandled rejection**, which on Node 26 ends the process: the
+      // lease expired, the job was re-claimed on the next boot, and it ended the process again.
+      const events: string[] = [];
+      const brokenQueue = {
+        ...world.repos.jobs,
+        claim: world.repos.jobs.claim.bind(world.repos.jobs),
+        fail: () => {
+          throw new Error('database is locked');
+        },
+      } as unknown as World['repos']['jobs'];
+      const { worker, registry } = workerFor(world, 'io', ['poll.close'], handlers, brokenQueue, {
+        error: (event: string) => {
+          events.push(event);
+        },
+      });
+      enqueue(world, registry, 'poll.close');
+
+      worker.tick();
+      await settle();
+      // One log line, and the loop still alive. The job keeps its lease and is retried when the
+      // lease expires, which is the queue's existing recovery path.
+      expect(events).toContain('job.crashed');
+      expect(() => worker.tick()).not.toThrow();
     });
   });
 

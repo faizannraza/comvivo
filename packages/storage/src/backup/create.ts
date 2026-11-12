@@ -133,7 +133,19 @@ export function archiveName(instanceId: string, createdAt: string): string {
 }
 
 /** Row counts for every real table, which is `02` §3.14.3's `tables`. */
-export function tableRowCounts(db: Database.Database): Record<string, number> {
+export interface TableRowCounts {
+  readonly counts: Record<string, number>;
+  /**
+   * Tables whose `count(*)` the build refused.
+   *
+   * Carried rather than dropped: both sides of a restore compare counts, and a table counted on
+   * one side and skipped on the other reads as a row-count mismatch — which refuses a sound
+   * archive. `tableCountDifferences` ignores a name either side skipped.
+   */
+  readonly skipped: readonly string[];
+}
+
+export function tableRowCounts(db: Database.Database): TableRowCounts {
   const names = (
     db
       .prepare(
@@ -144,6 +156,7 @@ export function tableRowCounts(db: Database.Database): Record<string, number> {
       .all() as { name: string }[]
   ).map((row) => row.name);
   const counts: Record<string, number> = {};
+  const skipped: string[] = [];
   for (const name of names) {
     // Virtual tables and their shadows are included deliberately: a restore that lost an FTS
     // index's contents would otherwise pass every check and answer no searches. A table a
@@ -154,9 +167,17 @@ export function tableRowCounts(db: Database.Database): Record<string, number> {
         n: number;
       };
       counts[name] = row.n;
-    } catch {}
+    } catch {
+      // **Skipped, and named.** The skip itself is right — a `count(*)` a `vec0` build refuses
+      // must not fail a backup — but dropping the name made a *sound* archive un-restorable: a
+      // table whose count failed here and succeeded at restore time became `expected 0 ≠ actual
+      // N` in `tableCountDifferences`, and `restoreBackup` refuses the archive with "the restored
+      // database has different row counts from the manifest". The reason had been discarded in an
+      // empty block. Found by the M1 exit gate's reviewer.
+      skipped.push(name);
+    }
   }
-  return counts;
+  return { counts, skipped };
 }
 
 /**
@@ -259,6 +280,7 @@ export async function createBackup(options: CreateBackupOptions): Promise<Create
 
     // Step 3.
     const digest = await digestOf(snapshot);
+    const counted = tableRowCounts(options.db);
     const manifest: BackupManifest = {
       ...options.manifest,
       db: {
@@ -268,7 +290,8 @@ export async function createBackup(options: CreateBackupOptions): Promise<Create
         encrypted: options.key !== null,
         quickCheck: 'ok',
       },
-      tables: tableRowCounts(options.db),
+      tables: counted.counts,
+      ...(counted.skipped.length === 0 ? {} : { tablesSkipped: [...counted.skipped] }),
       blobs: {
         mode: options.blobMode,
         count: options.blobs.length,
@@ -356,8 +379,22 @@ async function writeArchive(options: WriteArchiveOptions): Promise<void> {
   const manifestJson = Buffer.from(JSON.stringify(options.manifest, null, 2), 'utf8');
   const blobIndex = Buffer.from(encodeBlobIndex(options.blobs), 'utf8');
 
+  // An `'error'` listener before anything is written, and a drain that can reject: without them
+  // `ENOSPC` mid-archive either hung the backup forever (the drain promise had no reject path) or
+  // threw an unhandled `'error'`. Found by the M1 exit gate's reviewer.
+  let streamFailure: Error | undefined;
+  out.on('error', (error: Error) => {
+    streamFailure ??= error;
+  });
+
   // Entries are added as the pack is consumed, not before: `tar-stream` applies backpressure, so
   // adding a 5 GB entry up front would buffer it.
+  //
+  // `.catch` on the handle, not on the `await` below: if `sealBackup` throws, `await fill` is never
+  // reached, and an abandoned rejected promise **ends the process** on Node 26 — after the caller
+  // has already caught and reported the real error. Measured at the M1 exit gate: the caller's
+  // message printed, then the process died ten milliseconds later with the abandoned one.
+  let fillFailure: Error | undefined;
   const fill = (async () => {
     pack.entry({ name: MANIFEST_ENTRY, size: manifestJson.length, mode: 0o600 }, manifestJson);
     pack.entry({ name: BLOB_INDEX_ENTRY, size: blobIndex.length, mode: 0o600 }, blobIndex);
@@ -368,7 +405,12 @@ async function writeArchive(options: WriteArchiveOptions): Promise<void> {
       }
     }
     pack.finalize();
-  })();
+  })().catch((error: unknown) => {
+    fillFailure = error as Error;
+    // Destroying the pack unblocks `sealBackup`, which is reading from it: without this the seal
+    // would wait for bytes that are never coming.
+    pack.destroy(error as Error);
+  });
 
   await sealBackup({
     stream: options.stream,
@@ -376,12 +418,18 @@ async function writeArchive(options: WriteArchiveOptions): Promise<void> {
     header: options.header,
     source: pack as unknown as AsyncIterable<Uint8Array>,
     write: async (piece) => {
+      if (streamFailure !== undefined) throw streamFailure;
       if (!out.write(piece)) {
-        await new Promise<void>((resolve) => out.once('drain', resolve));
+        await new Promise<void>((resolve, reject) => {
+          out.once('drain', resolve);
+          out.once('error', reject);
+        });
       }
     },
   });
   await fill;
+  if (fillFailure !== undefined) throw fillFailure;
+  if (streamFailure !== undefined) throw streamFailure;
   await new Promise<void>((resolve, reject) => {
     out.end((error?: Error | null) => {
       if (error) reject(error);

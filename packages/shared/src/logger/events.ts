@@ -50,6 +50,22 @@ export const LOG_EVENTS = {
    * the outbox means sending twice (I6).
    */
   'storage.after_commit_failed': 'an afterCommit hook failed',
+  /**
+   * The instance lock's heartbeat could not be written.
+   *
+   * At `warn`, because one failed tick is survivable — the lock only goes stale after several —
+   * but a run of them means this process is about to lose a lock it still believes it holds.
+   */
+  'storage.heartbeat_failed': 'the instance lock heartbeat could not be written',
+  /**
+   * **Another process has taken the instance lock while this one still holds the database open.**
+   *
+   * The state `C1` forbids: two writers, one WAL. At `error` and never swallowed, because the
+   * symptom a host sees — every reminder sent twice, two turns for one message — is otherwise
+   * impossible to trace. Before the M1 exit gate both this and the failure above were discarded
+   * inside the heartbeat's interval, so a two-writer instance produced no log line at all.
+   */
+  'storage.lock_lost': 'another process took the instance lock',
 
   // --- Job queue (`02` §3.10.4) ----------------------------------------------------------------
   /**
@@ -72,6 +88,17 @@ export const LOG_EVENTS = {
   'job.lease_lost': 'a job lease was lost before the handler finished',
   /** `02` §3.10.3's dead letter. Visible in the dashboard and `village doctor --check jobs`. */
   'job.dead': 'a job will not be retried',
+  /**
+   * The worker's own machinery threw, outside the handler.
+   *
+   * Everything a handler can do is already `job.failed`; this is the line for the cases that are
+   * not the handler's fault — a payload column that is not JSON, or the database refusing the
+   * write that records a failure. Before it existed those escaped as an unhandled rejection, and
+   * on Node 26 an unhandled rejection **ends the process**: the lease then expired, the job was
+   * re-claimed on the next boot and killed it again, which is a crash loop whose only visible
+   * cause is a stack trace from `JSON.parse`. Found by the M1 exit gate's reviewer.
+   */
+  'job.crashed': 'the worker failed outside the handler',
 
   // --- Retention and deletion (`02` §3.13) -----------------------------------------------------
   /**

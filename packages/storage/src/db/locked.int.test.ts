@@ -14,20 +14,24 @@
  */
 import { execFileSync, spawn } from 'node:child_process';
 import { chmodSync, existsSync, statSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { EXIT_CODES, exitCodeFor, StorageError } from '@comvivo/shared';
-import { afterEach, describe, expect, it } from 'vitest';
+import { BRAND, EXIT_CODES, exitCodeFor, StorageError } from '@comvivo/shared';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { writeSourcePathsTsconfig } from '../../../../scripts/support/paths-tsconfig.js';
 import {
+  acquireLock,
   auditPermissions,
   databaseFilePaths,
   dataDirLayout,
+  HEARTBEAT_INTERVAL_MS,
   nodeLockEnvironment,
   readLockHolder,
   secureDatabaseFiles,
 } from '../datadir/index.js';
 import { fakeEnvironment, withDataDir } from '../datadir/testing/data-dir.js';
+import { silentLogger } from '../repos/testing/harness.js';
 import { openLockedDatabase } from './locked.js';
 import { pragmaValue } from './open.js';
 
@@ -178,6 +182,63 @@ describe('the lock lifecycle around a connection', { tags: ['slow'] }, () => {
       await opened.release();
       expect(await readLockHolder(root, await nodeLockEnvironment('probe'))).toBeUndefined();
       expect(opened.db.open).toBe(false);
+    });
+  });
+
+  it('reports the heartbeat, and says when the lock has been taken (C1)', async () => {
+    await withDataDir(async (root) => {
+      // The heartbeat is a 10-second interval, so the timer is driven rather than waited on. What
+      // is being tested is the thing the M1 exit gate's reviewer found missing: before this, a
+      // heartbeat that failed — or that reported the lock **lost**, meaning another process had
+      // taken it while this one still held an open connection — was discarded inside the interval
+      // with no log and no flag. Two writers, and nothing anywhere to explain it.
+      const lines: { event: string; level: string }[] = [];
+      const recorder = {
+        error: (event: string) => lines.push({ event, level: 'error' }),
+        warn: (event: string) => lines.push({ event, level: 'warn' }),
+      };
+      // **Only `setInterval` is faked.** The heartbeat callback does real file I/O, and under
+      // fully fake timers `advanceTimersByTimeAsync` returns before that I/O completes — the
+      // state had not changed yet and the assertion read the previous value. Faking the one timer
+      // this test needs to drive leaves the rest of the clock real, so the poll below works.
+      vi.useFakeTimers({ toFake: ['setInterval'] });
+      try {
+        const opened = await open(root, {
+          withHeartbeat: true,
+          logger: { ...silentLogger, ...recorder },
+        });
+        try {
+          expect(opened.heartbeatState()).toBe('held');
+
+          // Another process takes the lock. The holder's next heartbeat must notice.
+          const other = await nodeLockEnvironment('probe');
+          await rm(join(root, 'run', `${BRAND.slug}.lock`), { force: true });
+          await acquireLock(root, { ...other, pid: other.pid + 1 });
+
+          await vi.advanceTimersByTimeAsync(HEARTBEAT_INTERVAL_MS + 1);
+          await vi.waitFor(() => {
+            expect(opened.heartbeatState()).toBe('lost');
+          });
+          expect(lines.map((line) => line.event)).toContain('storage.lock_lost');
+        } finally {
+          await opened.release();
+        }
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+  });
+
+  it('reports `off` when the caller asked for no heartbeat', async () => {
+    await withDataDir(async (root) => {
+      const opened = await open(root);
+      try {
+        // A CLI command that exits in two seconds never reaches the first interval, and a timer it
+        // has to remember to clear is a way to leave the process hanging.
+        expect(opened.heartbeatState()).toBe('off');
+      } finally {
+        await opened.release();
+      }
     });
   });
 

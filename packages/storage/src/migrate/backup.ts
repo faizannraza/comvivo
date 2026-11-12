@@ -192,7 +192,18 @@ export function preMigrationBackup(
     });
   }
 
-  verifyBackup(path, options.key);
+  // A snapshot that fails verification is **removed**, not left in the directory.
+  //
+  // `pruneOldBackups` sorts by mtime, so the corrupt copy would be the newest — and the error this
+  // path raises recommends `restore pre-migrate:latest`, which would then select the file that
+  // just failed `quick_check`. The upgrade is refused either way; the difference is whether the
+  // rollback path a host reaches for is the broken one. Found by the M1 exit gate's reviewer.
+  try {
+    verifyBackup(path, options.key);
+  } catch (cause) {
+    rmSync(path, { force: true });
+    throw cause;
+  }
   pruneOldBackups(directory, options.keep);
   return path;
 }

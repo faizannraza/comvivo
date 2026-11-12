@@ -12,7 +12,7 @@
  * code; only the real syscall settles it.
  */
 import { spawn } from 'node:child_process';
-import { readdirSync, writeFileSync } from 'node:fs';
+import { readdirSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { BRAND } from '@comvivo/shared';
@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import {
   acquireLock,
   aliveDespite,
+  HEARTBEAT_STALE_MS,
   heartbeat,
   nodeLockEnvironment,
   readLockHolder,
@@ -230,19 +231,27 @@ describe('the heartbeat is atomic (12 §3.7, C1)', { tags: ['slow'] }, () => {
     });
   });
 
-  it('still treats a genuinely corrupt lock as absent', async () => {
-    // Unchanged behaviour, and worth pinning now that the common cause is gone. `readLock`'s own
-    // comment argues that "a lock file is not evidence of anything unless it can be read" — a
-    // sound argument about a *corrupt* file, which was being asked to cover a file that was merely
-    // *being written*. With the rename it only has to cover the case it was written for.
+  it('reads a corrupt lock as unknown, and only lets it be taken when it is old', async () => {
+    // Amended at the M1 exit gate. `readLock`'s "a lock file is not evidence of anything unless it
+    // can be read" is still how the *holder* is reported — `readLockHolder` answers `undefined`,
+    // because there is nothing to describe. What changed is the conclusion `acquireLock` draws
+    // from it: taking the lock on sight is what let the loser of a cold-start `O_EXCL` race delete
+    // the winner's claim and open a second writer (measured: 112 of 200 starts).
     await withDataDir(async (root) => {
       const environment = fakeEnvironment({ pid: 4243 });
       expect((await acquireLock(root, environment)).acquired).toBe(true);
-      writeFileSync(join(root, 'run', `${BRAND.slug}.lock`), '{ half a lock');
+      const path = join(root, 'run', `${BRAND.slug}.lock`);
+      writeFileSync(path, '{ half a lock');
 
       expect(await readLockHolder(root, environment)).toBeUndefined();
-      // And a new process may take it, because there is nothing readable to respect.
+      // A fresh corrupt file is a holder nobody can describe, not a free lock.
       const other = fakeEnvironment({ pid: 4244, alive: [4243, 4244] });
+      expect((await acquireLock(root, other)).acquired).toBe(false);
+
+      // Older than the stale window, it is a corpse — so no human has to delete it, which is what
+      // the original behaviour was protecting.
+      const old = new Date(Date.now() - HEARTBEAT_STALE_MS - 60_000);
+      utimesSync(path, old, old);
       expect((await acquireLock(root, other)).acquired).toBe(true);
     });
   });

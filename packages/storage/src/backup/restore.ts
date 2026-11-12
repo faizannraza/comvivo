@@ -247,6 +247,8 @@ async function extractArchive(
    * `BACKUP_INTEGRITY` code rather than a bare `Error`.
    */
   let unsafe: string | undefined;
+  /** The first write failure, kept so it is thrown once the extraction has unwound cleanly. */
+  let writeFailure: Error | undefined;
   extract.on('entry', (entry, source, next) => {
     const name = entry.name;
     // Path traversal: an archive is a file a host may have fetched from anywhere, and `../` in a
@@ -260,10 +262,25 @@ async function extractArchive(
     }
     const target = join(dir, name);
     mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    // `next()` on **both** outcomes, and the failure recorded rather than thrown.
+    //
+    // Before the M1 exit gate the rejection path was missing, and the consequence was worse than a
+    // lost error: `next()` was never called, so `tar-stream` stopped consuming, `extract.write`
+    // returned `false`, and the `await` on `'drain'` below could never resolve. The loop therefore
+    // never reached `Promise.all(writes)`, the rejection went unhandled, and Node 26 ended the
+    // process — skipping the `catch` whose whole job is to delete a half-extracted, **decrypted**
+    // database. A disk filling up during a restore left one on disk.
     writes.push(
-      pipeline(source, createWriteStream(target, { mode: 0o600 })).then(() => {
-        next();
-      }),
+      pipeline(source, createWriteStream(target, { mode: 0o600 })).then(
+        () => {
+          next();
+        },
+        (error: unknown) => {
+          writeFailure ??= error as Error;
+          source.resume();
+          next();
+        },
+      ),
     );
   });
 
@@ -278,8 +295,12 @@ async function extractArchive(
     header,
     source: createReadStream(options.archive),
   })) {
+    if (writeFailure !== undefined) throw writeFailure;
     if (!extract.write(piece)) {
-      await new Promise<void>((resolve) => extract.once('drain', resolve));
+      await new Promise<void>((resolve, reject) => {
+        extract.once('drain', resolve);
+        extract.once('error', reject);
+      });
     }
   }
   // `end()` with no chunk: `tar-stream`'s extract is a Writable whose types require an argument,
@@ -287,6 +308,7 @@ async function extractArchive(
   extract.end(Buffer.alloc(0));
   await done;
   await Promise.all(writes);
+  if (writeFailure !== undefined) throw writeFailure;
   if (unsafe !== undefined) {
     throw integrity(
       'that archive contains an entry whose name escapes the extraction directory',
@@ -355,7 +377,11 @@ async function verifySnapshot(
         result: String(check),
       });
     }
-    const differences = tableCountDifferences(manifest.tables, tableRowCounts(opened.db));
+    const restored = tableRowCounts(opened.db);
+    const differences = tableCountDifferences(manifest.tables, restored.counts, [
+      ...(manifest.tablesSkipped ?? []),
+      ...restored.skipped,
+    ]);
     if (differences.length > 0) {
       // Named, not counted: "17 tables differ" is unactionable, and which tables are short is the
       // difference between "you have lost your messages" and "you have lost a cache".
@@ -473,10 +499,20 @@ export async function restoreBackup(options: RestoreOptions): Promise<RestoreRes
     // must not produce. The effect is identical: it is the same file either way.
     recordRestoredFrom(join(dir, MANIFEST_DB_PATH), manifest, dbKey);
 
+    // From here the live database has been moved. A failure after this point used to leave the
+    // host with **no** `db/comvivo.db` and a raw errno that never mentioned where the old one
+    // went — the comment above reasons carefully about failures *before* the first rename and had
+    // nothing to say about these. So the swap puts the old files back, and if even that fails the
+    // error names the directory holding them. Found by the M1 exit gate's reviewer.
     const preRestoreDir = setAsideExistingDb(options);
-    mkdirSync(join(options.dataDir, 'db'), { recursive: true, mode: 0o700 });
-    renameSync(join(dir, MANIFEST_DB_PATH), join(options.dataDir, 'db', `${BRAND.slug}.db`));
-    const keyringImported = writeKeyringFromArchive(options, header);
+    let keyringImported: boolean;
+    try {
+      mkdirSync(join(options.dataDir, 'db'), { recursive: true, mode: 0o700 });
+      renameSync(join(dir, MANIFEST_DB_PATH), join(options.dataDir, 'db', `${BRAND.slug}.db`));
+      keyringImported = writeKeyringFromArchive(options, header);
+    } catch (cause) {
+      throw restoreSwapFailed(options, preRestoreDir, cause);
+    }
 
     return {
       manifest,
@@ -488,6 +524,57 @@ export async function restoreBackup(options: RestoreOptions): Promise<RestoreRes
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * Put the host's own database back, and say where it is either way.
+ *
+ * The one outcome a restore must not produce is a host with no database at all. If the files can
+ * be moved back, the instance is exactly as it was and the error is about the archive; if they
+ * cannot, the hint names the directory they are in, because a path in an error message is the
+ * difference between a recoverable afternoon and a lost one.
+ */
+function restoreSwapFailed(
+  options: RestoreOptions,
+  preRestoreDir: string | undefined,
+  cause: unknown,
+): StorageError {
+  if (preRestoreDir === undefined) {
+    return new StorageError('BACKUP_INTEGRITY', 'the restored database could not be put in place', {
+      hint:
+        'Nothing was moved, so the instance is unchanged. Check free disk space and the ' +
+        'permissions on the data directory, then try again.',
+      category: 'io.failed',
+      cause,
+    });
+  }
+  const dbDir = join(options.dataDir, 'db');
+  let restored = true;
+  for (const suffix of ['', '-wal', '-shm']) {
+    const from = join(preRestoreDir, `${BRAND.slug}.db${suffix}`);
+    if (!existsSync(from)) continue;
+    try {
+      renameSync(from, join(dbDir, `${BRAND.slug}.db${suffix}`));
+    } catch {
+      restored = false;
+    }
+  }
+  return new StorageError(
+    'BACKUP_INTEGRITY',
+    restored
+      ? 'the restored database could not be put in place; your own database was put back'
+      : 'the restored database could not be put in place, and your own could not be put back',
+    {
+      hint: restored
+        ? 'The instance is as it was before the restore. Check free disk space and the ' +
+          'permissions on the data directory, then try again.'
+        : `Your database is in ${preRestoreDir}. Move its files back into ${dbDir} before ` +
+          'starting again — nothing was deleted.',
+      category: 'io.failed',
+      detail: { preRestoreDir },
+      cause,
+    },
+  );
 }
 
 /**

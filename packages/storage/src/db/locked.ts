@@ -24,6 +24,7 @@
  * problem that has nothing to do with locking.
  */
 import { mkdir } from 'node:fs/promises';
+import { type Logger, toLoggedError } from '@comvivo/shared';
 import {
   acquireLock,
   DIR_MODE,
@@ -62,6 +63,14 @@ export interface LockedDatabaseOptions {
   readonly withHeartbeat?: boolean;
   /** Injected so a test can drive the clock and the liveness probe. */
   readonly environment?: LockEnvironment;
+  /**
+   * Where a heartbeat failure goes.
+   *
+   * Optional, because `openLockedDatabase` is called before a logger exists in some paths (the
+   * migration CLI, `doctor`), and a missing logger must not stop a database opening. When it is
+   * absent the outcome is still readable through `heartbeatState()`.
+   */
+  readonly logger?: Logger;
 }
 
 export interface LockedDatabase extends InitResult {
@@ -71,6 +80,16 @@ export interface LockedDatabase extends InitResult {
   readonly tookOverFrom?: LockHolder;
   /** Close the connection and release the lock. Safe to call more than once. */
   release(): Promise<void>;
+  /**
+   * What the heartbeat last did.
+   *
+   * `'lost'` is the state `C1` forbids: another process has taken the lock while this one still
+   * holds an open connection, so both can write. `12` §3.7's health check and `09`'s `/healthz`
+   * read this; before the M1 exit gate both outcomes were discarded inside the interval, and a
+   * two-writer instance produced **no log line and no flag** — the group would get everything
+   * twice with nothing to explain it.
+   */
+  heartbeatState(): 'held' | 'lost' | 'failing' | 'off';
 }
 
 /**
@@ -115,14 +134,31 @@ export async function openLockedDatabase(options: LockedDatabaseOptions): Promis
   // and nothing applied it until now.
   await secureDatabaseFiles(options.dataDir);
 
+  // The interval is still the wrong place to *decide* what to do about a lost lock — a process
+  // cannot usefully abort its own writes from a timer — but it is the only place that knows, so it
+  // records and logs. Nothing here throws: an unhandled rejection from a timer ends the process.
+  let state: 'held' | 'lost' | 'failing' | 'off' = options.withHeartbeat === false ? 'off' : 'held';
   const timer =
     options.withHeartbeat === false
       ? undefined
       : setInterval(() => {
-          // A failed heartbeat is not an error to propagate: `heartbeat` returns false when this
-          // process no longer owns the lock, and the interval is the wrong place to decide what to
-          // do about that. `12` §3.7's health check reports it; `09`'s `/healthz` surfaces it.
-          void heartbeat(options.dataDir, environment).catch(() => false);
+          void heartbeat(options.dataDir, environment).then(
+            (held) => {
+              if (held) {
+                state = 'held';
+                return;
+              }
+              state = 'lost';
+              options.logger?.error('storage.lock_lost', { outcome: 'lock_lost' });
+            },
+            (cause: unknown) => {
+              state = 'failing';
+              options.logger?.warn('storage.heartbeat_failed', {
+                outcome: 'heartbeat_failed',
+                err: toLoggedError(cause),
+              });
+            },
+          );
         }, HEARTBEAT_INTERVAL_MS);
   // Never hold the event loop open. A server has its own reasons to stay running; a CLI command
   // must be able to exit the moment its work is done.
@@ -133,14 +169,23 @@ export async function openLockedDatabase(options: LockedDatabaseOptions): Promis
     ...opened,
     lock: outcome.lock,
     ...(outcome.tookOverFrom === undefined ? {} : { tookOverFrom: outcome.tookOverFrom }),
+    heartbeatState: () => state,
     async release(): Promise<void> {
       if (released) return;
       released = true;
       if (timer !== undefined) clearInterval(timer);
       // Close first: releasing the lock while a connection is still open would let a second
       // process in while this one still has the WAL mapped, which is the state C1 forbids.
-      opened.db.close();
-      await releaseLock(options.dataDir, environment);
+      //
+      // The release is in a `finally` because `released` is already `true` and a retry is a no-op:
+      // a throw from `close()` used to leave the lock held by a process that is otherwise done,
+      // and the next start then waited out the stale timeout being told the directory was in use
+      // by a pid that had exited — the restart-loop cost this module's header exists to avoid.
+      try {
+        opened.db.close();
+      } finally {
+        await releaseLock(options.dataDir, environment);
+      }
     },
   };
 }

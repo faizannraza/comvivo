@@ -69,6 +69,13 @@ export const BackupManifestSchema = z.object({
   }),
   /** Row counts per table. The check that catches a silently partial restore. */
   tables: z.record(z.string(), z.number().int().nonnegative()),
+  /**
+   * Tables whose `count(*)` the backing build refused, so the restore does not compare them.
+   *
+   * Optional, because an archive written before `M1`'s exit gate has no such field and must still
+   * restore: absent reads as "nothing was skipped", which is what those archives meant.
+   */
+  tablesSkipped: z.array(z.string()).optional(),
   embeddingSpaces: z.array(
     z.object({
       id: z.string().min(1),
@@ -141,10 +148,20 @@ export function parseBlobIndex(text: string): readonly BlobIndexLine[] {
 export function tableCountDifferences(
   expected: Readonly<Record<string, number>>,
   actual: Readonly<Record<string, number>>,
+  /**
+   * Tables either side could not count, which are **not** differences.
+   *
+   * A `count(*)` some `vec0` builds refuse is skipped at backup time; if the restoring build
+   * answers it, the union of the two key sets turned that into `expected 0 ≠ actual N` and the
+   * archive was refused as corrupt. Found by the M1 exit gate's reviewer.
+   */
+  skipped: readonly string[] = [],
 ): readonly { readonly table: string; readonly expected: number; readonly actual: number }[] {
+  const ignore = new Set(skipped);
   const names = [...new Set([...Object.keys(expected), ...Object.keys(actual)])].toSorted();
   const differences: { table: string; expected: number; actual: number }[] = [];
   for (const table of names) {
+    if (ignore.has(table)) continue;
     const left = expected[table] ?? 0;
     const right = actual[table] ?? 0;
     if (left !== right) differences.push({ table, expected: left, actual: right });

@@ -290,13 +290,23 @@ export class KeyringStore {
     await this.#io.writeFile(this.tempPath, text, KEY_FILE_MODE);
     await this.#io.syncFile(this.tempPath);
 
-    if (await this.#io.exists(this.path)) {
+    const preserved = await this.#io.exists(this.path);
+    if (preserved) {
       // Preserved before the rename, so there is never a moment with neither a keyring nor a
       // previous keyring on disk.
       await this.#io.rename(this.path, this.previousPath);
     }
 
-    await this.#io.rename(this.tempPath, this.path);
+    try {
+      await this.#io.rename(this.tempPath, this.path);
+    } catch (cause) {
+      // Put the previous keyring back. Without this the live path stayed missing and `read()`
+      // raised `KEYRING_MISSING`, whose hint suggests `init` — advice that would walk a host with
+      // an unlockable instance *away* from the keyring sitting beside it under `.prev`. Found by
+      // the M1 exit gate's reviewer.
+      if (preserved) await this.#io.rename(this.previousPath, this.path).catch(() => undefined);
+      throw cause;
+    }
     await this.#io.syncDirectory(this.#dir);
   }
 

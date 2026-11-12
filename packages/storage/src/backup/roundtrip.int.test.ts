@@ -375,6 +375,47 @@ describe('backup.roundtrip (02 §9.3)', () => {
     expect(existsSync(join(target, 'db', `${BRAND.slug}.db`))).toBe(false);
   });
 
+  it('puts the host’s own database back when the swap fails', async () => {
+    // The outcome a restore must never produce: **no database at all**. Once
+    // `setAsideExistingDb` has moved the live files, a failure in the two steps that follow used
+    // to leave the data directory with no `db/comvivo.db` and a raw errno that never mentioned
+    // where the old one went. Found by the M1 exit gate's reviewer.
+    //
+    // Triggered root-proof by putting a *file* where `keys/` has to be a directory, so
+    // `writeKeyringFromArchive`'s `mkdirSync` fails with ENOTDIR — after the rename, which is the
+    // window that matters.
+    const archive = await backedUp('rt5b', { rows: 2 });
+    const victim = seedInstance('rt5b-victim', archive.keys, 7);
+    rmSync(join(victim.dataDir, 'keys'), { recursive: true, force: true });
+    writeFileSync(join(victim.dataDir, 'keys'), 'not a directory');
+
+    await expect(
+      restoreBackup({
+        archive: archive.path,
+        dataDir: victim.dataDir,
+        unlock: unlockWith('master', archive.keys),
+        stream: wrappersSecretStream,
+        knownMigrationIds: KNOWN,
+        stamp: '20261111T140000Z',
+      }),
+    ).rejects.toThrow(/could not be put in place/);
+
+    // The host's own database is back where it was, with its own rows — not stranded under a
+    // stamped directory the error never named.
+    const live = openDatabase({
+      path: join(victim.dataDir, 'db', `${BRAND.slug}.db`),
+      key: derivePurposeKey(archive.keys.rootDataKey, INSTANCE, KEY_PURPOSE.db),
+      readonly: true,
+      role: 'cli',
+      loadVec: false,
+    });
+    try {
+      expect((live.db.prepare('SELECT count(*) AS n FROM notes').get() as { n: number }).n).toBe(7);
+    } finally {
+      live.db.close();
+    }
+  });
+
   it('moves an existing database aside instead of deleting it', async () => {
     const archive = await backedUp('rt5', { rows: 2 });
     // Restore over a *different* instance's data directory, which is the frightening case: a host
