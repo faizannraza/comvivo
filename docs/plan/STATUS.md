@@ -53,6 +53,7 @@ Batched per `CLAUDE.md` §5. Everything else proceeds without waiting, using the
 | H-12 | **Two consequences of the organisation move (`H-6`) worth naming separately, so they are not forgotten once the org exists:** create the `@comvivo/quality` team and point the quality-path CODEOWNERS entries at it, and set `required_approving_review_count: 2` with `require_code_owner_review: true` on the `08` §3.15 paths. Both are `M0-T17` acceptance criteria that cannot be met on a user-owned repository | account action | `M0-T17` AC; `08` §3.15 | **open** (asked 2026-11-07, after `H-6`) |
 | H-11 | **Install the DCO app** on the repository (<https://github.com/apps/dco>): one click, free, no token. It adds a `dco` check that fails a pull request without a `Signed-off-by:` line | account action | `CONTRIBUTING.md`'s sign-off claim; `M15` first external contribution | **open** (asked 2026-11-07) |
 | H-13 | **One critical CodeQL alert, two one-click ways to clear it.** `js/request-forgery` on `safeFetch` (alert #26 on PR #5): the function fetches a caller-supplied URL, which is its purpose, and what makes it safe is `classifyUrl` refusing every private, link-local, loopback, metadata, NAT64, 6to4 and mapped address and every literal spelling of each, `refuseByName`, the per-purpose allowlist, and `pinnedLookup` pinning the resolution so the address checked is the address connected to. `10` §9's 96-case matrix is the evidence, and `packages/shared/src/net/safe-fetch.ts` carries the reasoning above the call. In-source suppression markers do nothing (DL-14), so clearing it is an owner action: **(a)** dismiss the alert as a false positive with that reasoning in the comment box, or **(b)** approve adding GitHub's `advanced-security/dismiss-alerts` action (SHA-pinned) to `codeql.yml`, which applies the in-source markers on the default branch and makes every future deliberate exception self-documenting. (a) takes a minute; (b) is the durable one | account action | the `CodeQL` check on every milestone PR (it is **not** one of the eight required checks, so it does not block a merge) | **open** (asked 2026-11-12) |
+| H-14 | **Merge PR #5 (M1).** One click, or `gh pr merge 5 --merge`. The branch is ready: 35/35 tasks, the exit gate measured green in the milestone report, the description carries the gate table, and the eight required checks pass. This session is configured to refuse an unreviewed merge to `main`, which is a sensible guardrail and not something to work around — so the merge is yours. **M2 proceeds meanwhile on `m2-model-gateway`, branched from `m1-storage`**, so nothing waits on this; once #5 lands, that branch's history collapses onto `main` and its own PR shows only M2's commits | account action | nothing — `14`'s O1 overlap already allows M2's storage-free tasks, and the gate they wait on is green | **open** (asked 2026-11-12) |
 | H-8 | Later, announced at their milestone: Discord + Slack apps (M10), `npm login` / trusted publishing (M12), Cloudflare Pages token for docs (M0-T18/M15), optional paid security + child-safety review (M13/M15), community-chat space + bot spend cap (M8, D-7) | mixed | their milestones | **not yet due** |
 
 ### H-1 — proposed API budget
@@ -1257,7 +1258,60 @@ Status: not started · Tasks: 0/20 · Gate: —
 
 #### Execution note
 
-_Not written yet._
+**Order.** Twenty tasks, and the dependency graph has one trunk: `M2-T1`'s port types, then
+`M2-T2`–`M2-T5` in parallel, then the Anthropic adapter (`M2-T6`), which everything else either
+tests or imitates.
+
+1. `M2-T1` **canonical model port types** — alone, serially, because it is `05` §4.1's contract and
+   every other task compiles against it. Written in `@comvivo/core`, so the purity rules apply: no
+   SDK import may reach it, and depcruise proves that rather than a reviewer.
+2. Then four in parallel, each with no overlap in files: `M2-T3` price tables, `M2-T4` the strict
+   JSON-schema converter (in `@comvivo/shared`, one implementation for models *and* plugin-sdk —
+   `05` and `10` each named their own file, which is a plan change already logged), `M2-T5` the
+   plugin-SDK tool types, and `M2-T10` `FakeProviderServer`. `M2-T2`'s route resolver follows
+   `M2-T1` directly and is serial with nothing else.
+3. `M2-T6` **the Anthropic adapter**, serially and carefully. `CLAUDE.md` §3 is explicit: load the
+   `claude-api` skill *first* and never guess an SDK shape. `assertWireInvariants` is the task's
+   centre — no `temperature`/`top_p`/`top_k`, no prefill, no forced `tool_choice`, explicit
+   `effort`, refusal fallback on Opus — and it is asserted over **captured requests**, so it holds
+   for every adapter rather than for the one the test was written against.
+4. `M2-T7` the fake-model family and `M2-T8` structured outputs, token counting and Batches, then
+   `M2-T9` errors and middleware, `M2-T15` telemetry, `M2-T16` the egress manifest and `M2-T17` the
+   catalog hash. `M2-T11`–`M2-T13` (OpenAI, local, Google) are mutually parallel and land before
+   `M2-T14`, the contract suite that asserts `01` §2.1's rules on all four.
+5. `M2-T18` diagnostics last of the offline work.
+
+**Parallelism.** `M2-T3`, `M2-T4`, `M2-T5`, `M2-T10`, `M2-T11`, `M2-T12`, `M2-T13`, `M2-T15` and
+`M2-T18` are the `‖` rows in `14`. Separate worktrees for any that run together, per `CLAUDE.md`
+§1.5 — and none of them touches `packages/core`'s policy or IFC code, which is the rule that
+matters there.
+
+**What waits on the owner.** `M2-T19` (live smoke) and `M2-T20` (SP-4/SP-5) need **H-1** (the
+budget) and **H-2** (an `ANTHROPIC_API_KEY`), and the M2 gate's `live-smoke.yml` clause cannot go
+green without them. Everything else — eighteen of twenty tasks — proceeds against the fake gateway,
+`FakeProviderServer` and recorded cassettes. The spikes are the only place the spine's defaults stay
+provisional: top-level effort per route and the full tool catalog, until SP-4/SP-5 measure the
+alternatives.
+
+**Risks I expect to spend time on.**
+
+- **The SDK's real shapes.** `05` §3.5.3's mapping was written against the SDK as it was; the skill
+  plus `node_modules` is the source of truth, and `M1`'s experience says re-verify rather than
+  trust a spec that was accurate once.
+- **Cache accounting without a live call.** The gate wants `usage.cache_read_input_tokens > 0` on
+  the second identical request. The fake's cache simulation has to reproduce prefix hashing
+  faithfully enough that the assertion means something before `H-2` arrives — and the live smoke
+  then has to agree with it.
+- **`catalogHash` stability.** Property P5 (invariant to registration order, changes iff a
+  model-facing definition changes) is the kind of property that passes for the wrong reason if the
+  generator is too simple. `M1`'s label-interning property taught that lesson.
+- **A fifth `FakeProviderServer` consumer.** `11` §3.6's S10 chaos scenarios need fault plans
+  (429 + retry-after, 5xx, overload, mid-stream cut) that the adapter's error mapping is then
+  tested against; building the server before the adapter means the adapter is written against
+  something adversarial from the first commit.
+
+**Branch.** `m2-model-gateway`, branched from `m1-storage` rather than from `main`, because PR #5
+is waiting on the owner's merge click (**H-14**). Nothing in M2 depends on that click.
 
 #### Milestone report
 
