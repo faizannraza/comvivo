@@ -47,9 +47,10 @@ describe('every storage error code is classified', () => {
 
   it('lists every member of the union, so the loop above is not short', () => {
     // The array is hand-written beside the union, so the two can drift. The count is pinned
-    // because a silent shrink would make the loop pass over whatever was removed. 38 since
-    // `AUDIT_REANCHOR_FAILED` was added for `08` §3.16.2's chain re-anchor (`M1-T26`).
-    expect(STORAGE_ERROR_CODES).toHaveLength(38);
+    // because a silent shrink would make the loop pass over whatever was removed. 39 since
+    // `STORAGE_TX_FOREIGN` was added at the M1 exit gate for a transaction `SqliteStore` did not
+    // open (38 at `M1-T26`, when `AUDIT_REANCHOR_FAILED` arrived for `08` §3.16.2's re-anchor).
+    expect(STORAGE_ERROR_CODES).toHaveLength(39);
     expect(new Set(STORAGE_ERROR_CODES).size).toBe(STORAGE_ERROR_CODES.length);
   });
 

@@ -8,9 +8,9 @@
  * `--gate` tightens the skip rule to `CLAUDE.md` §8: no skipped tests at all at a milestone gate.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { argv, exit, stdout } from 'node:process';
 import { validateChooserConfig, validateIssueForm } from '../github/issue-forms.js';
+import { readListed } from '../support/read-listed.js';
 import { type Finding, type Rule, report } from './finding.js';
 import { findSnapshotViolations, SNAPSHOT_RULES } from './snapshot-policy.js';
 import { findHygieneViolations, HYGIENE_RULES, isTestFile } from './test-hygiene.js';
@@ -39,12 +39,20 @@ function listFiles(root: string): string[] {
 
 const tracked = listFiles(ROOT);
 
+/**
+ * Read a listed file, or record why not.
+ *
+ * `undefined` used to mean "deleted between listing and reading" *and* "could not be read for any
+ * other reason", so a file with the wrong permissions passed every hygiene rule silently. Now only
+ * the race is silent; anything else becomes a problem, because a file this check could not read is
+ * a file it did not check. Found by the M1 exit gate's reviewer.
+ */
+const unreadable: { path: string; reason: string }[] = [];
 const read = (path: string): string | undefined => {
-  try {
-    return readFileSync(`${ROOT}/${path}`, 'utf8');
-  } catch {
-    return undefined; // deleted between listing and reading
-  }
+  const result = readListed(`${ROOT}/${path}`);
+  if (result.kind === 'text') return result.text;
+  if (result.kind === 'failed') unreadable.push({ path, reason: result.reason });
+  return undefined;
 };
 
 const sources = tracked.filter((path) => /\.tsx?$/.test(path) && !path.includes('/__fixtures__/'));
@@ -110,11 +118,33 @@ const ISSUE_FORM_RULE: Rule = {
     'way anybody finds out is that the option is missing when they try to file an issue.',
 };
 
+const UNREADABLE_RULE: Rule = {
+  id: 'file-unreadable',
+  summary: 'Every listed file must be readable, or this check has not checked it.',
+  rationale:
+    'A read failure used to be indistinguishable from the `git ls-files` race, so a file with ' +
+    'the wrong permissions passed every rule below in silence. The race (`ENOENT`) is still ' +
+    'ignored; anything else is reported, because "could not look" is not "looked and found ' +
+    'nothing".',
+};
+
+// After every rule has had its turn, so the list reads in the order the checks ran.
+for (const entry of unreadable) {
+  findings.push({
+    file: entry.path,
+    line: 1,
+    rule: 'file-unreadable',
+    message: `could not be read (${entry.reason}), so no rule was applied to it`,
+    source: '',
+  });
+}
+
 const ALL_RULES: readonly Rule[] = [
   ...SNAPSHOT_RULES,
   ...HYGIENE_RULES,
   ...WORKFLOW_RULES,
   ISSUE_FORM_RULE,
+  UNREADABLE_RULE,
 ];
 
 stdout.write(report('hygiene', ALL_RULES, findings));

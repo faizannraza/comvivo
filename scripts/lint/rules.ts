@@ -158,18 +158,24 @@ export const UNFILTERED_READ_BAN: Linter.RulesRecord = {
  * catches it at the type level; this one catches the cases the type cannot reach — a widened
  * return type, an untyped call site, a callback written against `any`.
  *
- * The selector is `02` §3.7.2's, verbatim. It matches an `async` function passed directly to
- * anything named `write`, `read` or `transaction`, which does mean a false positive is possible on
- * an unrelated `read` — accepted, because the alternative is narrowing it to one receiver type that
- * a lint rule cannot see, and because an `async` callback to a method called `read` is worth a
- * second look anyway.
+ * The selector is `02` §3.7.2's, plus `afterCommit`. It matches an `async` function passed directly
+ * to anything named `write`, `read`, `transaction` or `afterCommit`, which does mean a false
+ * positive is possible on an unrelated `read` — accepted, because the alternative is narrowing it
+ * to one receiver type that a lint rule cannot see, and because an `async` callback to a method
+ * called `read` is worth a second look anyway.
+ *
+ * `afterCommit` was added at the M1 exit gate. It is the same bivariance hole one step later: the
+ * hook runs after the commit, so an `async` one turns a rejection into an unhandled rejection and,
+ * on Node's default, exits the process having already written. `tx.ts` catches it at run time as
+ * well, because a lint rule only sees a callback written at the call site.
  */
 export const SYNC_TX_BAN: Linter.RulesRecord = {
   'no-restricted-syntax': [
     'error',
     {
       selector:
-        'CallExpression[callee.property.name=/^(write|read|transaction)$/] > :function[async=true]',
+        'CallExpression[callee.property.name=/^(write|read|transaction|afterCommit)$/] > ' +
+        ':function[async=true]',
       message:
         'Transaction callbacks must be synchronous (01 §1, 02 §3.7.2). better-sqlite3 commits when ' +
         'the callback returns, so an async one commits an empty transaction and then does its work ' +

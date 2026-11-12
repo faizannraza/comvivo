@@ -261,6 +261,44 @@ describe('migrations.checksums-locked', () => {
     expect(lockViolations(removed, source).map((entry) => entry.kind)).toEqual(['missing']);
   });
 
+  it.each([
+    ['a half-merged file', '{"released": {\n<<<<<<< HEAD'],
+    ['an empty file', ''],
+    ['a bare array', '[]'],
+  ])('refuses %s rather than reading it as an empty lock', (_label, text) => {
+    // The failure mode this prevents is silent, not loud: the reader used to cast the parsed JSON
+    // to `Partial<MigrationLock>` and take `released ?? {}`, so a `released` of the wrong type
+    // became an empty lock and `lockViolations` reported nothing — the guard on every released
+    // migration switched itself off with CI green. A conflicted `migrations.lock.json` is the
+    // realistic case, because this is the file two releases both touch.
+    const path = join(tempDir(), 'migrations.lock.json');
+    writeFileSync(path, text);
+    expect(() => readLock(path)).toThrow(StorageError);
+    try {
+      readLock(path);
+    } catch (error) {
+      expect((error as StorageError).storageCode).toBe('MIGRATION_CHECKSUM_MISMATCH');
+      expect((error as StorageError).message).toContain(path);
+      expect((error as StorageError).hint).toBeDefined();
+    }
+  });
+
+  it('refuses an entry that is missing its checksum', () => {
+    const path = join(tempDir(), 'migrations.lock.json');
+    writeFileSync(path, JSON.stringify({ released: { '0000_a': { release: 'v0.1.0' } } }));
+    expect(() => readLock(path)).toThrow(/is not a migration lock/);
+  });
+
+  it('keeps reading the real file, comment and all', () => {
+    // `writeLock` writes a `$comment` key beside `released`, so the schema must not be strict.
+    const path = join(tempDir(), 'migrations.lock.json');
+    writeFileSync(
+      path,
+      JSON.stringify({ $comment: 'why', released: { '0000_a': { checksum: 'x', release: 'v1' } } }),
+    );
+    expect(readLock(path).released['0000_a']?.release).toBe('v1');
+  });
+
   it('records when a migration first shipped, not when the lock was last written', () => {
     const atFirst = lockFor({ released: {} }, source, 'v0.1.0');
     const atSecond = lockFor(atFirst, source, 'v0.2.0');

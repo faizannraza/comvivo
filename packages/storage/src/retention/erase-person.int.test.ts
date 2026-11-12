@@ -46,7 +46,7 @@ import {
   withReposAsync,
 } from '../repos/testing/harness.js';
 import { ERASED_DISPLAY_NAME, PersonErasure } from './erase-person.js';
-import { findCanary } from './testing/canary.js';
+import { assertNoCanary, findCanary } from './testing/canary.js';
 
 /**
  * A string that exists nowhere else.
@@ -301,6 +301,56 @@ describe('erasure.person (02 §9.3)', () => {
       // Every place `02` §9.3 names, in four spellings. A surviving hit prints its table, column
       // and spelling, because "found in the WAL" and "found in a table" need different fixes.
       expect(findCanary(world.db, CANARY)).toEqual([]);
+    });
+  });
+
+  it('reports a column it could not read as unchecked, not as clean', async () => {
+    // `countMatches` used to answer `0` for a column SQLite refused to read, justified by "the
+    // file scan below reads the same bytes unconditionally" — which is false for an in-memory
+    // database, where `filesToScan` returns nothing. So the one configuration that needed the
+    // justification was the one it did not hold for. Found by the M1 exit gate's reviewer.
+    //
+    // The unreadable column is synthetic because no table in the schema has one: a generated
+    // column over a SQL function that throws is the narrowest way to make `instr(CAST(…))` fail
+    // the way a shadow table or an uncastable type would.
+    await withReposAsync(async (world) => {
+      // Two measured details. `deterministic`, because SQLite refuses a non-deterministic function
+      // in a generated column (*non-deterministic functions prohibited in generated columns*). And
+      // armed only after the insert, because SQLite evaluates the expression on write as well — a
+      // function that always threw made the `INSERT` fail instead of the read. `VIRTUAL`, so the
+      // value is recomputed on every read and the arming takes effect.
+      let armed = false;
+      world.db.function('canary_boom', { deterministic: true }, () => {
+        if (armed) throw new Error('this column cannot be read');
+        return 'harmless';
+      });
+      world.db.exec(
+        'CREATE TABLE canary_probe (a TEXT, b TEXT GENERATED ALWAYS AS (canary_boom()) VIRTUAL)',
+      );
+      world.db.prepare('INSERT INTO canary_probe (a) VALUES (?)').run('harmless');
+      armed = true;
+
+      // `table_info` does not list a generated column at all — measured here, and the reason
+      // `searchableColumns` reads `table_xinfo`. Asserted, because if that regressed this whole
+      // test would go quietly green by seeing no column to fail on.
+      expect(
+        (world.db.pragma('table_xinfo("canary_probe")') as { name: string }[]).map((c) => c.name),
+      ).toEqual(['a', 'b']);
+      expect(
+        (world.db.pragma('table_info("canary_probe")') as { name: string }[]).map((c) => c.name),
+      ).toEqual(['a']);
+
+      const hits = findCanary(world.db, CANARY);
+      const unchecked = hits.filter((hit) => hit.unreadable === true);
+      expect(unchecked.map((hit) => hit.where)).toContain('canary_probe.b');
+      // Four spellings, one per form, and each with a count of zero — "not checked" rather than
+      // "found", and still a failure.
+      expect(unchecked).toHaveLength(4);
+      expect(unchecked.every((hit) => hit.count === 0)).toBe(true);
+      // And the failure says so in words, because `×0` reads as a bug in the helper.
+      expect(() => assertNoCanary(world.db, CANARY)).toThrow(/not checked: unreadable/);
+      // The readable sibling column is still searched: the failure is per column, not per table.
+      expect(hits.some((hit) => hit.where === 'canary_probe.a')).toBe(false);
     });
   });
 

@@ -17,7 +17,7 @@
  * dangerous-looking strings. Catching it here, in a second, with an explanation, is far kinder than
  * a rejected push.
  */
-import { readFileSync } from 'node:fs';
+import { readListed } from '../support/read-listed.js';
 
 /**
  * Shapes a scanner recognises with high confidence.
@@ -82,13 +82,18 @@ export function findInSource(path: string, source: string): Finding[] {
 export function scanFiles(root: string, paths: readonly string[]): Finding[] {
   const findings: Finding[] = [];
   for (const path of paths.filter(isScanned)) {
-    let contents: string;
-    try {
-      contents = readFileSync(`${root}/${path}`, 'utf8');
-    } catch {
-      continue; // deleted between listing and reading
+    const read = readListed(`${root}/${path}`);
+    // Gone between the listing and the read: the `git ls-files` race, and genuinely nothing.
+    if (read.kind === 'missing') continue;
+    if (read.kind === 'failed') {
+      // Everything else is a **finding**. This used to be one `catch { continue }` justified as
+      // the race, so a file that was present and unreadable — wrong permissions, a path that is
+      // now a directory — passed the secret scanner silently. For this check of all checks, an
+      // unreadable file is the one worth asking about. Found by the M1 exit gate's reviewer.
+      findings.push({ file: path, line: 1, shape: `file that could not be read (${read.reason})` });
+      continue;
     }
-    findings.push(...findInSource(path, contents));
+    findings.push(...findInSource(path, read.text));
   }
   return findings;
 }

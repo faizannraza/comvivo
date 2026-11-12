@@ -51,6 +51,16 @@ export const LOG_EVENTS = {
    */
   'storage.after_commit_failed': 'an afterCommit hook failed',
   /**
+   * An `afterCommit` hook returned a promise.
+   *
+   * A bug, and one the type system cannot catch: TypeScript's void-return rule accepts an `async`
+   * function wherever `() => void` is expected, so `afterCommit(async () => …)` compiles. The hook
+   * then runs *after* the batch is considered finished, and a rejection becomes an unhandled
+   * rejection — which on Node's default means the process exits, having already committed. So the
+   * runner attaches a `catch` and logs this instead of relying on the hook being well-behaved.
+   */
+  'storage.after_commit_async': 'an afterCommit hook returned a promise',
+  /**
    * The instance lock's heartbeat could not be written.
    *
    * At `warn`, because one failed tick is survivable — the lock only goes stale after several —

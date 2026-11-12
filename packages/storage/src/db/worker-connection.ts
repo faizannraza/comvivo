@@ -86,23 +86,31 @@ export function sendNoDatabaseKey(port: MessagePort): void {
 /**
  * Open a worker's connection from a handshake message.
  *
- * Read-only by default, because that is what `02` D22's heavy operations are: a backup reads, an
- * export reads, a purge scan reads. A worker that wrote would be a second writer, which the
- * instance lock exists to prevent and which SQLite's WAL would not stop.
+ * **Always read-only**, and not by default: `readonly` used to be an option defaulting to `true`,
+ * which made this function's own promise — "a worker that wrote would be a second writer, which the
+ * instance lock exists to prevent and which SQLite's WAL would not stop" — something a caller could
+ * opt out of with one property. `C1` (writer isolation) is one of the invariants `CLAUDE.md` §2
+ * calls sacred, so the option is gone rather than documented. Nothing in the product passed it; the
+ * one caller that did was a test, which now reaches `openDatabase` directly for the knob it was
+ * actually testing. Found by the M1 exit gate's reviewer.
+ *
+ * Read-only is also what `02` D22's heavy operations need: a backup reads, an export reads, a purge
+ * scan reads. If a future one must write, it goes through the main thread's `SqliteStore` — which
+ * is the single writer — rather than opening a second writable handle here.
  *
  * The key is zeroed before this returns, on every path — including the failure path, which is the
  * one a `finally` exists for and the one a hand-rolled version forgets.
  */
 export function openWorkerConnection(
   handshake: WorkerHandshake,
-  options: Omit<OpenOptions, 'key' | 'role'> & { readonly readonly?: boolean },
+  options: Omit<OpenOptions, 'key' | 'role' | 'readonly'>,
 ): OpenDatabase {
   if (handshake.kind === 'no-database-key') {
     return openDatabase({
       ...options,
       key: null,
       role: 'worker',
-      readonly: options.readonly ?? true,
+      readonly: true,
     });
   }
 
@@ -126,7 +134,7 @@ export function openWorkerConnection(
       ...options,
       key,
       role: 'worker',
-      readonly: options.readonly ?? true,
+      readonly: true,
     });
   } finally {
     // `02` §3.6.2: "The copy is zeroed after open." Both the `Buffer` view and the transferred

@@ -231,7 +231,6 @@ describe('store.tx-async-guard (02 §9.3)', { tags: ['db', 'slow'] }, () => {
     // success, and then do its work outside any transaction at all — with the `afterCommit` hooks
     // having already fired for work that had not happened.
     await withStore(({ store, db, rows }) => {
-      const ran: string[] = [];
       try {
         // The type refuses this (`NotPromise`), and the lint rule refuses it syntactically; the
         // cast is how an untyped caller would reach the runtime guard, which is guard 4.
@@ -246,8 +245,13 @@ describe('store.tx-async-guard (02 §9.3)', { tags: ['db', 'slow'] }, () => {
         expect((caught as StorageError).code).toBe('bug');
       }
       // Nothing committed: the throw happened inside the transaction, so it rolled back.
+      //
+      // The third clause in this test's name — that no hook runs — is asserted by *discards hooks
+      // registered before the async return* below, which registers one. It used to be asserted
+      // here as well, against an array nothing ever pushed to: `expect(ran).toEqual([])` over a
+      // `const ran: string[] = []` cannot fail, and a test that cannot fail is worse than no test
+      // because it reads as coverage. Found by the M1 exit gate's reviewer.
       expect(rows()).toBe(0);
-      expect(ran).toEqual([]);
     });
   });
 
@@ -372,6 +376,79 @@ describe('store.nested-savepoint (02 §9.3)', { tags: ['db', 'slow'] }, () => {
         });
       });
       expect(bodies()).toEqual(['a', 'b', 'c']);
+    });
+  });
+});
+
+describe('an async afterCommit hook (02 §3.7.2)', { tags: ['db', 'slow'] }, () => {
+  it('logs a rejected hook instead of letting it become an unhandled rejection', async () => {
+    // TypeScript's void-return rule accepts an `async` function wherever `() => void` is expected,
+    // so this compiles — and a `try`/`catch` around a call that returns a promise catches nothing.
+    // Before this, the rejection reached Node's unhandled-rejection handler and, on the default
+    // setting, exited the process *after* the write had committed: a successful turn reported as a
+    // crash. Found by the M1 exit gate's reviewer.
+    await withStore(async ({ store, db, lines, rows }) => {
+      let rejected: (() => void) | undefined;
+      const settled = new Promise<void>((resolve) => {
+        rejected = resolve;
+      });
+      store.write((uow) => {
+        insert(db, 'committed');
+        (uow.afterCommit as unknown as (cb: () => Promise<void>) => void)(async () => {
+          await Promise.resolve();
+          rejected?.();
+          throw new Error('the hook failed late');
+        });
+      });
+
+      // The write stands: a hook's failure must never undo or re-report a committed transaction.
+      expect(rows()).toBe(1);
+      // `storage.after_commit_async` names the bug the moment the hook returns, synchronously.
+      expect(lines.map((line) => line.event)).toContain('storage.after_commit_async');
+
+      await settled;
+      // And the rejection is logged rather than thrown. One microtask for the `catch` to run.
+      await Promise.resolve();
+      const events = lines.map((line) => line.event);
+      expect(events).toContain('storage.after_commit_failed');
+    });
+  });
+});
+
+describe('a transaction nobody here opened (02 §3.7.2)', { tags: ['db', 'slow'] }, () => {
+  it('refuses a write while the connection is already in a transaction', async () => {
+    // `#depth` is this store's belief about the connection; `db.inTransaction` is the truth. The
+    // allow-list in `scripts/lint/rules.ts` lets `migrate/runner.ts` hold a transaction on the
+    // same handle, so the two can disagree — and before this guard the symptom was
+    // better-sqlite3's *cannot start a transaction within a transaction*, which names neither
+    // side. Found by the M1 exit gate's reviewer.
+    await withStore(({ store, db, rows }) => {
+      db.exec('BEGIN');
+      try {
+        expect(db.inTransaction).toBe(true);
+        expect(store.depth).toBe(0);
+        try {
+          store.write((uow) => {
+            insert(db, 'never');
+            void uow;
+          });
+          expect.unreachable('a foreign transaction must be refused');
+        } catch (caught) {
+          expect(caught).toBeInstanceOf(StorageError);
+          expect((caught as StorageError).storageCode).toBe('STORAGE_TX_FOREIGN');
+          expect((caught as StorageError).code).toBe('bug');
+          // The hint names the one sanctioned holder, because "something else has a transaction"
+          // is not actionable and "the migration runner" is.
+          expect((caught as StorageError).hint).toContain('migrate/runner.ts');
+        }
+      } finally {
+        db.exec('ROLLBACK');
+      }
+      // And the store is usable afterwards: the guard throws before anything is opened, so it
+      // leaves no savepoint or depth behind.
+      expect(store.depth).toBe(0);
+      store.write(() => insert(db, 'after'));
+      expect(rows()).toBe(1);
     });
   });
 });

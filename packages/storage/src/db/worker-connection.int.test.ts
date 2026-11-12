@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import { writeSourcePathsTsconfig } from '../../../../scripts/support/paths-tsconfig.js';
 import { withDataDir } from '../datadir/testing/data-dir.js';
 import { initDatabase } from './init.js';
+import { openDatabase } from './open.js';
 import {
   openWorkerConnection,
   receiveHandshake,
@@ -54,6 +55,7 @@ function startReader(
   readonly worker: Worker;
   readonly ready: Promise<WorkerReply>;
   query: (sql: string) => Promise<WorkerReply>;
+  exec: (sql: string) => Promise<WorkerReply>;
   stop: () => Promise<void>;
 } {
   // `tsx` so the worker can import the TypeScript it is testing, and `TSX_TSCONFIG_PATH` so it
@@ -106,6 +108,12 @@ function startReader(
     query: (sql: string) => {
       const reply = nextReply();
       worker.postMessage({ kind: 'query', sql });
+      return reply;
+    },
+    /** `db.exec`, for the transaction control better-sqlite3 refuses in `prepare`. */
+    exec: (sql: string) => {
+      const reply = nextReply();
+      worker.postMessage({ kind: 'exec', sql });
       return reply;
     },
     stop: async () => {
@@ -298,9 +306,27 @@ describe('a worker reads while the main thread writes (02 D22)', { tags: ['db', 
     });
   });
 
-  it('lets the main thread keep writing while the worker is mid-read', async () => {
+  it('lets the main thread keep writing while the worker holds a read open', async () => {
     // The direction that matters for a backup: a long read must not block the writer. In WAL mode
     // it does not, and this is the test that would notice if the pragma sequence lost WAL.
+    //
+    // **The reader has to be holding a read, not merely be between two.** The first version of
+    // this test fired a slow `SELECT` without awaiting it and then wrote — but the main thread is
+    // single-threaded, so it could neither observe the worker's progress nor be sure the query had
+    // started, and with a rollback journal the writer would simply have waited out a read lock
+    // that was no longer held. It passed for no reason. So: an explicit `BEGIN DEFERRED`, a
+    // materialised read inside it to take the lock, then the writes, and only then `COMMIT`.
+    // Under a rollback journal those writes raise `SQLITE_BUSY`; under WAL they do not. The
+    // reader's snapshot is asserted afterwards, which is the other half of what `02` D22 claims.
+    // Found by the M1 exit gate's reviewer.
+    //
+    // The rollback-journal half is **measured** rather than asserted here, because both
+    // connections apply `RUNTIME_PRAGMAS` and the worker's open switches the file back to WAL —
+    // so the mode cannot be held down from inside this test. Measured separately on 2026-11-12,
+    // same SQLite build, two connections pinned to `journal_mode = delete`: the reader's
+    // `BEGIN DEFERRED` plus one materialised read makes the writer's next insert fail with
+    // `SqliteError: database is locked`. That is the failure this arrangement would surface if the
+    // pragma sequence ever stopped setting WAL.
     await withDataDir(async (root) => {
       const path = join(root, 'd22.db');
       const key = randomBytes(32);
@@ -312,11 +338,27 @@ describe('a worker reads while the main thread writes (02 D22)', { tags: ['db', 
       const reader = startReader(path, Buffer.from(key));
       try {
         await reader.ready;
-        // A read the worker is still working through, not awaited yet.
-        const slow = reader.query('SELECT count(*) AS n FROM t GROUP BY body');
-        // The writer proceeds regardless — no `SQLITE_BUSY`, which is what WAL buys.
+        expect((await reader.exec('BEGIN DEFERRED')).ok).toBe(true);
+        // Inside the transaction, and materialised: a deferred transaction takes no lock until it
+        // reads, so a `BEGIN` on its own would leave this test proving nothing again.
+        const before = await reader.query('SELECT count(*) AS n FROM t');
+        expect(before.ok).toBe(true);
+        expect((before.rows?.[0] as { n: number } | undefined)?.n).toBe(2000);
+
+        // The writer proceeds while that read transaction is open — no `SQLITE_BUSY`, which is
+        // what WAL buys and what every heavy operation in `02` D22 depends on.
         for (let n = 0; n < 500; n += 1) insert.run(`more ${String(n)}`);
-        expect((await slow).ok).toBe(true);
+        expect(main.db.prepare('SELECT count(*) AS n FROM t').get()).toEqual({ n: 2500 });
+
+        // And the reader still sees the snapshot it began with, not the writer's rows.
+        const during = await reader.query('SELECT count(*) AS n FROM t');
+        expect((during.rows?.[0] as { n: number } | undefined)?.n).toBe(2000);
+        expect((await reader.exec('COMMIT')).ok).toBe(true);
+
+        // After the commit its next read is current again, which is the test above in miniature
+        // and the proof that the 2000 was a snapshot rather than a stale cache.
+        const after = await reader.query('SELECT count(*) AS n FROM t');
+        expect((after.rows?.[0] as { n: number } | undefined)?.n).toBe(2500);
       } finally {
         await reader.stop();
         main.db.close();
@@ -363,24 +405,25 @@ describe('a worker reads while the main thread writes (02 D22)', { tags: ['db', 
     // `fileMustExist` for every role but `main`. A worker that created an empty database would
     // leave something the next boot reads as a fresh install.
     //
-    // **With `readonly: false`**, which is what makes this about `fileMustExist` at all. The
-    // default is `readonly: true`, and a read-only open of a missing file fails for *that* reason —
-    // so the original version of this test would have passed with `fileMustExist` removed
-    // entirely. Found by the M1 independent review.
+    // Both halves matter, and the **writable** one is what makes this about `fileMustExist` at
+    // all: a read-only open of a missing file fails for its own reason, so a version of this test
+    // that only did that would have passed with `fileMustExist` removed entirely (found by the M1
+    // independent review). It goes through `openDatabase` because `openWorkerConnection` no longer
+    // takes a `readonly` option — a worker connection that could write is a second writer, which
+    // `C1` forbids, and the M1 exit gate's reviewer was right that an opt-out property is not a
+    // guard. `openDatabase` is the layer the knob belongs to.
     await withDataDir(async (root) => {
       const handshake: WorkerHandshake = { kind: 'no-database-key' };
       const absent = join(root, 'absent.db');
 
-      // A writable worker connection: `fileMustExist` is the only thing that can refuse this, and
-      // the file must not appear as a side effect.
-      expect(() => openWorkerConnection(handshake, { path: absent, readonly: false })).toThrow(
-        StorageError,
-      );
+      // Writable, role `worker`: `fileMustExist` is the only thing that can refuse this, and the
+      // file must not appear as a side effect.
+      expect(() =>
+        openDatabase({ path: absent, key: null, role: 'worker', readonly: false }),
+      ).toThrow(StorageError);
       expect(existsSync(absent), 'the worker created a database').toBe(false);
 
-      // And the read-only default refuses too, for its own reason — both paths matter, because a
-      // worker is read-only in production and the writable case is what a future heavy operation
-      // might reach for.
+      // And the worker's own entry point refuses too, read-only, for its own reason.
       expect(() => openWorkerConnection(handshake, { path: absent })).toThrow(StorageError);
       expect(existsSync(absent)).toBe(false);
     });

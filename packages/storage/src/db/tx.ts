@@ -135,7 +135,10 @@ export class SqliteStore implements Store {
   /** Read nesting depth, so a `write` inside a `read` can be refused. */
   #readDepth = 0;
   /** Hooks for the **outermost** write. Nested writes append to this same list. */
-  #hooks: (() => void)[] = [];
+  // `unknown` rather than `void`: the port's `afterCommit` takes `() => void`, and TypeScript's
+  // void-return rule means an `async` function satisfies that — so what is actually in this array
+  // may return a promise, and `#runHook` has to be able to look at the value.
+  #hooks: (() => unknown)[] = [];
 
   constructor(options: SqliteStoreOptions) {
     this.#db = options.db;
@@ -174,6 +177,31 @@ export class SqliteStore implements Store {
     }
 
     const outer = this.#depth === 0;
+    // `#depth` is this store's belief about the connection, and the connection can contradict it.
+    // `02` §3.7.2's own allow-list lets `migrate/runner.ts` hold a transaction on the same handle
+    // (it is the layer below this one, and it creates the schema these repositories read), so a
+    // `store.write` reached from inside one would see `#depth === 0`, call `immediate()`, and
+    // surface better-sqlite3's *cannot start a transaction within a transaction* — a message that
+    // names neither the store nor the runner. Joining it as a savepoint would be worse: `outer`
+    // would be false, so this write's `afterCommit` hooks would sit in `#hooks` with nothing to
+    // run them. Refusing is the only honest answer, and it says who the other holder can be.
+    // Found by the M1 exit gate's reviewer.
+    if (outer && this.#db.inTransaction) {
+      throw new StorageError(
+        'STORAGE_TX_FOREIGN',
+        'a transaction is already open on this connection, and `SqliteStore` did not open it',
+        {
+          hint:
+            'Something outside `SqliteStore` holds a transaction on this database handle. The ' +
+            'only sanctioned case is `migrate/runner.ts`, which runs *before* the store is used ' +
+            '— a data migration must not call `store.write`, because the runner already has the ' +
+            'write lock and provides the transaction. Do the work with the connection the ' +
+            'migration is given.',
+          category: 'bug',
+          ...(meta === undefined ? {} : { detail: { op: meta.op } }),
+        },
+      );
+    }
     if (outer) this.#hooks = [];
     // Where this transaction's hooks start. A savepoint rollback truncates back to here, so a
     // nested transaction that fails does not leave hooks announcing work that was undone (F12).
@@ -361,22 +389,43 @@ export class SqliteStore implements Store {
    * The transaction has already committed, so there is nothing to undo. Letting a hook's error
    * propagate would report a successful write as a failure and invite the caller to retry a
    * change that already landed — which for the outbox means sending twice (I6).
+   *
+   * **A hook that returns a promise is caught here, not by the type.** TypeScript's void-return
+   * rule accepts an `async` function wherever `() => void` is expected, so
+   * `afterCommit(async () => …)` compiles — and `try`/`catch` around a call that returns a
+   * promise catches nothing. The rejection would surface as an unhandled rejection and, on Node's
+   * default, exit the process after the write had already committed: a successful turn, reported
+   * as a crash. Found by the M1 exit gate's reviewer. The ban in `scripts/lint/rules.ts` now
+   * covers `afterCommit` too, so this is the second line rather than the only one.
    */
-  #runHook(hook: () => void, meta?: TxMeta): void {
+  #runHook(hook: () => unknown, meta?: TxMeta): void {
     try {
-      hook();
+      const outcome: unknown = hook();
+      if (isThenable(outcome)) {
+        this.#logger.warn('storage.after_commit_async', {
+          ...(meta === undefined ? {} : { detail: { op: meta.op } }),
+        });
+        void (outcome as PromiseLike<unknown>).then(undefined, (caught: unknown) => {
+          this.#logHookFailure(caught, meta);
+        });
+      }
     } catch (caught) {
       // `err` is the allowlisted diagnostics field, and `op` goes in `detail` because `LogFields`
       // has no named slot for it. A `detail` string must be token-shaped (`fields.ts`), which an
       // `op` like `turn.commit` is.
-      this.#logger.error('storage.after_commit_failed', {
-        err: {
-          type: caught instanceof Error ? caught.name : typeof caught,
-          message: caught instanceof Error ? caught.message : String(caught),
-        },
-        ...(meta === undefined ? {} : { detail: { op: meta.op } }),
-      });
+      this.#logHookFailure(caught, meta);
     }
+  }
+
+  /** One place for both hook failure paths: the synchronous throw and the rejected promise. */
+  #logHookFailure(caught: unknown, meta?: TxMeta): void {
+    this.#logger.error('storage.after_commit_failed', {
+      err: {
+        type: caught instanceof Error ? caught.name : typeof caught,
+        message: caught instanceof Error ? caught.message : String(caught),
+      },
+      ...(meta === undefined ? {} : { detail: { op: meta.op } }),
+    });
   }
 
   /**

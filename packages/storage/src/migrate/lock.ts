@@ -18,7 +18,7 @@
  * so the first release adds data rather than also debugging the wiring. `M14-T4` owns that step.
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { StorageError } from '@comvivo/shared';
+import { StorageError, z } from '@comvivo/shared';
 import type { MigrationSource } from './source.js';
 
 /** One locked migration. */
@@ -41,11 +41,50 @@ export interface LockViolation {
   readonly actual: string;
 }
 
-/** Read the lock, treating an absent file as an empty lock. */
+/**
+ * The on-disk shape, validated rather than cast (`01` §2: every boundary gets a zod schema).
+ *
+ * It was `JSON.parse(...) as Partial<MigrationLock>` followed by `parsed.released ?? {}`, and both
+ * halves fail the same way. A corrupt file — and this is the file a release conflicts on, so a
+ * half-merged one is the realistic case — raised a bare `SyntaxError` naming no file. And a
+ * `released` of the wrong *type* (an array after a bad merge, a string, `null`) passed the `??`
+ * untouched, so `Object.entries` found nothing and `lockViolations` reported **no violations**:
+ * `MIGRATIONS.md` rule 6 silently stopped protecting every released migration, with CI green.
+ * Found by the M1 exit gate's reviewer.
+ */
+const migrationLockSchema = z.object({
+  released: z
+    .record(z.string(), z.object({ checksum: z.string().min(1), release: z.string().min(1) }))
+    .default({}),
+});
+
+/** Read the lock, treating an absent file as an empty lock and a broken one as a failure. */
 export function readLock(path: string): MigrationLock {
   if (!existsSync(path)) return { released: {} };
-  const parsed = JSON.parse(readFileSync(path, 'utf8')) as Partial<MigrationLock>;
-  return { released: parsed.released ?? {} };
+  const raw = readFileSync(path, 'utf8');
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (cause) {
+    throw new StorageError('MIGRATION_CHECKSUM_MISMATCH', `${path} is not valid JSON`, {
+      hint:
+        'The checksum lock records which migrations have shipped, so a broken one cannot be ' +
+        'ignored — that would let a released migration be edited unnoticed. If this is a merge ' +
+        'conflict, keep **both** sides\u2019 entries: the file is an append-only record and two ' +
+        'releases never claim the same migration id.',
+      cause,
+    });
+  }
+  const result = migrationLockSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new StorageError('MIGRATION_CHECKSUM_MISMATCH', `${path} is not a migration lock`, {
+      hint:
+        'Expected `{ "released": { "<migration id>": { "checksum": "<sha256>", "release": ' +
+        '"<version>" } } }`. Regenerate it with the release tooling rather than by hand.',
+      detail: { issue: result.error.issues[0]?.message ?? 'invalid' },
+    });
+  }
+  return { released: result.data.released };
 }
 
 /**

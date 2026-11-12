@@ -116,6 +116,7 @@ const EXIT_CODE_BY_STORAGE_CODE: Readonly<Record<StorageErrorCode, ExitCode>> = 
   // reply to a member, not a reason to stop. Arriving at the top of the process means nothing
   // handled it, so it is this program being wrong.
   STORAGE_TX_ASYNC_CALLBACK: EXIT_CODES.bug,
+  STORAGE_TX_FOREIGN: EXIT_CODES.bug,
   STORAGE_WRITE_IN_READ: EXIT_CODES.bug,
   STORAGE_JSON_INVALID: EXIT_CODES.bug,
   STORAGE_ID_INVALID: EXIT_CODES.bug,

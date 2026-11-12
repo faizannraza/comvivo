@@ -12,6 +12,11 @@
  *
  * Protocol: the parent sends the handshake on `port`, then one `{ sql }` message per query; this
  * worker replies `{ ok, rows }` or `{ ok: false, error }`. It exits when the port closes.
+ *
+ * `{ kind: 'exec', sql }` runs `db.exec` instead of a prepared statement, which is the only way to
+ * hold a transaction open **across** messages: better-sqlite3 refuses transaction control in
+ * `prepare`. The concurrency test needs it — a reader that is merely *between* queries proves
+ * nothing about a writer, because the read lock it would take has already been released.
  */
 import { parentPort, workerData } from 'node:worker_threads';
 
@@ -50,6 +55,11 @@ parentPort.on('message', (message) => {
     return;
   }
   try {
+    if (message.kind === 'exec') {
+      opened.db.exec(message.sql);
+      parentPort.postMessage({ kind: 'rows', ok: true, rows: [] });
+      return;
+    }
     const statement = opened.db.prepare(message.sql);
     // `.all()` on a statement that returns nothing raises "This statement does not return data",
     // which would mask the read-only refusal this worker exists to demonstrate. `reader` is

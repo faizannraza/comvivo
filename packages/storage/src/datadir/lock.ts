@@ -469,6 +469,12 @@ async function writeExclusive(path: string, lock: LockFile): Promise<boolean> {
       await handle.close();
     }
   } catch (cause) {
+    // The temp goes too, even on the failure path. It did not, so a write that failed part-way —
+    // `ENOSPC` is the realistic one — left a zero-byte `comvivo.lock.<pid>.new` in the data
+    // directory for every attempt, and a host looking at `ls` saw litter next to the lock they are
+    // trying to understand. `force` so an `EACCES` on the open (nothing created) stays the error
+    // worth reporting. Found by the M1 exit gate's reviewer.
+    await rm(temp, { force: true });
     throw new StorageError('STORAGE_IO', `the lock file ${path} could not be created`, {
       hint: 'Check that the data directory exists and the service user can write to it.',
       cause,

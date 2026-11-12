@@ -45,6 +45,13 @@ export interface CanaryHit {
   readonly form: string;
   /** How many rows or bytes matched. Never the surrounding content. */
   readonly count: number;
+  /**
+   * The column could not be read, so this is "not checked" rather than "found".
+   *
+   * It still fails the assertion: an erasure verification that silently skips a column it could
+   * not query is the kind of pass that means nothing.
+   */
+  readonly unreadable?: boolean;
 }
 
 export interface CanaryOptions {
@@ -75,11 +82,27 @@ function spellings(canary: string): readonly (readonly [string, Buffer])[] {
 interface ColumnRow {
   readonly name: string;
   readonly type: string;
+  /** 0 normal, 1 hidden (virtual tables only), 2 `VIRTUAL` generated, 3 `STORED` generated. */
+  readonly hidden: number;
 }
 
-/** Text and blob columns hold content; an integer column cannot hold a canary. */
+/**
+ * Text and blob columns hold content; an integer column cannot hold a canary.
+ *
+ * **`table_xinfo`, not `table_info`.** Measured: `table_info` omits generated columns entirely, so
+ * a `STORED` generated column — which SQLite writes into the page like any other — was never
+ * searched, and a `VIRTUAL` one computed from erased text was never evaluated. The header's first
+ * promise is "every text and blob column of every table, discovered from `sqlite_schema`, so a
+ * table a later milestone adds is searched without anyone remembering"; the same reasoning applies
+ * to a column, and `table_info` quietly excluded a whole kind of them. Found at the M1 exit gate
+ * while building the fixture for the unreadable-column case, which could not be seen at all.
+ *
+ * `hidden === 1` is dropped: that is a virtual table's hidden column, and virtual tables are
+ * skipped by the caller — their content lives in shadow tables, where these columns are ordinary.
+ */
 function searchableColumns(db: Database.Database, table: string): readonly string[] {
-  return (db.pragma(`table_info(${JSON.stringify(table)})`) as ColumnRow[])
+  return (db.pragma(`table_xinfo(${JSON.stringify(table)})`) as ColumnRow[])
+    .filter((column) => column.hidden !== 1)
     .filter((column) => /char|clob|text|blob/i.test(column.type) || column.type === '')
     .map((column) => column.name);
 }
@@ -108,36 +131,71 @@ export function findCanary(
   canary: string,
   options: CanaryOptions = {},
 ): readonly CanaryHit[] {
-  const hits: CanaryHit[] = [];
   const forms = spellings(canary);
-  const shadows = shadowTables(db);
-
-  for (const table of searchableTables(db)) {
-    // A virtual table's own name cannot be selected from with `instr`, but its shadow tables can —
-    // and they are where the content actually lives, so the shadows are searched and the virtual
-    // table is skipped.
-    if (isVirtualTable(db, table)) continue;
-    for (const column of searchableColumns(db, table)) {
-      for (const [form, needle] of forms) {
-        const count = countMatches(db, table, column, needle);
-        if (count > 0) {
-          hits.push({
-            where: `${table}.${column}${shadows.has(table) ? ' (shadow)' : ''}`,
-            form,
-            count,
-          });
-        }
-      }
-    }
-  }
-
+  const hits: CanaryHit[] = [...columnHits(db, forms)];
   hits.push(...ftsHits(db, canary));
   hits.push(...vecHits(db, options.erasedRids ?? []));
   hits.push(...fileHits(forms, filesToScan(options)));
   return hits;
 }
 
-/** `instr` on a `CAST(… AS BLOB)`, so a text and a blob column are searched the same way. */
+/** Every text and blob column of every table, in all four spellings (point 1 in the header). */
+function columnHits(
+  db: Database.Database,
+  forms: readonly (readonly [string, Buffer])[],
+): readonly CanaryHit[] {
+  const hits: CanaryHit[] = [];
+  const shadows = shadowTables(db);
+  for (const table of searchableTables(db)) {
+    // A virtual table's own name cannot be selected from with `instr`, but its shadow tables can —
+    // and they are where the content actually lives, so the shadows are searched and the virtual
+    // table is skipped.
+    if (isVirtualTable(db, table)) continue;
+    const suffix = shadows.has(table) ? ' (shadow)' : '';
+    for (const column of searchableColumns(db, table)) {
+      hits.push(...scanColumn(db, table, column, `${table}.${column}${suffix}`, forms));
+    }
+  }
+  return hits;
+}
+
+/**
+ * One column, in every spelling.
+ *
+ * `UNREADABLE` becomes a hit rather than nothing. `countMatches` used to `return 0` with a comment
+ * claiming "the file scan below reads the same bytes unconditionally, so nothing is left unchecked"
+ * — and `filesToScan` returns **nothing** for an in-memory database, which is what most of these
+ * tests use. So on the one configuration where the justification was needed it was false, and a
+ * column SQLite refused to read counted as a column with no canary in it. Found by the M1 exit
+ * gate's reviewer. The reported hit has `count: 0` and fails the assertion all the same, which is
+ * the point: "could not look" and "looked and found nothing" are not the same answer.
+ */
+function scanColumn(
+  db: Database.Database,
+  table: string,
+  column: string,
+  where: string,
+  forms: readonly (readonly [string, Buffer])[],
+): readonly CanaryHit[] {
+  const hits: CanaryHit[] = [];
+  for (const [form, needle] of forms) {
+    const count = countMatches(db, table, column, needle);
+    if (count === UNREADABLE) hits.push({ where, form, count: 0, unreadable: true });
+    else if (count > 0) hits.push({ where, form, count });
+  }
+  return hits;
+}
+
+/** What `countMatches` returns when the column could not be read at all. */
+const UNREADABLE = -1;
+
+/**
+ * `instr` on a `CAST(… AS BLOB)`, so a text and a blob column are searched the same way.
+ *
+ * `UNREADABLE` rather than `0` when the query fails — a shadow table SQLite refuses to read
+ * directly, or a column type it will not cast. The caller turns that into a hit, because an
+ * erasure check that cannot read a column has not checked it.
+ */
 function countMatches(
   db: Database.Database,
   table: string,
@@ -149,10 +207,7 @@ function countMatches(
   try {
     return (db.prepare(sql).get(needle) as { n: number }).n;
   } catch {
-    // A shadow table SQLite refuses to read directly, or a column type it will not cast. Reported
-    // as no hit rather than as an error: the file scan below reads the same bytes unconditionally,
-    // so nothing is left unchecked by this returning zero.
-    return 0;
+    return UNREADABLE;
   }
 }
 
@@ -282,6 +337,13 @@ export function assertNoCanary(
 ): void {
   const hits = findCanary(db, canary, options);
   if (hits.length === 0) return;
-  const places = hits.map((hit) => `${hit.where} [${hit.form}] ×${String(hit.count)}`).join('\n  ');
+  // An unreadable column is reported as "not checked", not as a count: a failure saying `×0` would
+  // read as a bug in this helper rather than as the column it could not search.
+  const places = hits
+    .map(
+      (hit) =>
+        `${hit.where} [${hit.form}] ${hit.unreadable === true ? '(not checked: unreadable)' : `×${String(hit.count)}`}`,
+    )
+    .join('\n  ');
   throw new Error(`the canary survived in ${String(hits.length)} place(s):\n  ${places}`);
 }

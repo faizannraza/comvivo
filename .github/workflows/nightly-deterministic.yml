@@ -186,6 +186,8 @@ jobs:
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
+    # It reads a job result and nothing else — no checkout, no token.
+    permissions: {}
     steps:
       - name: Fail if any property shard did
         env:

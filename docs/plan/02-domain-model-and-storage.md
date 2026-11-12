@@ -2973,6 +2973,11 @@ export type StorageErrorCode =
   | 'STORAGE_KEY_MISSING' | 'STORAGE_KEY_INVALID' | 'STORAGE_EXTENSION_LOAD_FAILED' | 'STORAGE_VERSION_UNSUPPORTED'
   | 'STORAGE_LOCKED' | 'STORAGE_BUSY' | 'STORAGE_CORRUPT' | 'STORAGE_DISK_SPACE_LOW' | 'STORAGE_IO'
   | 'STORAGE_TX_ASYNC_CALLBACK' | 'STORAGE_WRITE_IN_READ' | 'STORAGE_JSON_INVALID' | 'STORAGE_ID_INVALID'
+  // Added at the M1 exit gate: `#depth` is `SqliteStore`'s belief about the connection, and the
+  // connection can contradict it — §3.7.2's own allow-list lets `migrate/runner.ts` hold a
+  // transaction on the same handle. Without a code of its own, a `store.write` in that state
+  // surfaced better-sqlite3's "cannot start a transaction within a transaction".
+  | 'STORAGE_TX_FOREIGN'
   | 'STORAGE_CONSTRAINT' | 'I4_LABEL_GROUP_MISMATCH' | 'MEMORY_CONTENT_IMMUTABLE' | 'AUDIT_APPEND_ONLY'
   // Added at M1-T13: §3.3.6 and §204 state these immutabilities in prose, and a `RAISE(ABORT, …)`
   // code has to exist for `src/db/errors.ts` to map the abort to anything but `STORAGE_CONSTRAINT`.
