@@ -101,19 +101,61 @@ overrides:
   # generation for no additional security. The cross-checks in `deterministic-ids.test.ts` parse
   # our ids with typeid-js's own parser, so a behavioural change fails the suite rather than ships.
   uuid: ^11.1.1
+  # GHSA-4mjr-xmp4-gh2g, GHSA-6pq8-jhm2-2vcw, GHSA-q8mj-m7cp-5q26, GHSA-x5fp-wj9c-mxmx - four
+  # medium (CVSS 6.3) prototype-pollution and parsing issues in `qs < 6.16.1`, all four fixed by
+  # 6.16.1. Reached through `typed-rest-client@2.3.1`, which Stryker's dashboard reporter depends
+  # on and which pins `qs: ^6.9.1`; `typed-rest-client` 3.x exists but Stryker has not moved to it.
+  #
+  # This one does NOT ship: Stryker is a root devDependency (`11` §3.1.5), so the code never
+  # reaches a host. It is overridden anyway, because `osv.yml` is a gate and an exception for a
+  # devDependency is an exception somebody has to remember - and `qs` is a parser, which is the
+  # category where "it only runs in CI" stops being reassuring. `^6.16.1` rather than the current
+  # 6.17.1 so the range covers every patched release without pinning us to today's.
+  qs: ^6.16.1
   # GHSA-g3hv-75wg-m249 - denial of service via glob-parts amplification. Vulnerable `< 11.0.1`.
   # Reached only through the eslint toolchain, so it is dev-only: a linter that can be slowed down
   # by a crafted glob is not a product risk. Fixed anyway, because the fix is a version bump.
   minimatch: ^11.0.1
+  # GHSA-67mh-4wv8-2f99 - esbuild's development server sets `Access-Control-Allow-Origin: *`, so
+  # any website a developer visits can make requests to it and read the responses. Vulnerable
+  # `< 0.25.0`; `drizzle-kit@0.31.11` pins `esbuild ^0.18.20` and has no release that moves off it.
+  #
+  # Dev-only and, for us, not even that: drizzle-kit uses esbuild's **bundle** API to compile
+  # `drizzle.config.ts`, and never starts a server. It is overridden anyway, because the fix is a
+  # version bump and because leaving a known advisory in the lockfile trains people to read
+  # `osv-scanner` output as noise. `0.25.x` was already in the tree through vite and tsx, so this
+  # also collapses two copies of esbuild into one.
+  esbuild: ^0.25.0
 
 catalog:
   fast-check: ^4.10
+  # --- storage (M1) -----------------------------------------------------------------------------
+  # Pinned EXACTLY, per `02` M1-T1. Not a style choice: a SQLite build, a loadable extension and a
+  # crypto library are the three places where a silent patch bump can change bytes on disk or on
+  # the wire. Renovate opens a PR for each (grouped, `minimumReleaseAge: 3 days`, no auto-merge),
+  # so an upgrade is a reviewed diff with the spike suite re-run rather than an install-time
+  # surprise. Versions re-verified against the registry on 2026-11-03 (`CLAUDE.md` §6).
+  better-sqlite3-multiple-ciphers: 13.0.3
+  sqlite-vec: 0.1.9
+  drizzle-orm: 0.45.4
+  drizzle-kit: 0.31.11
+  libsodium-wrappers: 0.8.4
+  tar-stream: 3.2.2
+  # Not shipped. `02` D13 makes `libsodium-wrappers` (WASM) the default and `sodium-native` the
+  # fallback **only if** SP-2 measures < 40 MB/s on a Pi 5 — and claims the switch is wire-
+  # identical. That claim is worth exactly nothing untested, so `M1-T4` keeps this as a
+  # devDependency of `@comvivo/shared` and cross-decrypts between the two implementations in both
+  # directions. No install script and no compiler: it loads a prebuilt addon via `require-addon`.
+  sodium-native: 5.2.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2
   zod: ^4.6
   yaml: ^2.9
-  temporal-polyfill: ^1.0
+  # Exact, per `02` M1-T1: `Instant`/`PlainDate`/`ZonedDateTime` are **persisted** (`02` §3.1
+  # column helpers), so a polyfill patch that changes a string form changes what is in a host's
+  # database. 1.0.7 exists as of 2026-11-04 and is younger than `minimumReleaseAge`.
+  temporal-polyfill: 1.0.6
   vitest: ^5.0
   "@vitest/coverage-v8": ^5.0
   "@types/node": ^24.9

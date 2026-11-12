@@ -11,8 +11,11 @@ describe('defaults', () => {
     expect(DEFAULT_NUM_RUNS).toBe(100);
   });
 
-  it('stops at the first counterexample by default', () => {
-    expect(fcConfig({ env: {} }).endOnFailure).toBe(true);
+  it('shrinks by default, because an unshrunk counterexample is not actionable', () => {
+    // fast-check's `endOnFailure: true` means "stop at the first failure **without shrinking**".
+    // This defaulted to `true` until the M1 exit gate, so every failure was a raw random
+    // counterexample and `FC_PATH` — which replays the *shrunk* path — had nothing to replay.
+    expect(fcConfig({ env: {} }).endOnFailure).toBe(false);
   });
 
   it('is verbose, so the failing seed is actually printed', () => {
@@ -42,6 +45,39 @@ describe('FC_NUM_RUNS', () => {
 
   it.each(['', '0', '-5', 'lots', '1.5'])('ignores the nonsensical value %s', (raw) => {
     expect(fcConfig({ env: { FC_NUM_RUNS: raw } }).numRuns).toBe(DEFAULT_NUM_RUNS);
+  });
+});
+
+describe('FC_END_ON_FAILURE', () => {
+  it('is off by default, so a failure is shrunk before it is reported', () => {
+    expect(fcConfig({ env: {} }).endOnFailure).toBe(false);
+  });
+
+  it.each(['1', 'true', 'yes', 'YES', ' true '])('turns off shrinking for %s', (raw) => {
+    expect(fcConfig({ env: { FC_END_ON_FAILURE: raw } }).endOnFailure).toBe(true);
+  });
+
+  it.each(['0', 'false', 'no', 'NO', ' false '])('keeps shrinking on for %s', (raw) => {
+    expect(fcConfig({ env: { FC_END_ON_FAILURE: raw } }).endOnFailure).toBe(false);
+  });
+
+  it('beats a call site either way, so one environment variable settles a whole run', () => {
+    expect(fcConfig({ endOnFailure: false, env: { FC_END_ON_FAILURE: '1' } }).endOnFailure).toBe(
+      true,
+    );
+    expect(fcConfig({ endOnFailure: true, env: { FC_END_ON_FAILURE: '0' } }).endOnFailure).toBe(
+      false,
+    );
+  });
+
+  it.each(['', 'maybe', '2', 'on'])('leaves the default alone for %s', (raw) => {
+    // Only the recognised spellings mean anything: a typo must not silently disable shrinking on
+    // a run that asked for it, nor enable it on one that did not.
+    expect(fcConfig({ env: { FC_END_ON_FAILURE: raw } }).endOnFailure).toBe(false);
+  });
+
+  it('honours a call site that wants the fast loop when the environment is silent', () => {
+    expect(fcConfig({ endOnFailure: true, env: {} }).endOnFailure).toBe(true);
   });
 });
 

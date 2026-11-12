@@ -4,9 +4,9 @@
  * The policy, and why the legacy list is explicit rather than inferred, is in `./names-policy.ts`.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { exit, stdout } from 'node:process';
 import { BRAND } from '../../packages/shared/src/brand.js';
+import { readListed } from '../support/read-listed.js';
 import {
   checkPackageNames,
   crossCheckBrand,
@@ -19,6 +19,16 @@ import {
 
 const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 
+/** The manifest is this check's input, so an unreadable one is a failure, not a skipped file. */
+function readManifest(path: string): string {
+  const read = readListed(path);
+  if (read.kind === 'text') return read.text;
+  stdout.write(
+    `names: ${path} could not be read (${read.kind === 'missing' ? 'ENOENT' : read.reason}).\n`,
+  );
+  exit(1);
+}
+
 function listFiles(): string[] {
   return execFileSync('git', ['ls-files', '--cached', '--others', '--exclude-standard', '-z'], {
     cwd: ROOT,
@@ -29,7 +39,7 @@ function listFiles(): string[] {
 }
 
 const parsed = namesSchema.safeParse(
-  stripComments(JSON.parse(readFileSync(`${ROOT}/deploy/names.json`, 'utf8'))),
+  stripComments(JSON.parse(readManifest(`${ROOT}/deploy/names.json`))),
 );
 if (!parsed.success) {
   stdout.write('names: deploy/names.json is not valid.\n\n');
@@ -47,10 +57,27 @@ const problems: Problem[] = [...crossCheckBrand(names, BRAND)];
 const packageNames = files
   .filter((path) => path.endsWith('package.json') && path !== 'package.json')
   .flatMap((path) => {
+    const read = readListed(`${ROOT}/${path}`);
+    if (read.kind === 'missing') return [];
+    if (read.kind === 'failed') {
+      // Not swallowed: a workspace manifest this check cannot read is a package whose name it did
+      // not check, and the summary below would still have counted it.
+      problems.push({
+        where: path,
+        detail: `could not be read (${read.reason})`,
+        fix: 'Make the file readable, or remove it from the workspace.',
+      });
+      return [];
+    }
     try {
-      const manifest = JSON.parse(readFileSync(`${ROOT}/${path}`, 'utf8')) as { name?: unknown };
+      const manifest = JSON.parse(read.text) as { name?: unknown };
       return typeof manifest.name === 'string' ? [manifest.name] : [];
     } catch {
+      problems.push({
+        where: path,
+        detail: 'is not valid JSON, so its package name could not be checked',
+        fix: 'Fix the manifest.',
+      });
       return [];
     }
   });
@@ -74,12 +101,24 @@ const scanned = files.filter(
   (path) =>
     SCANNED.some((pattern) => pattern.test(path)) && !path.startsWith('docs/') && path !== MANIFEST,
 );
+// Counted, not assumed: the summary below used to print `scanned.length` — every file the listing
+// produced — while a read failure was swallowed, so a file it could not open was reported as one
+// in which no legacy name survives. `readListed` separates the `git ls-files` race (benign) from
+// a file that is there and unreadable (a gap). Found by the M1 exit gate's reviewer.
+let checked = 0;
 for (const path of scanned) {
-  try {
-    problems.push(...findStaleReferences(path, readFileSync(`${ROOT}/${path}`, 'utf8'), names));
-  } catch {
-    // Deleted between listing and reading.
+  const read = readListed(`${ROOT}/${path}`);
+  if (read.kind === 'missing') continue;
+  if (read.kind === 'failed') {
+    problems.push({
+      where: path,
+      detail: `could not be read (${read.reason}), so a legacy name here would not be found`,
+      fix: 'Make the file readable, or remove it from the tree.',
+    });
+    continue;
   }
+  checked += 1;
+  problems.push(...findStaleReferences(path, read.text, names));
 }
 
 if (problems.length > 0) {
@@ -90,5 +129,5 @@ if (problems.length > 0) {
 stdout.write(
   `names: ${names.productName} — manifest agrees with BRAND, ` +
     `${String(packageNames.length)} package names are in ${names.npm.scope}/ or are ${names.npm.cli}, ` +
-    `and no legacy name survives in ${String(scanned.length)} scanned files.\n`,
+    `and no legacy name survives in ${String(checked)} scanned files.\n`,
 );

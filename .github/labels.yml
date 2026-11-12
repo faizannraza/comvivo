@@ -104,6 +104,11 @@ meta:
       description: "A link somewhere else that broke",
     }
   - { name: "dogfood", color: "546E7A", description: "Found while running Comvivo for real" }
+  - {
+      name: "mutation-survivor",
+      color: "546E7A",
+      description: "A mutant survived in IFC or policy: a test gap, filed by mutation.yml",
+    }
   - { name: "dry-run", color: "546E7A", description: "Found during a fresh-user dry run" }
   - { name: "rfc", color: "546E7A", description: "Needs or has an RFC" }
   - {

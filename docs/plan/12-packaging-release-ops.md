@@ -27,8 +27,8 @@ This doc specifies how Village is **built, shipped, installed, upgraded, backed 
 | P7 | Init & user | **tini** is PID 1 → POSIX `sh` entrypoint → `exec node`. `USER 1000:1000`. A root-start mode (`PUID`/`PGID`) drops privileges with `setpriv` | Reaps whisper/ffmpeg/MCP children and delivers SIGTERM correctly. Works on platforms that start containers as root |
 | P8 | Filesystem | Read-only rootfs. All state lives in **`/data`**, which must be a mount or the container refuses to start. `/tmp` is tmpfs | Prevents silent data loss into the container layer |
 | P9 | Registry | **GHCR is canonical** (`ghcr.io/ORG/village`, `ghcr.io/ORG/village-ha`). Docker Hub mirror only if accepted into Docker-Sponsored OSS | No pull limits for public GHCR. Docker Hub rate-limits anonymous pulls |
-| P10 | npm | **Thin CLI `village`** (pure JS, Node ≥ 22.12) plus a **runtime `@village/server`** (bundled server and native deps, Node ≥ 24.11) that is installed on demand for native mode | Keeps `npx` fast, and Docker mode doesn't need a new Node. The 113 MB ORT tarball is only fetched for native installs |
-| P11 | Public packages | `village` (thin CLI), `@village/server` (server runtime), `@village/plugin-sdk`, `@village/channel-sdk`, **`@village/evals`** (published so plugin authors can use the simulator kit; the CLI's `village eval` imports it dynamically as an optional dependency, 01 §14 A17) and **`@village/mcp-bridge`** (the small stdio bridge members install for Claude Desktop and other local MCP clients, `10` §3.7). **Everything else is private and bundled**, including `@village/mcp`. Names are placeholders until D-2 | Smallest semver-stable surface |
+| P10 | npm | **Thin CLI `village`** (pure JS, Node ≥ 22.12) plus a **runtime `@comvivo/server`** (bundled server and native deps, Node ≥ 24.11) that is installed on demand for native mode | Keeps `npx` fast, and Docker mode doesn't need a new Node. The 113 MB ORT tarball is only fetched for native installs |
+| P11 | Public packages | `village` (thin CLI), `@comvivo/server` (server runtime), `@comvivo/plugin-sdk`, `@comvivo/channel-sdk`, **`@comvivo/evals`** (published so plugin authors can use the simulator kit; the CLI's `village eval` imports it dynamically as an optional dependency, 01 §14 A17) and **`@comvivo/mcp-bridge`** (the small stdio bridge members install for Claude Desktop and other local MCP clients, `10` §3.7). **Everything else is private and bundled**, including `@comvivo/mcp`. Names are placeholders until D-2 | Smallest semver-stable surface |
 | P12 | Versioning | **Changesets v3 + `changesets/action` v2** sub-actions (`select-mode` → `version` / `pack` → `publish`). Not release-please | Mandated by the spine (§11.9). Supports a fixed app group with independent SDKs, author-written notes, pre mode, and a pack/publish split for OIDC |
 | P13 | Provenance | npm **trusted publishing** (OIDC, automatic provenance, tokens disallowed). Images get a **cosign keyless** signature (v3 bundles, OCI referrers) plus **GitHub artifact attestations** (SLSA provenance + CycloneDX SBOM), pushed to the registry | No long-lived publish secrets. Verifiable with `cosign verify`, `gh attestation verify` and `npm audit signatures` |
 | P14 | Channels | **stable** (`latest`), **beta** (`X.Y.Z-beta.N`, `beta`), **edge** (every `main` commit) | Matches the 0.1 / 0.5 / 1.0 release train |
@@ -60,11 +60,11 @@ This doc specifies how Village is **built, shipped, installed, upgraded, backed 
 - **Docs site:** Cloudflare Pages at the apex `DOCS_DOMAIN`, built and deployed by `13`'s workflows (`13` D5, §3.C.2).
 - **Release manifest:** served from the main repo's **GitHub Pages**, which hosts only `release-manifest.json`. GitHub Pages gives maintainers no request logs or counts, so update checks can never be counted (`13` §3.G, §12 P6; ADR-017).
 
-> **Blocking finding:** the unscoped npm package **`village` is taken** (v0.8.0, "The official TypeScript library for the Village API", modified 2026-05-06). As a result, `npx village@latest init` cannot ship under the codename (§12-2). `create-village` and `@village/*` were unpublished on 2026-11-01; ownership of the scope is unverified.
+> **Blocking finding:** the unscoped npm package **`village` is taken** (v0.8.0, "The official TypeScript library for the Village API", modified 2026-05-06). As a result, `npx village@latest init` cannot ship under the codename (§12-2). `create-village` and `@comvivo/*` were unpublished on 2026-11-01; ownership of the scope is unverified.
 
 | Artifact per release `X.Y.Z` | Where | Integrity |
 |---|---|---|
-| `village`, `@village/server`, SDKs (SDKs use their own versions) | npm | provenance via OIDC trusted publishing |
+| `village`, `@comvivo/server`, SDKs (SDKs use their own versions) | npm | provenance via OIDC trusted publishing |
 | `ghcr.io/ORG/village:X.Y.Z` and `village-ha:X.Y.Z` (index: amd64 + arm64) | GHCR | cosign keyless (`--recursive`) + SLSA provenance + CycloneDX SBOM attestations |
 | GitHub Release `vX.Y.Z` | GitHub | assets: `SHA256SUMS` (attested), SBOMs, `compose-bundle.tar.gz`, `release-compat.json`, `upgrade-fixture-X.Y.Z[-dirty].tar.zst`, `ffmpeg-<v>-source.tar.xz` (LGPL source offer) |
 | HA, Umbrel, CasaOS and Unraid manifest bumps | mirror repos | committed by the release-bot GitHub App; Umbrel pins by digest |
@@ -113,8 +113,8 @@ FROM deps AS build
 COPY . .
 ENV ONNXRUNTIME_NODE_INSTALL=skip
 RUN pnpm install --offline --frozen-lockfile \
- && pnpm turbo run build --filter=@village/server... --filter=village... --filter=@village/dashboard \
- && pnpm --filter @village/server deploy --prod /out/server && pnpm --filter village deploy --prod /out/cli \
+ && pnpm turbo run build --filter=@comvivo/server... --filter=village... --filter=@comvivo/dashboard \
+ && pnpm --filter @comvivo/server deploy --prod /out/server && pnpm --filter village deploy --prod /out/cli \
  && node scripts/docker/prune-native.mjs /out --os linux --arch "$(node -p process.arch)"
 
 FROM ${DEBIAN_IMAGE} AS native
@@ -156,13 +156,13 @@ COPY deploy/docker/healthcheck.mjs /app/healthcheck.mjs
 COPY deploy/docker/third-party/ /usr/share/doc/village/third-party/
 RUN ln -s /app/cli/dist/bin.mjs /usr/local/bin/village && ln -s /opt/village/whisper/bin/whisper-cli /usr/local/bin/whisper-cli \
  && ln -s /opt/village/bin/ffmpeg /usr/local/bin/ffmpeg
-ENV NODE_ENV=production VILLAGE_RUNTIME=container VILLAGE_RUNTIME_PATH=/app/server VILLAGE_DATA_DIR=/data \
-    VILLAGE_DASHBOARD_BIND=0.0.0.0 VILLAGE_DASHBOARD_PORT=7777 VILLAGE_LOG_FORMAT=json HOME=/home/village \
-    VILLAGE_MODELS_PATH=/opt/village/models:/data/models VILLAGE_WHISPER_BIN=/usr/local/bin/whisper-cli \
-    VILLAGE_FFMPEG_BIN=/usr/local/bin/ffmpeg VILLAGE_SCRATCH_DIR=/tmp
-ARG VILLAGE_VERSION VCS_REF BUILD_DATE
+ENV NODE_ENV=production COMVIVO_RUNTIME=container COMVIVO_RUNTIME_PATH=/app/server COMVIVO_DATA_DIR=/data \
+    COMVIVO_DASHBOARD_BIND=0.0.0.0 COMVIVO_DASHBOARD_PORT=7777 COMVIVO_LOG_FORMAT=json HOME=/home/village \
+    COMVIVO_MODELS_PATH=/opt/village/models:/data/models COMVIVO_WHISPER_BIN=/usr/local/bin/whisper-cli \
+    COMVIVO_FFMPEG_BIN=/usr/local/bin/ffmpeg COMVIVO_SCRATCH_DIR=/tmp
+ARG COMVIVO_VERSION VCS_REF BUILD_DATE
 LABEL org.opencontainers.image.title="Village" org.opencontainers.image.licenses="Apache-2.0" \
-      org.opencontainers.image.version="${VILLAGE_VERSION}" org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.version="${COMVIVO_VERSION}" org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.created="${BUILD_DATE}" org.opencontainers.image.source="https://github.com/ORG/village"
 EXPOSE 7777
 USER 1000:1000
@@ -184,18 +184,18 @@ CMD ["start"]
 | `whisper/small-q5_1` | `ggml-small-q5_1.bin` (`ae85e4a9…11bb`) | 190 MB | opt-in, hosts with ≥ 8 GB |
 | `whisper/tiny-q5_1` | `ggml-tiny-q5_1.bin` (`81871056…d3c7`) | 32 MB | `low-memory` profile |
 
-In the image, transformers.js runs with `env.allowRemoteModels=false` and `env.localModelPath=<first entry of VILLAGE_MODELS_PATH>`. The fetcher writes to `/data/models/.partial/`, verifies size and SHA-256, then `rename()`s into place. `VILLAGE_MODEL_MIRROR` (an `HF_ENDPOINT`-style URL) serves restricted networks; air-gapped hosts copy files in and run `village models verify`. A weekly CI job HEAD-checks every URL. Changing the embedding model is an explicit config change that triggers `04`'s re-embed flow.
+In the image, transformers.js runs with `env.allowRemoteModels=false` and `env.localModelPath=<first entry of COMVIVO_MODELS_PATH>`. The fetcher writes to `/data/models/.partial/`, verifies size and SHA-256, then `rename()`s into place. `COMVIVO_MODEL_MIRROR` (an `HF_ENDPOINT`-style URL) serves restricted networks; air-gapped hosts copy files in and run `village models verify`. A weekly CI job HEAD-checks every URL. Changing the embedding model is an explicit config change that triggers `04`'s re-embed flow.
 
 #### 3.2.5 Runtime contract
 
 - **Filesystem.** `/app`, `/opt/village` and the OS are root-owned and read-only. `/data` must be a writable mount; `/tmp` is a 256 MiB tmpfs for media scratch. Blob and backup temp files go to **`/data/tmp`**, so `rename()` stays on one filesystem.
 - **Entrypoint** (`deploy/docker/entrypoint.sh`; POSIX sh; shellcheck-clean):
   1. `umask 0077`.
-  2. **Root mode** (uid 0 and `VILLAGE_ALLOW_ROOT≠1`). With `PUID`/`PGID` (default 1000): if ownership differs, run `find /data -xdev \( ! -user $PUID -o ! -group $PGID \) -exec chown $PUID:$PGID {} +`; copy root-only inputs (HA options, `/config/village.yaml`) to `/tmp/village/`; then `exec setpriv --reuid=$PUID --regid=$PGID --clear-groups --inh-caps=-all --bounding-set=-all -- "$0" "$@"`.
-  3. **Data guard.** Exit 78 if `/data` is not a mount point (checked via `/proc/self/mountinfo`; `VILLAGE_ALLOW_EPHEMERAL_DATA=1` overrides for demos) or is not writable. The message includes the exact `chown` fix.
-  4. **HA mode** (`/data/options.json` + `SUPERVISOR_TOKEN`). `node /app/server/dist/platform/ha.mjs render` writes `/tmp/village/{ha.env,village.ha.yaml}` with mode 0600; the entrypoint sources the env and sets `VILLAGE_CONFIG`.
+  2. **Root mode** (uid 0 and `COMVIVO_ALLOW_ROOT≠1`). With `PUID`/`PGID` (default 1000): if ownership differs, run `find /data -xdev \( ! -user $PUID -o ! -group $PGID \) -exec chown $PUID:$PGID {} +`; copy root-only inputs (HA options, `/config/comvivo.yaml`) to `/tmp/village/`; then `exec setpriv --reuid=$PUID --regid=$PGID --clear-groups --inh-caps=-all --bounding-set=-all -- "$0" "$@"`.
+  3. **Data guard.** Exit 78 if `/data` is not a mount point (checked via `/proc/self/mountinfo`; `COMVIVO_ALLOW_EPHEMERAL_DATA=1` overrides for demos) or is not writable. The message includes the exact `chown` fix.
+  4. **HA mode** (`/data/options.json` + `SUPERVISOR_TOKEN`). `node /app/server/dist/platform/ha.mjs render` writes `/tmp/village/{ha.env,village.ha.yaml}` with mode 0600; the entrypoint sources the env and sets `COMVIVO_CONFIG`.
   5. **Dispatch.** `start` → `exec node --enable-source-maps /app/server/dist/main.mjs start "$@"`; `ha-backup-pre|post` → the Control API on loopback (`POST`/`DELETE /control/v1/backups/ha-snapshot`, bearer from `keys/control.token`; `09` D-04); an absolute path → `exec "$@"`; anything else → `exec node /app/cli/dist/bin.mjs "$@"`, so `docker run … village backup list` works.
-- **Signals.** tini runs **without `-g`**, so SIGTERM reaches only Node, which stops its own children (whisper, ffmpeg, MCP stdio) during shutdown. The budget `VILLAGE_SHUTDOWN_GRACE_MS` (30 s) must be below the orchestrator's kill timeout: compose `stop_grace_period: 45s`, HA `timeout: 60`, systemd `TimeoutStopSec=60`, `docker run --stop-timeout 45`. Order: stop intake → stop leasing jobs → let in-flight tool transactions commit → abort model calls at `grace − 5 s` (the turn journal recovers them) → flush the outbox → `wal_checkpoint(TRUNCATE)` → close the DB, release the lock, exit 0. A second SIGTERM exits 130; SIGHUP is logged and ignored.
+- **Signals.** tini runs **without `-g`**, so SIGTERM reaches only Node, which stops its own children (whisper, ffmpeg, MCP stdio) during shutdown. The budget `COMVIVO_SHUTDOWN_GRACE_MS` (30 s) must be below the orchestrator's kill timeout: compose `stop_grace_period: 45s`, HA `timeout: 60`, systemd `TimeoutStopSec=60`, `docker run --stop-timeout 45`. Order: stop intake → stop leasing jobs → let in-flight tool transactions commit → abort model calls at `grace − 5 s` (the turn journal recovers them) → flush the outbox → `wal_checkpoint(TRUNCATE)` → close the DB, release the lock, exit 0. A second SIGTERM exits 130; SIGHUP is logged and ignored.
 - **Health.** `healthcheck.mjs` GETs `http://127.0.0.1:$PORT/healthz` with a 4 s timeout and passes on HTTP 200 (`ok`, `starting` or `degraded`); `draining` and `fail` return 503. It never depends on external networks (§4.3; the same contract as `09` §3.8).
 - **Clock sanity.** If the clock is behind the build timestamp (a Pi without RTC before NTP sync), the scheduler waits up to 120 s, then starts as `degraded: clock`, so missed reminders don't fire en masse.
 
@@ -243,23 +243,23 @@ The gate fails above 300 MB compressed or 700 MB uncompressed. A growth of more 
 name: village
 services:
   village:
-    image: ghcr.io/ORG/village:${VILLAGE_VERSION:?set VILLAGE_VERSION in .env}
+    image: ghcr.io/ORG/village:${COMVIVO_VERSION:?set COMVIVO_VERSION in .env}
     container_name: village
     restart: unless-stopped
-    user: "${VILLAGE_UID:-1000}:${VILLAGE_GID:-1000}"    # init writes the invoking user's ids
+    user: "${COMVIVO_UID:-1000}:${COMVIVO_GID:-1000}"    # init writes the invoking user's ids
     read_only: true
     tmpfs: ["/tmp:size=256m,mode=1777"]
     cap_drop: [ALL]
     security_opt: ["no-new-privileges:true"]
     env_file: [.env]
-    environment: { VILLAGE_CONFIG: /etc/village/village.yaml, TZ: "${TZ:-UTC}" }
+    environment: { COMVIVO_CONFIG: /etc/village/comvivo.yaml, TZ: "${TZ:-UTC}" }
     volumes:
       - ./data:/data                                    # Windows/WSL2 on /mnt/c: init uses a named volume
-      - ./village.yaml:/etc/village/village.yaml:ro
-    ports: ["127.0.0.1:${VILLAGE_DASHBOARD_PORT:-7777}:7777"]   # spine §9: loopback only by default
+      - ./comvivo.yaml:/etc/village/comvivo.yaml:ro
+    ports: ["127.0.0.1:${COMVIVO_DASHBOARD_PORT:-7777}:7777"]   # spine §9: loopback only by default
     stop_grace_period: 45s
     logging: { driver: json-file, options: { max-size: "10m", max-file: "5" } }
-    deploy: { resources: { limits: { memory: "${VILLAGE_MEMORY_LIMIT:-1536m}" } } }
+    deploy: { resources: { limits: { memory: "${COMVIVO_MEMORY_LIMIT:-1536m}" } } }
 x-village: { generatedBy: "village init", version: "1.0.0" }
 ```
 
@@ -273,17 +273,17 @@ services:
     environment: { OLLAMA_KEEP_ALIVE: "24h", OLLAMA_NUM_PARALLEL: "1", OLLAMA_MAX_LOADED_MODELS: "1" }
   ollama-pull:
     image: ollama/ollama:${OLLAMA_VERSION:-0.40.13}
-    entrypoint: ["ollama", "pull", "${VILLAGE_LOCAL_MODEL:?choose a model}"]
+    entrypoint: ["ollama", "pull", "${COMVIVO_LOCAL_MODEL:?choose a model}"]
     environment: { OLLAMA_HOST: "http://ollama:11434" }
     depends_on: [ollama]
     restart: "no"
   village:
-    environment: { VILLAGE_MODELS_PRESET: local, VILLAGE_LOCAL_BASE_URL: "http://ollama:11434/v1", VILLAGE_LOCAL_MODEL: "${VILLAGE_LOCAL_MODEL}" }
+    environment: { COMVIVO_MODELS_PRESET: local, COMVIVO_LOCAL_BASE_URL: "http://ollama:11434/v1", COMVIVO_LOCAL_MODEL: "${COMVIVO_LOCAL_MODEL}" }
     depends_on: { ollama: { condition: service_started } }
 volumes: { ollama: {} }
 ```
 
-**GPU notes.** NVIDIA (`.nvidia.yaml`): `deploy.resources.reservations.devices: [{driver: nvidia, count: all, capabilities: [gpu]}]`, which needs the NVIDIA Container Toolkit. AMD (`.amd.yaml`): image tag `${OLLAMA_VERSION}-rocm`, `devices: [/dev/kfd, /dev/dri]`, `group_add: [video, render]`. Apple Silicon: Docker has no Metal access, so run Ollama natively and set `VILLAGE_LOCAL_BASE_URL=http://host.docker.internal:11434/v1` without the overlay. Pi: CPU only (§3.11.1).
+**GPU notes.** NVIDIA (`.nvidia.yaml`): `deploy.resources.reservations.devices: [{driver: nvidia, count: all, capabilities: [gpu]}]`, which needs the NVIDIA Container Toolkit. AMD (`.amd.yaml`): image tag `${OLLAMA_VERSION}-rocm`, `devices: [/dev/kfd, /dev/dri]`, `group_add: [video, render]`. Apple Silicon: Docker has no Metal access, so run Ollama natively and set `COMVIVO_LOCAL_BASE_URL=http://host.docker.internal:11434/v1` without the overlay. Pi: CPU only (§3.11.1).
 
 ```yaml
 # compose.signal.yaml (Signal is experimental; registration and linking are 06's flow)
@@ -295,7 +295,7 @@ services:
     volumes: ["./signal-cli:/home/.local/share/signal-cli"]   # holds the Signal account keys; back it up
     ports: ["127.0.0.1:8081:8080"]                             # only for QR linking; remove afterwards
   village:
-    environment: { VILLAGE_SIGNAL_CLI_URL: "http://signal-cli:8080" }
+    environment: { COMVIVO_SIGNAL_CLI_URL: "http://signal-cli:8080" }
 ```
 
 ```yaml
@@ -306,17 +306,17 @@ services:
     restart: unless-stopped
     ports: ["80:80", "443:443", "443:443/udp"]
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddy-data:/data", "caddy-config:/config"]
-    environment: { VILLAGE_DOMAIN: "${VILLAGE_DOMAIN:?}", ACME_EMAIL: "${ACME_EMAIL:?}" }
+    environment: { COMVIVO_DOMAIN: "${COMVIVO_DOMAIN:?}", ACME_EMAIL: "${ACME_EMAIL:?}" }
   village:
     ports: !reset []                                       # reachable only via caddy
-    environment: { VILLAGE_PUBLIC_URL: "https://${VILLAGE_DOMAIN}", VILLAGE_TRUST_PROXY: "172.16.0.0/12" }
+    environment: { COMVIVO_PUBLIC_URL: "https://${COMVIVO_DOMAIN}", COMVIVO_TRUST_PROXY: "172.16.0.0/12" }
 volumes: { caddy-data: {}, caddy-config: {} }
 ```
 ```caddyfile
 {
 	email {$ACME_EMAIL}
 }
-{$VILLAGE_DOMAIN} {
+{$COMVIVO_DOMAIN} {
 	encode zstd gzip
 	header Strict-Transport-Security "max-age=31536000"
 	reverse_proxy village:7777 {
@@ -338,11 +338,11 @@ services:
 
 ```dotenv
 # .env.example — secrets live only here (mode 0600, written by init) or in *_FILE Docker secrets
-VILLAGE_VERSION=1.0.0            # exact; `village update` bumps it
-VILLAGE_UID=1000
-VILLAGE_GID=1000
+COMVIVO_VERSION=1.0.0            # exact; `village update` bumps it
+COMVIVO_UID=1000
+COMVIVO_GID=1000
 TZ=Europe/Berlin
-VILLAGE_DASHBOARD_PORT=7777
+COMVIVO_DASHBOARD_PORT=7777
 ANTHROPIC_API_KEY=               # at least one provider, or the Ollama overlay
 OPENAI_API_KEY=
 GEMINI_API_KEY=                  # name per 05 (Google adapter)
@@ -351,12 +351,12 @@ DISCORD_BOT_TOKEN=
 SLACK_BOT_TOKEN=
 SLACK_APP_TOKEN=
 MATRIX_ACCESS_TOKEN=
-VILLAGE_IMAP_PASSWORD=           # name per 08 §3.10
-# VILLAGE_MODELS_PRESET=best      # best|balanced|economy|local|custom (Best is pre-selected, 01 §14 A3)
-# VILLAGE_PUBLIC_URL=  VILLAGE_LOCAL_MODEL=qwen3:4b  VILLAGE_DOMAIN=  ACME_EMAIL=  RCLONE_REMOTE=  BACKUP_NOTIFY_URL=
-# VILLAGE_UPDATE_CHECK=false      # opt-in (ADR-017)
-# VILLAGE_PROFILE=default         # default|low-memory
-# VILLAGE_MEMORY_LIMIT=1536m
+COMVIVO_IMAP_PASSWORD=           # name per 08 §3.10
+# COMVIVO_MODELS_PRESET=best      # best|balanced|economy|local|custom (Best is pre-selected, 01 §14 A3)
+# COMVIVO_PUBLIC_URL=  COMVIVO_LOCAL_MODEL=qwen3:4b  COMVIVO_DOMAIN=  ACME_EMAIL=  RCLONE_REMOTE=  BACKUP_NOTIFY_URL=
+# COMVIVO_UPDATE_CHECK=false      # opt-in (ADR-017)
+# COMVIVO_PROFILE=default         # default|low-memory
+# COMVIVO_MEMORY_LIMIT=1536m
 ```
 
 ### 3.4 npm distribution & native mode
@@ -366,16 +366,16 @@ VILLAGE_IMAP_PASSWORD=           # name per 08 §3.10
 | Package | Contents | Engines | Native deps |
 |---|---|---|---|
 | `village` (`apps/cli`) | launcher, `init`, Docker orchestration, update notifier, command router; embeds the `deploy/compose` templates | `node >=22.12.0` | none (CI-enforced) |
-| `@village/server` (`apps/server`) | tsdown bundle of the server plus every private `@village/*` package (`noExternal`), dashboard assets, `ops` commands (`backup`, `restore`, `migrate`, `keys`, `export`, `selftest`, `recovery`); bin `village-server` | `node >=24.11.0` | better-sqlite3-mc, sqlite-vec, transformers.js/ORT, sharp, matrix crypto |
+| `@comvivo/server` (`apps/server`) | tsdown bundle of the server plus every private `@comvivo/*` package (`noExternal`), dashboard assets, `ops` commands (`backup`, `restore`, `migrate`, `keys`, `export`, `selftest`, `recovery`); bin `village-server` | `node >=24.11.0` | better-sqlite3-mc, sqlite-vec, transformers.js/ORT, sharp, matrix crypto |
 
-The CLI resolves a runtime in this order: (1) `VILLAGE_RUNTIME_PATH` (set in the image); (2) the managed native runtime `$XDG_DATA_HOME/village/runtime/current` (macOS: `~/Library/Application Support/village/runtime/current`); (3) a compose project found from cwd or `--dir` (its `compose.yaml` has an `x-village` key). In case 3, online commands proxy via `docker compose exec village village <cmd>`, and offline ones (`restore`, `migrate`) stop the service and use `docker compose run --rm --no-deps village <cmd>`. `apps/cli` imports **types only** from `@village/server/ops` and loads the implementation with `import()` from the resolved path.
+The CLI resolves a runtime in this order: (1) `COMVIVO_RUNTIME_PATH` (set in the image); (2) the managed native runtime `$XDG_DATA_HOME/village/runtime/current` (macOS: `~/Library/Application Support/village/runtime/current`); (3) a compose project found from cwd or `--dir` (its `compose.yaml` has an `x-village` key). In case 3, online commands proxy via `docker compose exec village village <cmd>`, and offline ones (`restore`, `migrate`) stop the service and use `docker compose run --rm --no-deps village <cmd>`. `apps/cli` imports **types only** from `@comvivo/server/ops` and loads the implementation with `import()` from the resolved path.
 
 #### 3.4.2 `npx village@latest init`
 
 1. **Preflight** (pure JS, < 1 s): Node, OS/arch, `docker version --format json`, `docker compose version` ≥ 2.24, free disk ≥ 3 GB, RAM. It detects a **32-bit userspace on a 64-bit Pi kernel** (`dpkg --print-architecture` = `armhf`) and asks for 64-bit Raspberry Pi OS.
 2. **Mode:** Docker (default) or Native (offered only if §3.4.3 passes).
 3. **Wizard** (`09`; Telegram setup in `06`), then extras: Ollama, Signal, Caddy domain, offsite.
-4. **Docker mode** writes `<dir>/compose.yaml` (merged), `.env` (0600), `village.yaml` and `data/` (0700, owned by the invoking user). It runs `docker compose pull && docker compose up -d`, polls `/readyz` for up to 180 s (`09` §3.11.5 step 8) and prints next steps. On **Windows/WSL2 with a target under `/mnt/c`** it uses a named volume `village-data`, because drvfs/9p breaks SQLite locking.
+4. **Docker mode** writes `<dir>/compose.yaml` (merged), `.env` (0600), `comvivo.yaml` and `data/` (0700, owned by the invoking user). It runs `docker compose pull && docker compose up -d`, polls `/readyz` for up to 180 s (`09` §3.11.5 step 8) and prints next steps. On **Windows/WSL2 with a target under `/mnt/c`** it uses a named volume `village-data`, because drvfs/9p breaks SQLite locking.
 5. **No-Node path:** `docker run --rm -it -v "$PWD:/work" ghcr.io/ORG/village:latest init /work --mode docker` writes the same files and prints the `up` command (this is the README's Docker quickstart, `13` §3.B.3).
 6. **Non-interactive:** `--non-interactive --yes --mode docker|native [dir] --preset --from-env --restore <file>` (flags owned by `09` §3.11.3), for CI and docs dry-runs.
 
@@ -384,18 +384,18 @@ The CLI resolves a runtime in this order: (1) `VILLAGE_RUNTIME_PATH` (set in the
 Supported in 1.0: linux-x64-gnu and linux-arm64-gnu with glibc ≥ 2.35 (Debian 12+, Ubuntu 22.04+; read from `process.report.getReport().header.glibcVersionRuntime`), and darwin-arm64. Not supported: darwin-x64 (no ORT binary), musl, and Windows (use Docker Desktop or WSL2).
 
 `village runtime install [version]`:
-1. Writes `<runtimeRoot>/<version>/package.json` = `{"private":true,"dependencies":{"@village/server":"<version>"},"allowScripts":{"@matrix-org/matrix-sdk-crypto-nodejs":true}}`. npm ≥ 12 denies dependency scripts by default; npm 11 runs them, hence the ORT env skip.
+1. Writes `<runtimeRoot>/<version>/package.json` = `{"private":true,"dependencies":{"@comvivo/server":"<version>"},"allowScripts":{"@matrix-org/matrix-sdk-crypto-nodejs":true}}`. npm ≥ 12 denies dependency scripts by default; npm 11 runs them, hence the ORT env skip.
 2. Runs `npm install --omit=dev --no-audit --no-fund` with `ONNXRUNTIME_NODE_INSTALL=skip` and `npm_config_onnxruntime_node_install=skip`.
 3. Runs `npm audit signatures` (registry signatures + provenance). Failure aborts unless `--no-verify`.
 4. Atomically flips the `current` symlink. `runtime prune` keeps `current` and the previous version.
 
-On first start, the embedding model is fetched into `<dataDir>/models` and verified. Local transcription needs `whisper-cli` and `ffmpeg` on PATH (macOS: `brew install whisper-cpp ffmpeg`) or `VILLAGE_WHISPER_BIN`/`VILLAGE_FFMPEG_BIN`; otherwise doctor suggests API transcription or Docker. `npm i -g village` installs only the thin CLI, and `village start` offers to install the matching runtime (CLI and runtime versions must be equal). `village service install` writes a systemd unit (§3.6.5) or a launchd agent (§3.6.6).
+On first start, the embedding model is fetched into `<dataDir>/models` and verified. Local transcription needs `whisper-cli` and `ffmpeg` on PATH (macOS: `brew install whisper-cpp ffmpeg`) or `COMVIVO_WHISPER_BIN`/`COMVIVO_FFMPEG_BIN`; otherwise doctor suggests API transcription or Docker. `npm i -g village` installs only the thin CLI, and `village start` offers to install the matching runtime (CLI and runtime versions must be equal). `village service install` writes a systemd unit (§3.6.5) or a launchd agent (§3.6.6).
 
 #### 3.4.4 Node checks & update notifications
 
 - `bin.mjs` uses Node-18-safe syntax and checks `process.versions.node` before importing anything else. If Node is too old, it prints fix steps (fnm/nvm/volta, or Docker mode) and exits 1.
 - **Update checks are opt-in.** `init` asks "Check for new versions? (downloads a public file from ORG.github.io; nothing about you is sent)", default **No**, stored as `updates.check`. When on, the CLI checks at most once per 24 h (cached in `run/update-check.json` or `~/.cache/village`) and the server daily, using an HTTPS `GET releaseManifestUrl` with `User-Agent: village-update-check` and no version, IDs, query string or cookies. Results: a CLI notice, a dashboard banner, and one host DM for `security: true` releases.
-- **`village update` never runs automatically.** It shows the release-notes delta, pre-pulls the image or installs the runtime (nothing changes if that fails), takes a manual backup, bumps `VILLAGE_VERSION` or flips the runtime symlink, restarts, and waits for `/readyz`. Migration then follows §3.8.
+- **`village update` never runs automatically.** It shows the release-notes delta, pre-pulls the image or installs the runtime (nothing changes if that fails), takes a manual backup, bumps `COMVIVO_VERSION` or flips the runtime symlink, restarts, and waits for `/readyz`. Migration then follows §3.8.
 
 ### 3.5 Home Assistant app (`deploy/home-assistant/`)
 
@@ -416,7 +416,7 @@ ARG BASE
 FROM ${BASE}
 ARG BUILD_ARCH BUILD_VERSION
 USER root
-ENV VILLAGE_PLATFORM=home-assistant PUID=1000 PGID=1000
+ENV COMVIVO_PLATFORM=home-assistant PUID=1000 PGID=1000
 LABEL io.hass.type="app" io.hass.arch="${BUILD_ARCH}" io.hass.version="${BUILD_VERSION}" io.hass.name="Village"
 ```
 
@@ -446,7 +446,7 @@ tmpfs: true
 apparmor: true
 hassio_api: false
 homeassistant_api: false
-map: [{ type: app_config, read_only: false }]      # /config: optional advanced village.yaml
+map: [{ type: app_config, read_only: false }]      # /config: optional advanced comvivo.yaml
 backup: hot
 backup_pre: /usr/local/bin/village-entrypoint ha-backup-pre
 backup_post: /usr/local/bin/village-entrypoint ha-backup-post
@@ -487,7 +487,7 @@ schema:
 | `matrix_homeserver_url`, `signal_cli_url` | `channels.matrix.homeserverUrl`, `channels.signal.{cliUrl,enabled}` |
 | `message_retention_days`, `monthly_budget_usd`, `backups_keep`, `log_level`, `update_check` | `privacy.messageRetentionDays`, `budgets.monthlyUsd` (unset → `budgets.preset: auto`, 01 §10/§14 A3), `backups.keep`, `logging.level`, `updates.check` |
 | implicit | `instance.dataDir=/data`, `dashboard.{bind: 127.0.0.1, port: 7777}` (main listener: loopback only, for the CLI and healthcheck), `dashboard.ingress.{enabled: true, port: 8099, allowFrom: [172.30.32.2]}` (`09` §3.9.10), `logging.format=json`, timezone from `TZ` |
-| `config_mode: file` | `/config/village.yaml` is the base; options supply secrets only |
+| `config_mode: file` | `/config/comvivo.yaml` is the base; options supply secrets only |
 
 **Ingress & base path** (requirements on `09`). In HA mode the server accepts dashboard and API traffic **only from `172.30.32.2`** on the ingress listener (8099), plus loopback on the main listener for the CLI and healthcheck; everything else is refused. Each request's `X-Ingress-Path` is injected into `index.html` as `<base href="{path}/">`. The SPA builds with **relative asset URLs** (Vite `base: './'`), derives TanStack Router's `basepath` from `document.baseURI`, makes API and SSE calls relative, scopes cookies with `Path={basePath}`, and never emits absolute redirects. The same mechanism implements `dashboard.basePath` for reverse proxies. **Auth** (01 §14 A9; `09` §3.9.10): HA users are not Village members, and `X-Remote-User-*` headers alone **never** authenticate. On first visit the panel shows "Link your Home Assistant account": the HA user sends the displayed **pairing code** to Village in a private chat and approves it there (or, only while the instance is unclaimed, enters the console host claim code). After that one-time link the header identifies the linked person, with no second login (§11 Q4). Magic links are never used on the ingress listener.
 
@@ -543,7 +543,7 @@ version: "1.0.0"
 tagline: The AI that belongs to your group chat
 description: >-
   Village joins your family's Telegram, Discord or Slack group as a helpful member. First run: open the app
-  and enter the app password shown by Umbrel as the setup code (VILLAGE_SETUP_TOKEN, 09 §3.9.4).
+  and enter the app password shown by Umbrel as the setup code (COMVIVO_SETUP_TOKEN, 09 §3.9.4).
 releaseNotes: ""
 developer: Village contributors
 website: https://DOCS_DOMAIN
@@ -571,9 +571,9 @@ services:
     restart: on-failure
     stop_grace_period: 45s
     environment:
-      VILLAGE_PLATFORM: umbrel
-      VILLAGE_SETUP_TOKEN: ${APP_PASSWORD}
-      VILLAGE_PUBLIC_URL: "http://${DEVICE_DOMAIN_NAME}:${APP_PROXY_PORT}"
+      COMVIVO_PLATFORM: umbrel
+      COMVIVO_SETUP_TOKEN: ${APP_PASSWORD}
+      COMVIVO_PUBLIC_URL: "http://${DEVICE_DOMAIN_NAME}:${APP_PROXY_PORT}"
     volumes: ["${APP_DATA_DIR}/data/village:/data"]
 ```
 Non-owner admins can reach the dashboard only if the owner turns off "Require Umbrel login" (umbrelOS 2.0); this is documented. ICS feeds are whitelisted because their URLs carry unguessable tokens (`07`/`09`). `/mcp` is whitelisted because it authenticates every request with a member's bearer token (`10` §3.7.3) and is not mounted unless the host enables the MCP server; it lives on the main port (no separate MCP port, `10` §3.7.2).
@@ -587,7 +587,7 @@ services:
   village:
     image: ghcr.io/ORG/village:1.0.0
     user: "0:0"
-    environment: { PUID: "1000", PGID: "1000", TZ: $TZ, VILLAGE_PLATFORM: casaos }
+    environment: { PUID: "1000", PGID: "1000", TZ: $TZ, COMVIVO_PLATFORM: casaos }
     ports: [{ target: 7777, published: "7777", protocol: tcp }]
     volumes: [{ type: bind, source: /DATA/AppData/$AppID/data, target: /data }]
     restart: unless-stopped
@@ -659,7 +659,7 @@ Type=exec
 User=village
 Group=village
 EnvironmentFile=/etc/village/village.env
-Environment=VILLAGE_CONFIG=/etc/village/village.yaml VILLAGE_DATA_DIR=/var/lib/village VILLAGE_LOG_FORMAT=json
+Environment=COMVIVO_CONFIG=/etc/village/comvivo.yaml COMVIVO_DATA_DIR=/var/lib/village COMVIVO_LOG_FORMAT=json
 ExecStart=/usr/local/bin/village start
 StateDirectory=village
 StateDirectoryMode=0700
@@ -707,19 +707,19 @@ WantedBy=multi-user.target
 ```
 <dataDir>/      0700  (container /data · systemd /var/lib/village · native ./data)
 ├─ FORMAT       0600  data-dir marker (§4.5)
-├─ db/          0700  village.db (+ -wal, -shm) 0600 — schema/encryption: 02/08
+├─ db/          0700  comvivo.db (+ -wal, -shm) 0600 — schema/encryption: 02/08
 ├─ blobs/       0700  content-addressed encrypted blobs — layout: 02
 ├─ keys/        0700  master.key · keyring.json (+ .prev) · vault.enc (08 §3.7) · control.token (09 D-04) · secrets.enc (appliance installs only; 01 §14 A29, format 08 §3.10), all 0600
 ├─ backups/     0700  daily/ weekly/ monthly/ pre-migrate/ manual/ ha-snapshot/  (*.vbak 0600 + *.vbak.json sidecar)
 ├─ models/      0700  downloaded models, .partial/
 ├─ plugins/     0700  owned by 10
 ├─ logs/        0700  only if logging.file.enabled
-├─ run/         0700  village.lock · last-boot.json · update-check.json · setup-token (hashed)
+├─ run/         0700  comvivo.lock · last-boot.json · update-check.json · setup-token (hashed)
 └─ tmp/         0700  same-filesystem temp for atomic renames; swept on boot
 ```
 
 - **Permission audit** (boot and `doctor`): a group- or world-*writable* `dataDir`, `keys/` or `master.key` → refuse to start (78); a group- or world-*readable* `keys/` directory or key file (`master.key`, `keyring.json`, `vault.enc`, `secrets.enc`, `control.token`) → refuse to start (78) unless `--insecure-permissions` (08 §3.7.3); other group- or world-readable paths → auto-tighten and warn; owner mismatch → 78 with a `chown` hint.
-- **Instance lock** (`run/village.lock`; one writer per data dir, spine §8). Created with `O_EXCL`; holds `{pid, hostname, bootId, version, startedAt, heartbeatAt}`; heartbeat every 10 s. Takeover happens if the heartbeat is older than 60 s, or the hostname matches and the PID is dead. Otherwise the second process exits 75 with "another Village (pid, host, version) uses this data dir". `--role=web` processes take `run/web.<pid>.lock`.
+- **Instance lock** (`run/comvivo.lock`; one writer per data dir, spine §8). Created with `O_EXCL`; holds `{pid, hostname, bootId, version, startedAt, heartbeatAt}`; heartbeat every 10 s. Takeover happens if the heartbeat is older than 60 s, or the hostname matches and the PID is dead. Otherwise the second process exits 75 with "another Village (pid, host, version) uses this data dir". `--role=web` processes take `run/web.<pid>.lock`.
 - **Filesystem check.** `statfs` types `nfs`, `cifs`/`smb2`, `9p` and `fuse.*` give a boot warning and a doctor error, because SQLite WAL locking is unreliable there. `fuse.virtiofs` (Docker Desktop) only warns. Doctor also detects `.stfolder`/`.dropbox` sync markers.
 
 ### 3.8 Upgrades
@@ -731,7 +731,7 @@ WantedBy=multi-user.target
 3. Open the DB with the master key. Mismatch → exit 78, "master key does not match this database". **A key is never generated while a DB exists.**
 4. `PRAGMA quick_check`. Failure → **recovery mode** (§3.8.5).
 5. Compare applied migrations with `release-compat.json`. Unknown IDs (DB newer than the build) → 78. `FORMAT.lastBoot.version < minUpgradeFrom` → 78 with "upgrade to bridge B first" and the commands. Pending migrations → step 6; none → step 8.
-6. **Pre-migration backup.** Require free space ≥ 2.2× the DB size (else 75). Write `backups/pre-migrate/<ts>_<from>_to_<to>.vbak` (`02` online backup) and **verify** it: decrypt, `integrity_check`, row counts against the sidecar. Prune beyond `keepPreMigrate`, never the newest. `--skip-pre-migrate-backup` exists only as a typed-confirmation emergency flag.
+6. **Pre-migration backup.** Require free space ≥ 2.2× the DB size (else 75). Write `backups/pre-migrate/<from>__<to>__<ms>.db` — a plain `VACUUM INTO` snapshot, not a `VBK1` archive (`02` §3.12.4; the name and the extension corrected here at the M1 exit gate, where `12` and the code disagreed on both) and **verify** it: decrypt, `integrity_check`, row counts against the sidecar. Prune beyond `keepPreMigrate`, never the newest. `--skip-pre-migrate-backup` exists only as a typed-confirmation emergency flag.
 7. **Migrate.** One transaction per migration (drizzle), then `foreign_key_check` and the migration's `verify()`. Long non-transactional work (FTS rebuild, re-embed, blob re-wrap) becomes **idempotent post-migration jobs**. On failure: rollback (the DB stays at the last good migration), then exit 65 with "migration <id> failed; data intact at <id-1>; backup at <path>; retry, report, or `village restore --pre-migrate latest`".
 8. Write `FORMAT.lastBoot {version, schemaHead, at}` and `run/last-boot.json`.
 9. Run turn and outbox recovery; start actors and adapters; `/readyz` → 200.
@@ -758,7 +758,7 @@ Releases that tighten `minUpgradeFrom` are listed in HA `breaking_versions` and 
 
 #### 3.8.4 Rollback & upgrade canary
 
-**Rollback runbook (automated in CI):** (1) stop the service; (2) pin the previous version (`.env` `VILLAGE_VERSION=<prev>` or `village runtime use <prev>`); (3) `docker compose run --rm --no-deps village start --allow-downgrade --restore pre-migrate:latest --yes --exit-after-restore`; (4) start, then `village doctor`; (5) file an issue (the pre-downgrade copy is kept).
+**Rollback runbook (automated in CI):** (1) stop the service; (2) pin the previous version (`.env` `COMVIVO_VERSION=<prev>` or `village runtime use <prev>`); (3) `docker compose run --rm --no-deps village start --allow-downgrade --restore pre-migrate:latest --yes --exit-after-restore`; (4) start, then `village doctor`; (5) file an issue (the pre-downgrade copy is kept).
 
 **`village upgrade check [--to X.Y.Z]`** is a canary for careful hosts. It restores the latest verified backup into a temp dir and runs the **target** version's migrations there (the target image via `docker run --rm`, or the target runtime) with `--role=drill` (no channels, outbox or jobs), then reports. Live data is untouched.
 
@@ -768,7 +768,7 @@ Entered on a quick_check failure, after a failed migration on the previous boot 
 
 #### 3.8.6 Upgrade testing in CI (with `11`)
 
-- **Fixtures.** The release job `fixtures` runs the released image with `VILLAGE_FIXTURE_MODE=1`, the simulator channel, the deterministic fake model, a fixed clock and `fixtures/upgrade/TEST-ONLY-master.key`, executing `fixtures/upgrade/scenario.yaml`. The scenario covers: 2 groups (family, team) plus DMs with private items of every label kind; memories in every status; recurring events across DST; future reminders; a mid-cycle rotation; an open poll; an amendment proposal; an audit chain; image and PDF blobs; a pending outbox row; and a turn with committed effects but **no completion**. It produces a **clean** fixture (graceful stop) and a **dirty** one (`kill -9` mid-turn), uploaded as release assets with SHA-256.
+- **Fixtures.** The release job `fixtures` runs the released image with `COMVIVO_FIXTURE_MODE=1`, the simulator channel, the deterministic fake model, a fixed clock and `fixtures/upgrade/TEST-ONLY-master.key`, executing `fixtures/upgrade/scenario.yaml`. The scenario covers: 2 groups (family, team) plus DMs with private items of every label kind; memories in every status; recurring events across DST; future reminders; a mid-cycle rotation; an open poll; an amendment proposal; an audit chain; image and PDF blobs; a pending outbox row; and a turn with committed effects but **no completion**. It produces a **clean** fixture (graceful stop) and a **dirty** one (`kill -9` mid-turn), uploaded as release assets with SHA-256.
 - **Matrix** (`upgrade-matrix.yml`; PRs run N-1, nightly runs the full policy set). It boots the candidate on a copy and asserts `fixtures/upgrade/assertions.yaml`:
   - migrations applied, `quick_check` ok, and the audit hash chain verifies;
   - counts unchanged and IFC labels byte-identical;
@@ -786,7 +786,7 @@ The archive format, encryption and online backup belong to `02`. Ops adds schedu
 - **Free-space guard:** prune first; if space is still below 2.2× the expected size, fail with `backup.failed{reason: disk}`. Never delete the newest verified backup.
 - **Alerts:** host DM (plus admins if the constitution allows), a dashboard banner, and `/healthz` `degraded: backups` when the last success is more than 36 h old.
 
-**Offsite** (`backups.offsite.command`): an **argv array** (never a shell string) run after each successful snapshot, with a timeout (900 s). `{file}` and `{sidecar}` are substituted. The env contains only `VILLAGE_BACKUP_FILE`, `VILLAGE_BACKUP_SIDECAR`, `VILLAGE_BACKUP_SHA256`, `VILLAGE_BACKUP_TIER` and `VILLAGE_INSTANCE_NAME` (no provider keys or tokens). A failure alerts but does not fail the local backup. Recipes: `["rclone","copy","{file}","b2:bucket/village/"]`, `restic backup {file}`, `scp`; in Docker, the rclone sidecar (§3.3).
+**Offsite** (`backups.offsite.command`): an **argv array** (never a shell string) run after each successful snapshot, with a timeout (900 s). `{file}` and `{sidecar}` are substituted. The env contains only `COMVIVO_BACKUP_FILE`, `COMVIVO_BACKUP_SIDECAR`, `COMVIVO_BACKUP_SHA256`, `COMVIVO_BACKUP_TIER` and `COMVIVO_INSTANCE_NAME` (no provider keys or tokens). A failure alerts but does not fail the local backup. Recipes: `["rclone","copy","{file}","b2:bucket/village/"]`, `restic backup {file}`, `scp`; in Docker, the rclone sidecar (§3.3).
 
 **Heartbeat.** `backups.notifyUrl` (Uptime Kuma push, healthchecks.io) gets a GET after each success. It is off by default, and it is the host's own endpoint, not telemetry.
 
@@ -803,14 +803,14 @@ The archive format, encryption and online backup belong to `02`. Ops adds schedu
 
 #### 3.10.1 Versioning & packages
 
-- **Product version:** one semver for `village`, `@village/server`, the image tags, the HA/Umbrel/CasaOS/Unraid manifests and GitHub Release `vX.Y.Z`. It is a Changesets **fixed** group; pre-1.0, a minor is breaking. `apps/cli/CHANGELOG.md` is the product changelog.
-- **SDKs:** `@village/plugin-sdk` and `@village/channel-sdk` are versioned independently (0.x until the app's 1.0). The server declares supported SDK ranges in `release-compat.json` (checks live in `10`). SDKs must be **stateless** (no singletons, no cross-copy `instanceof`) because the server bundles its own copy; `zod` is a peer dependency.
+- **Product version:** one semver for `village`, `@comvivo/server`, the image tags, the HA/Umbrel/CasaOS/Unraid manifests and GitHub Release `vX.Y.Z`. It is a Changesets **fixed** group; pre-1.0, a minor is breaking. `apps/cli/CHANGELOG.md` is the product changelog.
+- **SDKs:** `@comvivo/plugin-sdk` and `@comvivo/channel-sdk` are versioned independently (0.x until the app's 1.0). The server declares supported SDK ranges in `release-compat.json` (checks live in `10`). SDKs must be **stateless** (no singletons, no cross-copy `instanceof`) because the server bundles its own copy; `zod` is a peer dependency.
 - **Private:** all other workspaces. Changesets v3's `privatePackages: false` gives them no versions, tags or changelogs.
 
 ```json
 { "$schema": "https://unpkg.com/@changesets/config@4/schema.json",
   "changelog": ["./tools/changelog/index.mjs", { "repo": "ORG/village" }],
-  "commit": false, "access": "public", "baseBranch": "main", "fixed": [["village", "@village/server"]], "linked": [],
+  "commit": false, "access": "public", "baseBranch": "main", "fixed": [["village", "@comvivo/server"]], "linked": [],
   "updateInternalDependencies": "patch", "privatePackages": false, "format": "auto" }
 ```
 
@@ -841,7 +841,7 @@ The archive format, encryption and online backup belong to `02`. Ops adds schedu
 
 #### 3.10.4 Workflows (`.github/workflows/`)
 
-**Hardening.** Top-level `permissions: {}` with minimal per-job grants; actions pinned by SHA (Renovate updates them); `concurrency: release-${{ github.ref }}`. Rulesets protect the `v*`, `village@*` and `@village/*@*` tags and the `main` and `release/*` branches. Environments: `release` (stable publishes need 1 maintainer approval), `npm` (trusted publisher) and `downstream` (GitHub App token for the mirror repos). Current majors on 2026-11-01, still SHA-pinned: `docker/setup-buildx-action` v4, `docker/build-push-action` v7, `docker/metadata-action` v6, `actions/attest` v4 (`attest-build-provenance` v4 is now a wrapper around it), `sigstore/cosign-installer` v4 (cosign v3.1), `anchore/sbom-action` v0.24, `changesets/action` v2.1, `pnpm/action-setup` v6.
+**Hardening.** Top-level `permissions: {}` with minimal per-job grants; actions pinned by SHA (Renovate updates them); `concurrency: release-${{ github.ref }}`. Rulesets protect the `v*`, `village@*` and `@comvivo/*@*` tags and the `main` and `release/*` branches. Environments: `release` (stable publishes need 1 maintainer approval), `npm` (trusted publisher) and `downstream` (GitHub App token for the mirror repos). Current majors on 2026-11-01, still SHA-pinned: `docker/setup-buildx-action` v4, `docker/build-push-action` v7, `docker/metadata-action` v6, `actions/attest` v4 (`attest-build-provenance` v4 is now a wrapper around it), `sigstore/cosign-installer` v4 (cosign v3.1), `anchore/sbom-action` v0.24, `changesets/action` v2.1, `pnpm/action-setup` v6.
 
 | Workflow | Trigger | Content |
 |---|---|---|
@@ -868,7 +868,7 @@ mode (select-mode) ─► version-pr (version sub-action)                       
     file: deploy/docker/Dockerfile
     platforms: linux/${{ matrix.arch }}
     build-args: |
-      VILLAGE_VERSION=${{ needs.mode.outputs.version }}
+      COMVIVO_VERSION=${{ needs.mode.outputs.version }}
       VCS_REF=${{ github.sha }}
       BUILD_DATE=${{ env.BUILD_DATE }}
       SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
@@ -966,14 +966,14 @@ These are estimates until M14-T14 replaces them with measurements.
 
 | Knob | Env / config | Default | Notes |
 |---|---|---|---|
-| Profile | `VILLAGE_PROFILE` / `instance.profile` | `default` | `low-memory`: model calls 2, media 1, embeddings unload after 60 s, SQLite cache 8 MiB, whisper tiny, heap 384 MB |
-| Container memory | `VILLAGE_MEMORY_LIMIT` | 1536m | keep ≥ 768m |
-| V8 heap | `VILLAGE_HEAP_MB` → `--max-old-space-size` | auto | set on hosts with ≤ 1 GB |
+| Profile | `COMVIVO_PROFILE` / `instance.profile` | `default` | `low-memory`: model calls 2, media 1, embeddings unload after 60 s, SQLite cache 8 MiB, whisper tiny, heap 384 MB |
+| Container memory | `COMVIVO_MEMORY_LIMIT` | 1536m | keep ≥ 768m |
+| V8 heap | `COMVIVO_HEAP_MB` → `--max-old-space-size` | auto | set on hosts with ≤ 1 GB |
 | Concurrency | `runtime.concurrency.{modelCalls,media,embeddings}` (spine §8 / `05`) | 4 / 2 / 1 | Pi: media 1 |
 | Embeddings | `embeddings.threads`, `embeddings.idleUnloadSeconds` (`04`) | min(2, cores) / 600 | — |
 | Whisper | `transcription.{threads,model}` (`05`) | min(4, cores) / base | — |
 | SQLite | `storage.sqlite.{cacheSizeMiB,mmapSizeMiB}` (`02`) | 32 / 128 | — |
-| Shutdown | `VILLAGE_SHUTDOWN_GRACE_MS` | 30000 | must be < the orchestrator kill timeout |
+| Shutdown | `COMVIVO_SHUTDOWN_GRACE_MS` | 30000 | must be < the orchestrator kill timeout |
 | Backups | `backups.schedule` | 03:30 | avoid NAS/HA backup windows |
 
 #### 3.11.3 Logs & rotation
@@ -983,11 +983,11 @@ pino writes JSON to stdout in containers and under systemd, and pretty output in
 - systemd: journald (`SystemMaxUse=`); query with `journalctl -u village -o cat | jq`.
 - `logging.file` (launchd, WSL): in-process rotation, 10 MiB × 5, in `<dataDir>/logs/`.
 - `village logs [-f] [--since 1h] [--level warn]` wraps the right backend.
-- Content is never logged above debug (spine §11.7); `doctor` flags `VILLAGE_DEBUG_CONTENT=1`.
+- Content is never logged above debug (spine §11.7); `doctor` flags `COMVIVO_DEBUG_CONTENT=1`.
 
 #### 3.11.4 Monitoring
 
-- `/healthz` and `/readyz`: see §4.3. **`/metrics`** (Prometheus, owned by `11` §3.10.3) is off by default; when enabled it is served on the dashboard listener at `/metrics` and answers loopback requests or `Authorization: Bearer $VILLAGE_METRICS_TOKEN` (there is no separate metrics port; in Docker, scrape with the token).
+- `/healthz` and `/readyz`: see §4.3. **`/metrics`** (Prometheus, owned by `11` §3.10.3) is off by default; when enabled it is served on the dashboard listener at `/metrics` and answers loopback requests or `Authorization: Bearer $COMVIVO_METRICS_TOKEN` (there is no separate metrics port; in Docker, scrape with the token).
 - Series ops needs from `11` (all in `11` §3.10.3): `village_build_info`, `village_channel_connected{channel}`, `village_outbox_pending`, `village_outbox_oldest_age_seconds`, `village_job_lag_seconds{kind}`, `village_backup_last_success_timestamp_seconds`, `village_backup_last_verify_timestamp_seconds`, `village_db_size_bytes`, `village_data_dir_free_bytes`, `village_model_cost_usd_total{route}`, `village_turns_total{status,trigger}`.
 - **Uptime Kuma:**
   1. a JSON-query HTTP monitor on `/healthz` with `status = "ok"`, plus a keyword monitor for `degraded`;
@@ -1008,8 +1008,8 @@ pino writes JSON to stdout in containers and under systemd, and pretty output in
 7. Still stuck → `village doctor --bundle` writes a **redacted** bundle (no content, no secrets).
 
 **R2 — "database is locked" / SQLITE_BUSY.**
-1. Make sure only one instance runs: check `run/village.lock`, `docker ps` and `systemctl status` on every host sharing the path.
-2. Run `lsof <data>/db/village.db` to find other holders: backup agents, `sqlite3` shells, sync clients. **Never sync the live `db/`.**
+1. Make sure only one instance runs: check `run/comvivo.lock`, `docker ps` and `systemctl status` on every host sharing the path.
+2. Run `lsof <data>/db/comvivo.db` to find other holders: backup agents, `sqlite3` shells, sync clients. **Never sync the live `db/`.**
 3. Data dir on NFS, SMB or 9p → move it to a local disk.
 4. WAL over 1 GB → `village db checkpoint`.
 5. Persists after a restart → `village backup verify --latest`, then R3.
@@ -1026,14 +1026,14 @@ pino writes JSON to stdout in containers and under systemd, and pretty output in
 - **Dashboard sessions:** `village sessions revoke --all` or `village keys rotate-sessions` (`09`, `08`).
 
 **R5 — Move to a new machine.**
-1. On the old host, run `village backup create --label move`. Copy the newest `.vbak` + sidecar, `village.yaml`, `.env`, and `signal-cli/` if used. Bring the printed recovery key (or copy `keys/`).
+1. On the old host, run `village backup create --label move`. Copy the newest `.vbak` + sidecar, `comvivo.yaml`, `.env`, and `signal-cli/` if used. Bring the printed recovery key (or copy `keys/`).
 2. **Stop and disable the old instance** (`docker compose down` or `systemctl disable --now village`). Two instances on one token fight each other.
 3. On the new host, install the **same or a newer** version and run `village init --restore <file>` (skips the wizard; it asks for the recovery key unless `keys/` was copied).
 4. Run `village doctor` and `/status` in each group. Keep the old data for 14 days, then wipe it (`shred` the keys).
 
 **R6 — Change model provider or preset.**
 1. Add the key (`.env`/options, then restart), or pick the preset in Dashboard → Settings (a DB setting; no restart).
-2. **Local:** use the Ollama overlay or native Ollama, `ollama pull <model>`, and set `VILLAGE_LOCAL_MODEL`. `doctor --check models` runs a structured-output smoke test. Expect slower replies.
+2. **Local:** use the Ollama overlay or native Ollama, `ollama pull <model>`, and set `COMVIVO_LOCAL_MODEL`. `doctor --check models` runs a structured-output smoke test. Expect slower replies.
 3. Changing the **embedding** model triggers a re-embed job (`04`) with progress and an estimated cost. API embeddings send memory text off-host, and the wizard warns about this.
 4. Watch Dashboard → Costs for 48 h.
 
@@ -1107,7 +1107,7 @@ These are the **server process** exit codes (`village start` in the foreground, 
 
 ### 4.3 Health endpoints (on `09`'s HTTP server)
 
-- `GET /healthz` (liveness; makes no network calls; the same contract as `09` §3.8, 01 §14 A15). Unauthenticated callers get `{"status":"ok"|"starting"|"degraded"|"draining"|"fail"}`. Loopback, the trusted ingress source, or `VILLAGE_METRICS_TOKEN` holders also get `version`, `phase`, `uptimeS` and `checks: {db, migrations, lock, clock, backups:{lastSuccessAt,lastVerifyAt}, channels:{<id>: connected|connecting|auth_failed|disabled}, outbox:{pending,oldestAgeS}, jobs:{maxLagS}}` (served from cached state). Returns 200 for ok/starting/degraded (including recovery mode, `phase: recovery`) and 503 for draining/fail.
+- `GET /healthz` (liveness; makes no network calls; the same contract as `09` §3.8, 01 §14 A15). Unauthenticated callers get `{"status":"ok"|"starting"|"degraded"|"draining"|"fail"}`. Loopback, the trusted ingress source, or `COMVIVO_METRICS_TOKEN` holders also get `version`, `phase`, `uptimeS` and `checks: {db, migrations, lock, clock, backups:{lastSuccessAt,lastVerifyAt}, channels:{<id>: connected|connecting|auth_failed|disabled}, outbox:{pending,oldestAgeS}, jobs:{maxLagS}}` (served from cached state). Returns 200 for ok/starting/degraded (including recovery mode, `phase: recovery`) and 503 for draining/fail.
 - `GET /readyz` returns 200 only after boot step 9 (§3.8.1). It is independent of channel connectivity.
 
 ### 4.4 Environment variables recognized by the image and runtime
@@ -1116,21 +1116,21 @@ The `09`/`shared` config loader must implement these. Each variable also accepts
 
 | Variable | Maps to |
 |---|---|
-| `VILLAGE_CONFIG`, `VILLAGE_DATA_DIR` | config path, `instance.dataDir` |
-| `VILLAGE_DASHBOARD_BIND`, `VILLAGE_DASHBOARD_PORT`, `VILLAGE_PUBLIC_URL`, `VILLAGE_TRUST_PROXY`, `VILLAGE_BASE_PATH`, `VILLAGE_INGRESS` | `dashboard.*` (incl. `dashboard.trustProxy`, `dashboard.ingress.enabled`), `instance.publicUrl` (names per `09` §5.2) |
-| `VILLAGE_LOG_LEVEL`, `VILLAGE_LOG_FORMAT` | `logging.*` |
-| `VILLAGE_MODELS_PRESET`, `VILLAGE_LOCAL_BASE_URL`, `VILLAGE_LOCAL_MODEL`, `VILLAGE_SIGNAL_CLI_URL` | `models.*`, `channels.signal.*` |
-| `VILLAGE_PROFILE`, `VILLAGE_HEAP_MB`, `VILLAGE_SHUTDOWN_GRACE_MS`, `VILLAGE_UPDATE_CHECK` | §3.11.2, `updates.check` |
-| `VILLAGE_MODELS_PATH`, `VILLAGE_MODEL_MIRROR`, `VILLAGE_WHISPER_BIN`, `VILLAGE_FFMPEG_BIN`, `VILLAGE_SCRATCH_DIR` | model and binary locations |
-| `VILLAGE_MASTER_KEY_FILE`, `VILLAGE_SETUP_TOKEN`, `VILLAGE_PLATFORM` (`docker\|home-assistant\|umbrel\|casaos\|unraid\|truenas\|native`) | `08` key path; web-setup token; doctor hints and defaults |
-| `PUID`, `PGID`, `VILLAGE_ALLOW_ROOT`, `VILLAGE_ALLOW_EPHEMERAL_DATA` | entrypoint |
-| Secrets: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `MATRIX_ACCESS_TOKEN`, `VILLAGE_IMAP_PASSWORD`, `VILLAGE_METRICS_TOKEN` | spine §10; names per `05` and `08` §3.10 |
+| `COMVIVO_CONFIG`, `COMVIVO_DATA_DIR` | config path, `instance.dataDir` |
+| `COMVIVO_DASHBOARD_BIND`, `COMVIVO_DASHBOARD_PORT`, `COMVIVO_PUBLIC_URL`, `COMVIVO_TRUST_PROXY`, `COMVIVO_BASE_PATH`, `COMVIVO_INGRESS` | `dashboard.*` (incl. `dashboard.trustProxy`, `dashboard.ingress.enabled`), `instance.publicUrl` (names per `09` §5.2) |
+| `COMVIVO_LOG_LEVEL`, `COMVIVO_LOG_FORMAT` | `logging.*` |
+| `COMVIVO_MODELS_PRESET`, `COMVIVO_LOCAL_BASE_URL`, `COMVIVO_LOCAL_MODEL`, `COMVIVO_SIGNAL_CLI_URL` | `models.*`, `channels.signal.*` |
+| `COMVIVO_PROFILE`, `COMVIVO_HEAP_MB`, `COMVIVO_SHUTDOWN_GRACE_MS`, `COMVIVO_UPDATE_CHECK` | §3.11.2, `updates.check` |
+| `COMVIVO_MODELS_PATH`, `COMVIVO_MODEL_MIRROR`, `COMVIVO_WHISPER_BIN`, `COMVIVO_FFMPEG_BIN`, `COMVIVO_SCRATCH_DIR` | model and binary locations |
+| `COMVIVO_MASTER_KEY_FILE`, `COMVIVO_SETUP_TOKEN`, `COMVIVO_PLATFORM` (`docker\|home-assistant\|umbrel\|casaos\|unraid\|truenas\|native`) | `08` key path; web-setup token; doctor hints and defaults |
+| `PUID`, `PGID`, `COMVIVO_ALLOW_ROOT`, `COMVIVO_ALLOW_EPHEMERAL_DATA` | entrypoint |
+| Secrets: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`, `TELEGRAM_BOT_TOKEN`, `DISCORD_BOT_TOKEN`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`, `MATRIX_ACCESS_TOKEN`, `COMVIVO_IMAP_PASSWORD`, `COMVIVO_METRICS_TOKEN` | spine §10; names per `05` and `08` §3.10 |
 
 ### 4.5 `FORMAT`
 
 Written atomically (`tmp/` + `rename`):
 ```json
-{ "format": "village-data-dir", "formatVersion": 1, "instanceId": "ins_01j…", "createdAt": "2026-11-01T10:00:00Z", "createdBy": "0.1.0",
+{ "format": "comvivo-data-dir", "formatVersion": 1, "instanceId": "inst_01j…", "createdAt": "2026-11-01T10:00:00Z", "createdBy": "0.1.0",
   "lastBoot": { "version": "1.2.3", "schemaHead": "0057_poll_quorum", "at": "2026-11-01T10:00:05Z" }, "lastCleanShutdownAt": "2026-11-01T09:59:00Z" }
 ```
 
@@ -1151,7 +1151,7 @@ Written atomically (`tmp/` + `rename`):
 ```
 `config.json` and `special_tokens_map.json` are added the same way in M6.
 
-### 4.7 `release-compat.json` (embedded in `@village/server` and published as a release asset)
+### 4.7 `release-compat.json` (embedded in `@comvivo/server` and published as a release asset)
 
 ```json
 { "version": "1.3.0", "schemaHead": "0057_poll_quorum", "knownMigrations": ["0001_init", "…", "0057_poll_quorum"],
@@ -1210,7 +1210,7 @@ logging:
   file: { enabled: false, maxSizeMiB: 10, maxFiles: 5 }
 ```
 
-Everything is validated by zod in `@village/shared` (`09` owns reference generation). Platform default overrides: HA uses `backups.keep: 3`; the Docker image uses `logging.format: json`; the `low-memory` profile applies the values in §3.11.2.
+Everything is validated by zod in `@comvivo/shared` (`09` owns reference generation). Platform default overrides: HA uses `backups.keep: 3`; the Docker image uses `logging.format: json`; the `low-memory` profile applies the values in §3.11.2.
 
 ---
 
@@ -1252,8 +1252,8 @@ Everything is validated by zod in `@village/shared` (`09` owns reference generat
 
 ## 7. Security & privacy
 
-- **Container.** Non-root, read-only rootfs, `cap_drop: [ALL]`, `no-new-privileges`, Docker's default seccomp. Root mode exists only to fix ownership; it clears all capabilities and the bounding set via `setpriv` before Node starts, and the server refuses uid 0 unless `VILLAGE_ALLOW_ROOT=1`. whisper and ffmpeg parse **untrusted media**, so they run as subprocesses with a timeout (60 s + 2× audio duration), `prlimit` caps (1.5 GB address space, CPU time), file-path input only, and an FFmpeg built with `--disable-network`.
-- **Secrets.** Env or `*_FILE` only (ADR-014); `.env` is 0600. Secrets never appear in `village.yaml`, compose files, logs or `doctor --bundle` (redacted by allowlist). HA secrets stay in the Supervisor-managed `options.json` and are rendered only to tmpfs. Offsite hooks get a scrubbed env.
+- **Container.** Non-root, read-only rootfs, `cap_drop: [ALL]`, `no-new-privileges`, Docker's default seccomp. Root mode exists only to fix ownership; it clears all capabilities and the bounding set via `setpriv` before Node starts, and the server refuses uid 0 unless `COMVIVO_ALLOW_ROOT=1`. whisper and ffmpeg parse **untrusted media**, so they run as subprocesses with a timeout (60 s + 2× audio duration), `prlimit` caps (1.5 GB address space, CPU time), file-path input only, and an FFmpeg built with `--disable-network`.
+- **Secrets.** Env or `*_FILE` only (ADR-014); `.env` is 0600. Secrets never appear in `comvivo.yaml`, compose files, logs or `doctor --bundle` (redacted by allowlist). HA secrets stay in the Supervisor-managed `options.json` and are rendered only to tmpfs. Offsite hooks get a scrubbed env.
 - **Exposure.** The dashboard is published on host loopback by default. Remote access is via Caddy (TLS) or tunnels, and the docs list Tailscale and SSH first. HA is ingress-only with a source-IP check; Umbrel keeps proxy auth on; unauthenticated `/healthz` is minimal. The MCP server (when enabled) is the `/mcp` path on the same port (`10` §3.7.2); hosts who want members' agents to reach it remotely without exposing the dashboard forward only `/mcp` (and `/ics/v1/*` for feeds) in their tunnel or proxy rule.
 - **Backups & keys.** Archives are encrypted (`02`/`08`), so offsite targets see only ciphertext. Platform backups (HA, Umbrel, NAS snapshots) contain the key alongside the data; this is documented plainly, with a recommendation to encrypt them. The host can always read everything (spine §9, boundary 5).
 - **No telemetry.** Outbound calls go only to configured providers and channels, pinned model downloads and, if opted in, the update manifest. A CI egress test behind an allowlist proxy fails on any other host.
@@ -1307,10 +1307,10 @@ To avoid ID collisions with other docs, tasks in shared milestones use **T90+**;
 | ID | Task | Files | Acceptance criteria | Depends on |
 |---|---|---|---|---|
 | **M0-T90** | CI/release skeleton | `.github/workflows/{ci,release,edge}.yml` (stubs), `.github/actions/setup/`, `renovate.json5` (policy per `08` M0-T83), `CODEOWNERS`, `docs/architecture/release.md` | `permissions: {}`, SHA pins, actionlint and zizmor clean; `select-mode` and the version-PR path run in dry-run; Node 26 (primary, 01 §14 A1) and Node 24.11 (native support) both required green | `11` CI |
-| **M0-T91** | Changesets | `.changeset/config.json`, `tools/changelog/index.mjs`, `scripts/release/changeset-required.mjs` | fixed group set; a PR touching `packages/**` without a changeset fails unless labeled; formatter grouping unit-tested | M0-T90 |
-| **M0-T92** | Names manifest | `deploy/names.json`, `scripts/names/{check,apply}.mjs` | `check` fails on a planted mismatch; `apply` is idempotent; an issue is filed to reserve the npm scope, CLI/`create-` names and GHCR org (`13`) | — |
+| **M0-T91** | Changesets | `.changeset/config.json`, `tools/changelog/index.mjs`, `scripts/release/{changeset-policy,changeset-required}.ts` | fixed group set; a PR touching `packages/**` without a changeset fails unless labeled; formatter grouping unit-tested | M0-T90 |
+| **M0-T92** | Names manifest | `deploy/names.json`, `scripts/names/{check,apply,names-policy}.ts` | `check` fails on a planted mismatch; `apply` is idempotent; an issue is filed to reserve the npm scope, CLI/`create-` names and GHCR org (`13`) | — |
 | **M0-T93** | Runtime pins | `.node-version` (26), root `engines` (`>=24.11.0`), `packageManager` (pnpm ≥ 11; installed explicitly, no Corepack), `pnpm-workspace.yaml` build allowlist exactly as `08` §3.15 (matrix crypto only; ORT denied) | a fresh install has no ORT CUDA files; `docs/architecture/native-deps.md` exists | — |
-| **M1-T90** | Data-dir primitives | `packages/storage/src/datadir/{layout,format,lock,perms,fstype}.ts` | §3.7 layout and modes; atomic `FORMAT`; lock heartbeat and stale takeover tested with a fake clock; FS-type check on Linux and macOS | `02` M1 |
+| **M1-T90** | Data-dir primitives | `packages/storage/src/datadir/{layout,format,lock,perms,fstype}.ts` | §3.7 layout and modes; atomic `FORMAT`; lock heartbeat and stale takeover tested with a fake clock; FS-type check on Linux and macOS (macOS recognises local filesystems by `statfs` type index and warns `unknown` for anything else, since there is no readable mount table and `child_process` is restricted by `08` PSC-8) | `02` M1 |
 | **M3-T90** | Minimal Dockerfile | `deploy/docker/{Dockerfile,entrypoint.sh,healthcheck.mjs}`, `.dockerignore`, `scripts/docker/prune-native.mjs` | stages `base/deps/build/runtime`; tini, `USER 1000`, `/data` guard, root-drop, dispatch; amd64 and arm64 built on native runners; `selftest` covers DB and sqlite-vec; Telegram e2e passes | M1-T90, M3 server |
 | **M3-T91** | Health & lifecycle | `apps/server/src/http/health.ts`, `apps/server/src/lifecycle/{boot,shutdown}.ts` | §4.2–4.3; boot steps 1–4 and 8–9; 0 duplicate sends in 20 forced restarts | `09` HTTP, `05` |
 | **M3-T92** | Alpha compose | `deploy/compose/{compose.yaml,.env.example}` | a clean VM reaches `/readyz`; loopback publish; read-only rootfs | M3-T90 |
@@ -1321,7 +1321,7 @@ To avoid ID collisions with other docs, tasks in shared milestones use **T90+**;
 | **M8-T92** | 0.1 cut | — | the §3.12 alpha checklist is closed | all above |
 | **M9-T90** | `init` deployment generator | `apps/cli/src/deploy/{preflight,compose-render,dotenv,native-check}.ts` | §3.4.2 end to end, including non-interactive mode, the WSL named-volume rule and armhf detection; output passes `compose config -q`; `.env` is 0600 | `09` wizard |
 | **M11-T90** | whisper.cpp + ffmpeg-mini | Dockerfile `native` stage, `deploy/docker/ffmpeg.sha256`, `deploy/docker/third-party/*`, `deploy/sbom/extra-components.cdx.json` | `selftest` decodes OGG/Opus, M4A, MP3 and WebM and transcribes a 5 s clip with base-q5_1 on both arches; CPU-variant dispatch verified on AVX2 and Pi 5; size increase ≤ 20 MB; LGPL source asset produced | `05` subprocess contract (argv, timeout, prlimit) |
-| **M12-T90** | npm trusted publishing | `release.yml` npm jobs | the six public packages (P11, incl. `@village/evals` and `@village/mcp-bridge`) are published via OIDC with provenance; tokens disallowed; no `NPM_TOKEN` exists | M0-T91, `10` SDKs, `11` evals |
+| **M12-T90** | npm trusted publishing | `release.yml` npm jobs | the six public packages (P11, incl. `@comvivo/evals` and `@comvivo/mcp-bridge`) are published via OIDC with provenance; tokens disallowed; no `NPM_TOKEN` exists | M0-T91, `10` SDKs, `11` evals |
 | **M12-T91** | Beta channel + HA `village_beta` + Umbrel community store | subset of M14-T9/T10 | the HA and Umbrel items of the 0.5 checklist | M14-T9 design |
 | **M14-T1** | Production image | `deploy/docker/*` | all §3.2.3 stages, with pruning and reproducibility; the `node:26-trixie-slim` image passes `selftest` and the upgrade matrix on amd64 and arm64 (if it fails, the documented `node:24-trixie-slim` fallback of P1 is used and the failure is recorded in STATUS.md); ≤ 300 MB; no fixable criticals | M6-T90, M11-T90 |
 | **M14-T2** | Multi-arch release pipeline | `release.yml`, `scripts/release/{tags.mjs,image-size-gate.sh}` | push-by-digest and an annotated merge; immutable tags; highest-semver logic unit-tested over hotfix sequences; Docker Hub switch via `names.json` | M14-T1 |
@@ -1357,7 +1357,7 @@ To avoid ID collisions with other docs, tasks in shared milestones use **T90+**;
 | Q10 | LTS length? | **12 months for the previous major's last minor** |
 | Q11 | Official Umbrel/CasaOS store timing? | **Community stores at 0.5; official PRs after 1.0** |
 | Q12 | HA edge app? | **No** |
-| Q13 | Publish `@village/mcp`? | **No. Publish a stdio bridge only if `10` finds demand** |
+| Q13 | Publish `@comvivo/mcp`? | **No. Publish a stdio bridge only if `10` finds demand** |
 | Q14 | npm edge cadence? | **Nightly, only if HEAD changed** |
 | Q15 | Distroless later? | **Revisit after 1.0 with a Node entrypoint using `process.setuid`; HA stays on Debian** |
 | Q16 | Umbrel port 7777 already taken? | **Pick a free port at submission** |
@@ -1368,7 +1368,7 @@ To avoid ID collisions with other docs, tasks in shared milestones use **T90+**;
 
 1. **ADR-001 Node.** Node 24 entered **Maintenance LTS on 2026-10-20**, and Node 26 became **Active LTS on 2026-10-28**. Proposal: "Node.js LTS ≥ 24.11; the Docker image runs the newest Active LTS (Node 26 at 1.0)". Low risk: every native dependency is N-API (better-sqlite3-mc v13, ORT napi-v6, matrix crypto) or ABI-free (sqlite-vec), and EOL moves from 2028-04 to 2029-04. **→ Resolved: 01 §14 A1** (base `node:26-trixie-slim`, fallback `node:24-trixie-slim`).
 2. **Install command** (`00` §3.7, ADR-015). The unscoped npm package `village` is taken, so `npx village@latest init` cannot ship under the codename. `13`'s naming check must cover unscoped npm availability; otherwise the documented command becomes `npm create <name>@latest`. **→ Resolved: 01 §14 A2** (placeholder until owner decision D-2).
-3. **Package split** (§3/§4). Publish a **thin `village` CLI** and a public **`@village/server`** runtime; internal packages stay private and bundled. Add to §4: "apps/cli imports `@village/server/ops` types only; runtime resolution is dynamic". The public npm set is `village`, `@village/server`, `@village/plugin-sdk` and `@village/channel-sdk`. **→ Resolved: 01 §14 A2** (thin CLI + public server runtime); A17 adds `@village/evals` to the public set (P11).
+3. **Package split** (§3/§4). Publish a **thin `village` CLI** and a public **`@comvivo/server`** runtime; internal packages stay private and bundled. Add to §4: "apps/cli imports `@comvivo/server/ops` types only; runtime resolution is dynamic". The public npm set is `village`, `@comvivo/server`, `@comvivo/plugin-sdk` and `@comvivo/channel-sdk`. **→ Resolved: 01 §14 A2** (thin CLI + public server runtime); A17 adds `@comvivo/evals` to the public set (P11).
 4. **Repo layout** (§3 `deploy/`). Use `compose.yaml` plus overlays; add `deploy/{unraid,truenas,launchd,models,sbom}/` and `deploy/names.json`. HA terminology is now **"apps"**, and `deploy/home-assistant` is mirrored to its own repo. ADR-015 gains the `village-ha` image and GHCR as the canonical registry. **→ Accepted, owned here** (ADR-015 already says HA "apps"; the `deploy/` layout is specified in this document).
 5. **Jobs** (§6.4). Add `backup.verify` (weekly) and `backup.offsite` (after a snapshot; retryable). `backup.snapshot` uses GFS retention per `12` §3.9. **→ Accepted, owned here** (02 registers the job kinds; M14-T8).
 6. **ADR-014: secrets for appliance web setup.** Umbrel and CasaOS have no CLI and no secret UI. Allow a master-key-encrypted `keys/secrets.enc` (format by `08`) as a secret source, with precedence **below** real env. "Secrets never in DB or YAML" still holds. **→ Resolved: 01 §14 A29.** Format and key derivation in `08` §3.10 (vault-key AEAD container, AAD-separated); UI in `09` D-29 and `/setup` (token-gated, then host step-up); env and the platform's options UI still take precedence.

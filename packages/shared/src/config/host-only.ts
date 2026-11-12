@@ -66,6 +66,16 @@ export const HOST_ONLY_PATHS: readonly string[] = [
   // A constitution may shorten retention; only the host may lengthen the ceiling (S13).
   'privacy.maxMessageRetentionDays',
   'privacy.logRetentionDays',
+  // Retention windows for the instance's own records. A group's constitution governs *its*
+  // messages; how long the audit chain, the usage detail, the job history and the outbox are kept
+  // is an instance decision — and an admin who could shorten the audit window could erase the
+  // record of having shortened it (`08` T-T02).
+  'privacy.usageRetentionDays',
+  'privacy.auditRetentionDays',
+  'jobs.*',
+  'outbox.*',
+  // Disk is the host's, and `instanceQuotaBytes` is how one group is stopped from taking all of it.
+  'blobs.*',
   'traces.retentionDays',
   // Content capture in traces is off by default and opt-in by the host only (11 §3.10.4).
   'traces.captureModelIO',

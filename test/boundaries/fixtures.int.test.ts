@@ -13,6 +13,7 @@
  *
  * Tagged as integration because it spawns a process and touches a temp directory.
  */
+import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
 import { cruisePlanted, type PlantedFile } from './plant.js';
 
@@ -85,6 +86,16 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/plugin-sdk/src/reaches-engine.ts',
     imports: ['@comvivo/engine'],
   },
+  'engine-plugin-sdk-types-only': {
+    // A value import, not a `import type`. A11 allows the type edge and nothing more; the
+    // allow-list rule it was written against permitted either.
+    path: 'packages/engine/src/values-from-plugin-sdk.ts',
+    imports: ['@comvivo/plugin-sdk'],
+  },
+  'plugin-sdk-channel-sdk-types-only': {
+    path: 'packages/plugin-sdk/src/values-from-channel-sdk.ts',
+    imports: ['@comvivo/channel-sdk'],
+  },
   'plugin-host-allowed-imports': {
     // A plugin must never be able to receive a repository.
     path: 'packages/plugin-host/src/reaches-storage.ts',
@@ -132,6 +143,13 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/engine/src/jobs/searches-memory.ts',
     imports: ['../../../core/src/ports/memory-search.js'],
   },
+  'unfiltered-reads-restricted-callers': {
+    // The `…Unfiltered` reads skip the eligible-label filter on purpose (`02` §3.7.1). Reached
+    // from anywhere but the tool executor or storage itself, they are a labeled read with the
+    // label check taken out — I1 deleted in one import, and it would look like a convenience.
+    path: 'packages/engine/src/digest/reads-unfiltered.ts',
+    imports: ['../../../core/src/ports/storage/unfiltered.js'],
+  },
 
   // --- Purity ----------------------------------------------------------------------------------
   'no-node-builtins-in-pure-packages': {
@@ -152,6 +170,12 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/engine/src/rolls-its-own-crypto.ts',
     imports: ['node:crypto'],
   },
+  'libsodium-only-in-shared-crypto-and-storage-crypto': {
+    // `libsodium-wrappers` is a runtime dependency of `@comvivo/storage`, so this is reachable
+    // today: a module outside `storage/src/crypto/` importing it resolves and type-checks.
+    path: 'packages/storage/src/db/reaches-libsodium.ts',
+    imports: ['libsodium-wrappers'],
+  },
   'child-process-only-in-sandbox-and-transcription': {
     path: 'packages/engine/src/spawns-a-process.ts',
     imports: ['node:child_process'],
@@ -171,6 +195,71 @@ describe('the clean synthetic tree', { tags: ['slow'] }, () => {
     // If this ever drops to a handful, the tree stopped being representative — which is exactly
     // the failure the `/dist/` bug produced in the real config.
     expect(result.modulesCruised).toBeGreaterThan(20);
+  });
+});
+
+describe('A11 allows the type edge it forbids as a value', { tags: ['slow'] }, () => {
+  // The positive control for the two `*-types-only` rules. Without it, a rule that fired on every
+  // import — the state the config was in, where the allow-list permitted both and the "types" half
+  // of A11 was only a comment — would look identical to a working one.
+  it('does not fire on an `import type` across either edge', async () => {
+    const result = await cruisePlanted([
+      {
+        path: 'packages/engine/src/types-from-plugin-sdk.ts',
+        imports: [],
+        typeImports: ['@comvivo/plugin-sdk'],
+      },
+      {
+        path: 'packages/plugin-sdk/src/types-from-channel-sdk.ts',
+        imports: [],
+        typeImports: ['@comvivo/channel-sdk'],
+      },
+    ]);
+    expect(
+      [...result.violatedRules],
+      'A11 permits these two edges as types. A violation here means the rule cannot tell a type ' +
+        'import from a value import, which makes it a ban on the edge rather than on the value.',
+    ).toEqual([]);
+    // Non-vacuous: the modules really were cruised, so "no violations" is a verdict rather than an
+    // empty graph.
+    expect(result.modulesCruised).toBeGreaterThan(20);
+  });
+});
+
+describe('the fixture set covers the config', () => {
+  // `M0-T4`'s criterion is "each rule has a planted-violation fixture that makes `pnpm verify`
+  // fail". The three tests below prove every rule **in `PLANTED`** fires and that no rule outside
+  // it does — but nothing read the rule inventory out of `.dependency-cruiser.cjs`, so a 30th
+  // `forbidden` rule added without a fixture passed silently and the criterion guarded itself.
+  // Found by the M0 independent review; coverage was complete at the time and unenforced.
+  const require_ = createRequire(import.meta.url);
+  const config = require_('../../.dependency-cruiser.cjs') as {
+    forbidden: { name: string }[];
+  };
+
+  it('plants a fixture for every forbidden rule', () => {
+    const covered = new Set([...Object.keys(PLANTED), 'no-circular']);
+    const unplanted = config.forbidden
+      .map((rule) => rule.name)
+      .filter((name) => !covered.has(name));
+    expect(
+      unplanted,
+      'Every rule in `.dependency-cruiser.cjs` needs an entry in `PLANTED` (or, for `no-circular`, ' +
+        'in `CYCLE`). A rule with no fixture has never been shown to fire.',
+    ).toEqual([]);
+  });
+
+  it('plants no fixture for a rule the config no longer has', () => {
+    // The other direction: a fixture for a deleted rule is a test that can never fail, and it
+    // would make the "fires every expected rule" test above fail confusingly rather than clearly.
+    const names = new Set(config.forbidden.map((rule) => rule.name));
+    const orphans = Object.keys(PLANTED).filter((name) => !names.has(name));
+    expect(orphans).toEqual([]);
+  });
+
+  it('read the real config, so neither comparison is two empty sets', () => {
+    expect(config.forbidden.length).toBeGreaterThan(20);
+    expect(Object.keys(PLANTED).length).toBeGreaterThan(20);
   });
 });
 

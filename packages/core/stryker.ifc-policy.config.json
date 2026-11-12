@@ -1,0 +1,35 @@
+{
+  "$schema": "../../node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "packageManager": "pnpm",
+  "testRunner": "vitest",
+  "plugins": ["@stryker-mutator/vitest-runner", "@stryker-mutator/typescript-checker"],
+  "checkers": ["typescript"],
+  "tsconfigFile": "packages/core/tsconfig.json",
+  "vitest": {
+    "configFile": "packages/core/vitest.mutation.config.ts",
+    "related": true,
+    "pool": "forks"
+  },
+  "mutate": [
+    "packages/core/src/ifc/**/*.ts",
+    "packages/core/src/policy/**/*.ts",
+    "!packages/core/src/**/*.test.ts",
+    "!packages/core/src/testing/**"
+  ],
+  "incremental": true,
+  "incrementalFile": "reports/stryker-incremental-ifc-policy.json",
+  "thresholds": {
+    "high": 85,
+    "low": 75,
+    "break": 75
+  },
+  "reporters": ["clear-text", "progress", "html", "json"],
+  "htmlReporter": {
+    "fileName": "reports/mutation/ifc-policy.html"
+  },
+  "jsonReporter": {
+    "fileName": "reports/mutation/ifc-policy.json"
+  },
+  "timeoutMS": 20000,
+  "tempDirName": ".stryker-tmp/ifc-policy"
+}

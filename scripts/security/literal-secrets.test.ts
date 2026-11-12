@@ -5,8 +5,18 @@
  * enforces. That makes this file its own first test case: if the guard's advice did not work, this
  * file could not exist, because `pnpm secrets:check` scans it along with everything else.
  */
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { EXEMPT, explain, findInSource, isScanned, SECRET_SHAPES } from './literal-secrets.js';
+import {
+  EXEMPT,
+  explain,
+  findInSource,
+  isScanned,
+  SECRET_SHAPES,
+  scanFiles,
+} from './literal-secrets.js';
 
 /** Shapes the guard must catch, built from pieces so none appears verbatim in this source. */
 const SHOULD_CATCH: readonly { readonly label: string; readonly value: string }[] = [
@@ -121,6 +131,44 @@ describe('isScanned', () => {
     // Each exemption is a file where a real credential could sit unnoticed. If this number grows,
     // the reason had better be in the commit message.
     expect(EXEMPT.length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe('scanFiles', () => {
+  it('reports a file it could not read, rather than passing it', () => {
+    // A secret scanner that skips an unreadable file and prints "clean" has the failure mode the
+    // wrong way round: a file it cannot open is the one worth asking about. This was one
+    // `catch { continue }` justified as the `git ls-files` race. Found by the M1 exit gate's
+    // reviewer, who also noticed `scanFiles` had no test at all.
+    const root = mkdtempSync(join(tmpdir(), 'secrets-scan-'));
+    mkdirSync(join(root, 'packages', 'x', 'src'), { recursive: true });
+    writeFileSync(join(root, 'packages/x/src/clean.ts'), 'export const a = 1;\n');
+    mkdirSync(join(root, 'packages/x/src/looks-like-a-file.ts'), { recursive: true });
+
+    const findings = scanFiles(root, [
+      'packages/x/src/clean.ts',
+      'packages/x/src/looks-like-a-file.ts',
+      'packages/x/src/deleted-since-listing.ts',
+    ]);
+
+    // The directory is reported; the genuinely absent path is not (that is the race).
+    expect(findings.map((finding) => finding.file)).toEqual([
+      'packages/x/src/looks-like-a-file.ts',
+    ]);
+    expect(findings[0]?.shape).toMatch(/could not be read \(EISDIR\)/);
+  });
+
+  it('still finds a real secret shape in a readable file', () => {
+    // Non-vacuity: the test above would pass if `scanFiles` had stopped scanning altogether.
+    const root = mkdtempSync(join(tmpdir(), 'secrets-scan-'));
+    mkdirSync(join(root, 'packages', 'x', 'src'), { recursive: true });
+    writeFileSync(
+      join(root, 'packages/x/src/leak.ts'),
+      `export const token = 'sk-ant-api03-${'a'.repeat(95)}';\n`,
+    );
+    const findings = scanFiles(root, ['packages/x/src/leak.ts']);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]?.shape).not.toMatch(/could not be read/);
   });
 });
 

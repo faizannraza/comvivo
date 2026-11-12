@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { ValidationError } from './errors.js';
-import { brandedId, describeIssues, formatIssues, parse, parseOrThrow, z } from './zod.js';
+import { capped, describeIssues, formatIssues, parse, parseOrThrow, z } from './zod.js';
 
 const person = z.object({ name: z.string().min(1), age: z.number().int().positive() });
 
@@ -88,42 +88,70 @@ describe('parseOrThrow', () => {
   });
 });
 
-describe('brandedId', () => {
-  const groupId = brandedId('grp', 'GroupId');
-
-  it('accepts a well-formed TypeID', () => {
-    expect(groupId.safeParse('grp_01j8kqd7h3f9z2m4n6p8r0t2vw').success).toBe(true);
+describe('capped (02 §3.3.9 JSON column size limits)', () => {
+  it('accepts a value within the limit', () => {
+    const schema = capped(z.object({ a: z.string() }), 1024, 'thing');
+    expect(schema.parse({ a: 'hello' })).toEqual({ a: 'hello' });
   });
 
-  it.each([
-    ['the wrong prefix', 'mbr_01j8kqd7h3f9z2m4n6p8r0t2vw'],
-    ['no prefix', '01j8kqd7h3f9z2m4n6p8r0t2vw'],
-    ['too short', 'grp_01j8kqd7h3f9z2m4n6p8r0t2v'],
-    ['too long', 'grp_01j8kqd7h3f9z2m4n6p8r0t2vwx'],
-    ['uppercase', 'grp_01J8KQD7H3F9Z2M4N6P8R0T2VW'],
-    ['excluded base32 letters (i, l, o, u)', 'grp_01j8kqd7h3f9z2m4n6p8r0tiou'],
-    ['empty', ''],
-  ])('rejects %s', (_label, value) => {
-    expect(groupId.safeParse(value).success).toBe(false);
+  it('rejects a value over the limit, naming the subject and both numbers', () => {
+    const schema = capped(z.object({ a: z.string() }), 64, 'rich text');
+    const outcome = schema.safeParse({ a: 'x'.repeat(200) });
+    expect(outcome.success).toBe(false);
+    if (outcome.success) return;
+    const [issue] = outcome.error.issues;
+    expect(issue?.message).toContain('rich text');
+    expect(issue?.message).toContain('64-byte limit');
+    expect(issue?.code).toBe('too_big');
   });
 
-  it('explains the expected shape, naming the entity', () => {
-    const outcome = groupId.safeParse('nope');
-    if (!outcome.success) {
-      expect(outcome.error.issues[0]?.message).toContain('GroupId');
-      expect(outcome.error.issues[0]?.message).toContain('grp_');
-    }
+  it('measures the serialised form, not the string inside it', () => {
+    // The bound has to be on `JSON.stringify(value)` because that is exactly what `jsonOf` hands
+    // the driver. A 60-character string is within a 64-byte budget on its own and over it once the
+    // surrounding `{"a":"…"}` is counted, which is the case a naive `value.a.length` check misses.
+    const schema = capped(z.object({ a: z.string() }), 64, 'thing');
+    expect(schema.safeParse({ a: 'x'.repeat(50) }).success).toBe(true);
+    expect(schema.safeParse({ a: 'x'.repeat(60) }).success).toBe(false);
   });
 
-  it('keeps two entity ids mutually unassignable at compile time', () => {
-    // The runtime value is just a string; the brand is what stops a MemberId reaching a parameter
-    // that wants a GroupId. Operating on the wrong group IS invariant I4 failing, so this is the
-    // bug class the brand exists to prevent.
-    const memberId = brandedId('mbr', 'MemberId');
-    const g = groupId.parse('grp_01j8kqd7h3f9z2m4n6p8r0t2vw');
-    const m = memberId.parse('mbr_01j8kqd7h3f9z2m4n6p8r0t2vw');
-    // @ts-expect-error a MemberId must not be assignable to a GroupId
-    const wrong: typeof g = m;
-    expect(typeof wrong).toBe('string');
+  it('counts UTF-8 bytes rather than characters', () => {
+    // **Why the cap cannot be a SQLite `CHECK (length(col) <= n)`.** SQLite's `length()` counts
+    // characters for text, so a column of emoji would be allowed four times past its byte budget.
+    // `'🎉'` is one `JSON.stringify` character-pair and four UTF-8 bytes.
+    const schema = capped(z.array(z.string()), 32, 'thing');
+    // `["🎉","🎉","🎉","🎉"]` is 4 × 4 bytes of emoji plus 15 bytes of punctuation = 31.
+    expect(schema.safeParse(['🎉', '🎉', '🎉', '🎉']).success).toBe(true);
+    expect(schema.safeParse(['🎉', '🎉', '🎉', '🎉', '🎉']).success).toBe(false);
+  });
+
+  it('is exact at the boundary, inclusive', () => {
+    // `{"a":"xxx"}` is 11 bytes.
+    const schema = capped(z.object({ a: z.string() }), 11, 'thing');
+    expect(schema.safeParse({ a: 'xxx' }).success).toBe(true);
+    expect(schema.safeParse({ a: 'xxxx' }).success).toBe(false);
+  });
+
+  it('applies the cap after the schema, so a malformed value reports its own problem', () => {
+    const schema = capped(z.object({ a: z.string() }), 8, 'thing');
+    const outcome = schema.safeParse({ a: 42 });
+    expect(outcome.success).toBe(false);
+    if (outcome.success) return;
+    // Not "over the 8-byte limit": the value never parsed, so the cap never ran.
+    expect(outcome.error.issues.map((issue) => issue.code)).toEqual(['invalid_type']);
+  });
+
+  it('keeps the schema type, so a capped object schema is still composable', () => {
+    // The reason `capped` returns `S` and not a widened `ZodType`.
+    const base = capped(z.object({ a: z.string() }), 1024, 'thing');
+    const extended = base.extend({ b: z.number() });
+    expect(extended.parse({ a: 'x', b: 1 })).toEqual({ a: 'x', b: 1 });
+  });
+
+  it('runs on the way back out as well, which is what catches a row from an older build', () => {
+    // `jsonOf` validates both directions, so a row written when the cap was larger is caught as a
+    // damaged row rather than read back into a context window it no longer fits.
+    const schema = capped(z.object({ a: z.string() }), 16, 'thing');
+    const fromDisk: unknown = JSON.parse(JSON.stringify({ a: 'x'.repeat(100) }));
+    expect(schema.safeParse(fromDisk).success).toBe(false);
   });
 });

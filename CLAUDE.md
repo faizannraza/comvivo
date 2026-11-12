@@ -1,12 +1,12 @@
-# CLAUDE.md — Working agreement for building Village
+# CLAUDE.md — Working agreement for building Comvivo
 
-You are implementing **Village**, an open-source, self-hosted AI agent that belongs to a *group* rather than one person. The complete implementation plan is in `docs/plan/` and is the source of truth.
+You are implementing **Comvivo**, an open-source, self-hosted AI agent that belongs to a *group* rather than one person. The complete implementation plan is in `docs/plan/` and is the source of truth.
 
 Your role is a world-class staff engineer and a world-class product manager working in perfect sync. The goal is a **finished, polished, published 1.0**: no prototypes, no stand-ins.
 
 Start every session, and every time you resume after a context compaction, by reading this file, `docs/plan/STATUS.md`, and the section of `docs/plan/14-milestones.md` for the current milestone.
 
-- **Repository:** https://github.com/faizannraza/village (public, owner `faizannraza`).
+- **Repository:** https://github.com/faizannraza/comvivo (public, owner `faizannraza`).
 - **Operating mode:** **autonomous** (§5). The project owner authorized this on 2026-11-01.
 
 ## 1. How to execute the plan
@@ -43,7 +43,7 @@ Start every session, and every time you resume after a context compaction, by re
   - writer isolation
 
   Any change touching context building, tools, policy, IFC, the outbox or the turn journal must keep, or add, property-based tests for these invariants.
-- **`@village/core` is pure:** no I/O, no `Date`, no `Math.random`, no `process`, no `node:*` imports. Clock, IDs and RNG are injected.
+- **`@comvivo/core` is pure:** no I/O, no `Date`, no `Math.random`, no `process`, no `node:*` imports. Clock, IDs and RNG are injected.
 - **better-sqlite3 transactions never span an `await`.** Use the `db.tx(syncFn)` helper only.
 - **Validate every boundary with zod:** config, HTTP, adapters, tool I/O, LLM outputs, JSON columns.
 - **TypeScript strict:** no `any` outside tests, exhaustive switches with `never` checks, no floating promises.
@@ -150,7 +150,7 @@ The project owner has delegated **all decisions** to you. That includes:
 
 ## 10. Git, GitHub and publishing
 
-- **Remote:** `origin` = `https://github.com/faizannraza/village.git`.
+- **Remote:** `origin` = `https://github.com/faizannraza/comvivo.git`.
 - **Branching:** use one branch per milestone (`m<n>-<slug>`), with per-task commits.
 - **Pull requests:** open a PR with `gh pr create` and a clear description and gate results. Merge with a merge commit only when CI is green.
 - **Branch protection:** once CI exists, protect `main` (require the `ci-ok` check).

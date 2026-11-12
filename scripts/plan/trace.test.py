@@ -726,6 +726,58 @@ class TestIdAndNumbering(unittest.TestCase):
         self.assertIn("never renumber", gaps[0].message)
 
 
+class TestScopeAgnosticTitles(unittest.TestCase):
+    """A STATUS tick and its plan title may differ by npm scope, and by nothing else.
+
+    `STATUS.md` is in the rename codemod's HISTORY list and is not rewritten; `14-milestones.md`
+    is. Those two correct rules collide as soon as a task title contains the scope, which `M1-T1`
+    and `M12-T19` do — and after a rename a literal comparison reports drift where there is none.
+    The weekly rename drill found it.
+    """
+
+    def test_scope_is_normalised(self) -> None:
+        self.assertEqual(pt.scope_agnostic("`@comvivo/storage` scaffold"), "`@*/storage` scaffold")
+        self.assertEqual(pt.scope_agnostic("`@zzbrand/storage` scaffold"), "`@*/storage` scaffold")
+
+    def test_several_scopes_in_one_title(self) -> None:
+        self.assertEqual(
+            pt.scope_agnostic("`@a/one` and `@b/two`"), "`@*/one` and `@*/two`"
+        )
+
+    def test_a_title_without_a_scope_is_untouched(self) -> None:
+        self.assertEqual(pt.scope_agnostic("IDs, clock & canonical JSON"), "IDs, clock & canonical JSON")
+
+    def test_a_renamed_scope_does_not_report_drift(self) -> None:
+        # The drill's exact failure: the plan is renamed, STATUS is not.
+        md = WELL_FORMED_TABLE.replace(
+            "| M0-T1 | **Monorepo scaffold.**", "| M0-T1 | **`@zzbrand/storage` scaffold.**"
+        )
+        status = WELL_FORMED_STATUS.replace(
+            "- [ ] M0-T1 Monorepo scaffold", "- [ ] M0-T1 `@comvivo/storage` scaffold"
+        )
+        _, findings = analyse(make_plan(md, status))
+        self.assertEqual([f for f in findings if f.code == "E-STATUS-TITLE"], [])
+
+    def test_a_real_title_change_still_reports_drift(self) -> None:
+        # The check must not have been loosened into uselessness.
+        status = WELL_FORMED_STATUS.replace(
+            "- [ ] M0-T1 Monorepo scaffold", "- [ ] M0-T1 Something else entirely"
+        )
+        _, findings = analyse(make_plan(WELL_FORMED_TABLE, status))
+        self.assertIn("E-STATUS-TITLE", codes(findings, "ERROR"))
+
+    def test_a_differing_package_name_still_reports_drift(self) -> None:
+        # Only the scope is tolerated, not the package after it.
+        md = WELL_FORMED_TABLE.replace(
+            "| M0-T1 | **Monorepo scaffold.**", "| M0-T1 | **`@zzbrand/engine` scaffold.**"
+        )
+        status = WELL_FORMED_STATUS.replace(
+            "- [ ] M0-T1 Monorepo scaffold", "- [ ] M0-T1 `@comvivo/storage` scaffold"
+        )
+        _, findings = analyse(make_plan(md, status))
+        self.assertIn("E-STATUS-TITLE", codes(findings, "ERROR"))
+
+
 class TestTableShape(unittest.TestCase):
     """A doubled table row is corruption of the record, not a formatting nit.
 

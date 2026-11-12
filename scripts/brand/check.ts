@@ -23,6 +23,18 @@ const ROOT = new URL('../../', import.meta.url).pathname.replace(/\/$/, '');
 /** Paths the guard does not read at all. */
 const EXCLUDED_FILES = [
   /^packages\/shared\/src\/brand\.ts$/,
+  // The cryptographic domain separators (`08` §3.7, `02` §3.6.1). The **only** exemption here
+  // that is a correctness requirement rather than a convenience: those strings go into every
+  // HKDF `info` and every AEAD AAD, so deriving them from `BRAND` would make the next rename
+  // silently destroy every existing host's database, blobs and backups. There is no migration for
+  // a changed domain separator, only data loss. `crypto/labels.ts` explains it at length, and
+  // `labels.test.ts` asserts the file imports nothing from `BRAND`.
+  /^packages\/shared\/src\/crypto\/labels\.(ts|test\.ts)$/,
+  // The data-directory marker (`12` §4.5), for the same reason and on the same terms. `12` §3.8.1
+  // step 2 exits 65 on a directory that holds data but no recognisable `FORMAT`, so deriving this
+  // string from `BRAND` would make every existing install refuse to start at the next rename.
+  // `marker.test.ts` asserts the file imports nothing and never mentions `BRAND`.
+  /^packages\/storage\/src\/datadir\/marker\.(ts|test\.ts)$/,
   /^apps\/docs\/src\/content\//,
   /\/__fixtures__\//,
   /\/__snapshots__\//,
@@ -93,18 +105,39 @@ export function findInSource(relPath: string, source: string, needle: string): F
   return found;
 }
 
-// Not async: there is nothing to await. It was `async` from an earlier draft that read files
-// asynchronously, and `require-await` caught the leftover once `scripts/**` became type-aware.
-function main(): void {
-  const asJson = argv.includes('--json');
-  const files = SOURCE_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: ROOT }))
+/**
+ * Scan a tree for hard-coded codename literals.
+ *
+ * Separated from `main()` so the guard can be proven **at its own entry point**. `M0-T12`'s
+ * criterion is "fails on a planted codename literal under `packages/**` or `apps/**`", and that
+ * had been verified once by hand at the exit gate: `check.test.ts` exercised `findInSource`
+ * thoroughly and nothing ran the globbing, the exclusion list or the file reading. Those are where
+ * a guard goes quietly blind — a glob that stops matching reports a clean tree. Found by the M0
+ * independent review, which named it the same shape as the `scripts/**` lint gap.
+ *
+ * `codename` is a parameter rather than `BRAND.codename` so a test can plant a literal that is not
+ * the real brand, and therefore cannot be mistaken for a real violation by any other guard.
+ */
+export function scan(
+  root: string,
+  codename: string = BRAND.codename,
+): { readonly files: readonly string[]; readonly findings: readonly Finding[] } {
+  const files = SOURCE_GLOBS.flatMap((pattern) => globSync(pattern, { cwd: root }))
     .map((f) => f.split('\\').join('/'))
     .filter((f) => !EXCLUDED_FILES.some((re) => re.test(f)))
     .sort();
 
   const findings = files.flatMap((f) =>
-    findInSource(f, readFileSync(`${ROOT}/${f}`, 'utf8'), BRAND.codename),
+    findInSource(f, readFileSync(`${root}/${f}`, 'utf8'), codename),
   );
+  return { files, findings };
+}
+
+// Not async: there is nothing to await. It was `async` from an earlier draft that read files
+// asynchronously, and `require-await` caught the leftover once `scripts/**` became type-aware.
+function main(): void {
+  const asJson = argv.includes('--json');
+  const { files, findings } = scan(ROOT);
 
   if (asJson) {
     stdout.write(

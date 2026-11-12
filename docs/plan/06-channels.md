@@ -1,7 +1,7 @@
 # 06 — Channels: Adapter SDK, Adapters, Identity and In-Chat Onboarding
 
 > Status: **normative for the channel layer**. It elaborates `01-architecture.md` §7.1 (channel contract), §6.1 (inbound flow) and invariants I5–I7. It does not contradict the spine. Where a refinement needs a spine edit, it is listed in §12.
-> Owns: `@village/channel-sdk` (contract, capability model, RichText AST, renderers, splitter, interactions, rate limiting, error taxonomy, conformance kit), every built-in adapter, identity mapping and linking, DM initiation, group claiming and in-chat setup flows, and platform failure handling.
+> Owns: `@comvivo/channel-sdk` (contract, capability model, RichText AST, renderers, splitter, interactions, rate limiting, error taxonomy, conformance kit), every built-in adapter, identity mapping and linking, DM initiation, group claiming and in-chat setup flows, and platform failure handling.
 > References: physical schema and the job queue → `02`; consent copy, IFC labels, audience semantics → `03`; memory retraction semantics → `04`; router, turn engine, copy/template engine, confirmations → `05`; polls/reminders/digests semantics → `07`; threat model and key management → `08`; HTTP auth, dashboard, CLI → `09`; plugin packaging → `10`; test strategy and harness → `11`; Docker/compose → `12`; docs site → `13`.
 > Platform facts were verified on 2026-11-01. Each one cites its source inline. Re-verify the facts marked *(re-verify at M10)* before you implement them.
 
@@ -12,7 +12,7 @@
 **Purpose.** Village lives in other people's chat apps. This document defines how it connects to them. Each connection must be correct, polite to rate limits and never double-send (I6). It must render well on each platform, stay private by default and be cheap to extend. Adapters are **dumb transport**. They normalize inbound platform traffic into `InboundEnvelope`/`ChannelEvent` and turn `OutboundMessage` into platform calls. All intelligence and policy stays in `engine`/`core`.
 
 **In scope**
-- **A. `@village/channel-sdk`:**
+- **A. `@comvivo/channel-sdk`:**
   - the contract and `AdapterContext`, plus a capability matrix;
   - the RichText AST with its parser, per-markup renderers and splitter;
   - mentions, buttons/interaction tokens, polls, reactions, attachments, typing and ephemeral messages;
@@ -211,7 +211,16 @@ Rules:
 
 ### 3.5 RichText AST, parsing, rendering, splitting
 
-#### 3.5.1 AST (`channel-sdk/src/richtext/ast.ts`)
+#### 3.5.1 AST (`core/src/domain/rich-text.ts`; parser and renderers in `channel-sdk/src/richtext/`)
+
+> **Moved at `M1-T11`.** This section used to put the AST in `channel-sdk/src/richtext/ast.ts`,
+> next to the only code that builds or consumes it. But `02` §3.3.9 exports `RichTextSchema` from
+> `@comvivo/core/domain/rich-text`, because `messages.rich_text` is a column and
+> `packages/storage` may not depend on a channel package (`01` §4 as amended by A11). Two homes
+> for one type is the outcome worth avoiding, so the types **and** the schema live in `core` — it
+> is a pure data shape with no I/O — and `channel-sdk` imports them. The parser, which needs
+> `mdast-util-from-markdown`, stays in `channel-sdk` as described below.
+
 ```ts
 export type RichText = { v: 1; blocks: Block[] };
 export type Block =
@@ -732,7 +741,7 @@ Diagnostics are `{code, severity: 'blocking'|'degraded'|'advisory', params}`. Th
 
 ### 3.21 Adapters in depth
 
-#### 3.21.1 Telegram (`@village/channel-telegram`, reference adapter)
+#### 3.21.1 Telegram (`@comvivo/channel-telegram`, reference adapter)
 
 **Stack.**
 - `grammy@^1.46` supports Bot API 10.3 ([release](https://github.com/grammyjs/grammY/releases/tag/v1.46.0)).
@@ -829,7 +838,7 @@ Diagnostics are `{code, severity: 'blocking'|'degraded'|'advisory', params}`. Th
 - Guest mode (10.0): it lets the bot answer in chats it isn't in, which bypasses claiming. Hosts must not enable it.
 - Business and managed bots, inline mode, payments.
 
-#### 3.21.2 Discord (`@village/channel-discord`)
+#### 3.21.2 Discord (`@comvivo/channel-discord`)
 
 **Stack.** `discord.js@^14.28` ([npm](https://registry.npmjs.org/discord.js)), engines Node ≥18, API v10. v15 is unreleased as of 2026-11-01 (dev tags only). Plan the migration post-1.0.
 
@@ -888,7 +897,7 @@ Diagnostics are `{code, severity: 'blocking'|'degraded'|'advisory', params}`. Th
 
 **Watch item.** From 2026-11-16, Get Guild Channels omits channels the bot can't view ([changelog](https://docs.discord.com/developers/change-log)). The probe already relies on permissions, so no change is needed.
 
-#### 3.21.3 Slack (`@village/channel-slack`)
+#### 3.21.3 Slack (`@comvivo/channel-slack`)
 
 **Stack.** `@slack/bolt@^5.1` (Node ≥20; v5 dropped Node 18, [releases](https://github.com/slackapi/bolt-js/releases)) with `socketMode: true`:
 - `token: SLACK_BOT_TOKEN` (`xoxb-`) and `appToken: SLACK_APP_TOKEN` (`xapp-`, scope `connections:write`, [scope](https://docs.slack.dev/reference/scopes/connections.write));
@@ -949,7 +958,7 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
 - Slack's API ToS (effective 2025-10-10) applies to apps "offered for use outside your organization". It forbids training LLMs on API data and bulk export ([ToS](https://slack.com/terms-of-service/api)). Village never trains and is internal, so it is compliant.
 - Free workspaces are limited to 10 apps, and custom apps count ([Slack help](https://slack.com/help/articles/115002422943)). Docs (13) must say so.
 
-#### 3.21.4 Matrix (`@village/channel-matrix`, beta)
+#### 3.21.4 Matrix (`@comvivo/channel-matrix`, beta)
 
 **Library choice (CH-16).**
 - **`@vector-im/matrix-bot-sdk@0.10.1-element.0`**: engines Node ≥24, depends on `@matrix-org/matrix-sdk-crypto-nodejs ^0.6.6`, actively maintained by Element ([repo](https://github.com/element-hq/matrix-bot-sdk)). It is used by matrix-hookshot ([package.json](https://github.com/matrix-org/matrix-hookshot/blob/main/package.json)) and Draupnir.
@@ -1005,7 +1014,7 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
 
 **Polls** use the unstable `org.matrix.msc3381.*` types. MSC3381 is accepted but carries the labels `spec-pr-missing` and `blocked`, and spec v1.19 has no `m.poll` ([PR](https://github.com/matrix-org/matrix-spec-proposals/pull/3381)). Element renders them. Stable `m.poll.*` events are handled as aliases when they appear.
 
-#### 3.21.5 Signal (`@village/channel-signal`, experimental)
+#### 3.21.5 Signal (`@comvivo/channel-signal`, experimental)
 
 **Runtime.**
 - **signal-cli ≥ 0.14.9** (2026-10-07) runs as a separate process or container ([releases](https://github.com/AsamK/signal-cli/releases)):
@@ -1063,7 +1072,7 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
 - `rate limit` failures with `retryAfterSeconds` → `rate_limited`. *Proof-required* → health `captcha_required`; `village signal captcha` walks the host through `submitRateLimitChallenge` ([man](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc)).
 - Unregistered recipient → `user_unreachable`. Not a group member → `chat_access_lost`. Daemon unreachable → `transient` plus health `degraded`.
 
-#### 3.21.6 Web (`@village/channel-web`)
+#### 3.21.6 Web (`@comvivo/channel-web`)
 
 - **Transport:**
   - SSE `GET /api/chat/stream`;
@@ -1071,7 +1080,7 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
   - `POST /api/chat/interactions` with `{token}` → 204.
   - `POST /api/chat/conversations/:id/read` with `{platformMessageId}` → 204; the client reports its read cursor (debounced, ≤1 per 30 s), and the adapter emits `read_marker`.
   - These routes are exported by the package as a Hono sub-app, `createWebChatRoutes(deps)`, and mounted by `apps/server` behind 09's session and CSRF middleware. **History reads are 09's API**, served IFC-filtered by the engine.
-- **Identity:** `platformUserId = personId` from the session. M3 ships a dev-only bearer token (`VILLAGE_DEV_WEB_TOKEN`, refused when `NODE_ENV=production`) until 09's dashboard auth (pairing-code login by default, A9) lands in M9.
+- **Identity:** `platformUserId = personId` from the session. M3 ships a dev-only bearer token (`COMVIVO_DEV_WEB_TOKEN`, refused when `NODE_ENV=production`) until 09's dashboard auth (pairing-code login by default, A9) lands in M9.
 - **SSE events:** `message`, `message_edit`, `message_delete`, `reaction`, `typing`, `poll`, `ping` (every 15 s).
   - Event ids are monotonic per process.
   - A ring buffer keeps the last 500 events per conversation for `Last-Event-ID` resume. On a gap the client refetches history.
@@ -1079,7 +1088,7 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
 - **Conversations:** `dm:<personId>` for each member, plus optional group rooms `grp:<groupId>` (`web.groupRooms`, default off; on for demo instances). A web group room is a separate group conversation with audience = all group members. It is not a bridge.
 - **Capabilities:** everything, with `ephemeral: reliable`, `deliveryVerification: native-idempotent` and `maxMessageChars` 16 000.
 
-#### 3.21.7 Simulator (`@village/channel-simulator`)
+#### 3.21.7 Simulator (`@comvivo/channel-simulator`)
 
 - **Purpose:** deterministic tests, evals (11), and the in-browser demo (13).
 - `createSimulator({ profile: 'telegram'|'discord'|'slack'|'matrix'|'signal'|'web'|'ideal', clock: ManualClock, seed })` → `{ adapter, control }`.
@@ -1202,7 +1211,7 @@ Nothing to set up. Members sign in to the dashboard with a pairing code they app
 - The last-seen cursors per chat live in `ctx.state`.
 - **Clock sanity:** `sentAt` is the platform time. `receivedAt` is the local clock, recorded by ingestion. A skew over 5 min logs `warn clock_skew`.
 
-### 3.25 Adapter conformance kit (`@village/channel-sdk/testkit`)
+### 3.25 Adapter conformance kit (`@comvivo/channel-sdk/testkit`)
 
 **Harness.**
 ```ts
@@ -1262,7 +1271,7 @@ export function describeAdapterConformance<P extends FakePlatformControl>(
 
 **Fixtures.**
 - Layout: `fixtures/channels/<id>/{inbound,outbound,errors,probe}/*.json`, each `{meta:{platformVersion, recordedAt, source:'recorded'|'synthetic'}, raw|ast|request+response, expect}`.
-- **Recording:** `pnpm --filter @village/channel-<id> record` runs the real adapter against a test bot with `VILLAGE_RECORD_FIXTURES=1` and writes raw payloads through the **redactor**:
+- **Recording:** `pnpm --filter @comvivo/channel-<id> record` runs the real adapter against a test bot with `COMVIVO_RECORD_FIXTURES=1` and writes raw payloads through the **redactor**:
   - ids are remapped to stable fakes via HMAC with a per-repo salt;
   - names are replaced from a persona list;
   - tokens, URLs with signatures, phone numbers and emails are removed;
@@ -1274,12 +1283,12 @@ export function describeAdapterConformance<P extends FakePlatformControl>(
 
 ## 4. Interfaces
 
-### 4.1 `@village/channel-sdk` public API (`src/contract.ts`; normative)
+### 4.1 `@comvivo/channel-sdk` public API (`src/contract.ts`; normative)
 
 ```ts
-import type { Clock, Rng } from '@village/core/ports';
-import type { MemberId } from '@village/core';
-import type { Logger } from '@village/shared';
+import type { Clock, Rng } from '@comvivo/core/ports';
+import type { MemberId } from '@comvivo/core';
+import type { Logger } from '@comvivo/shared';
 import type { RichText } from './richtext/ast.js';
 import type { z } from 'zod';
 // Also exported from the SDK (shapes elided here): ChannelMetrics (counter/histogram facade, §8),
@@ -1525,7 +1534,7 @@ export const profiles: Record<'telegram' | 'discord' | 'slack' | 'matrix' | 'sig
 
 ## 5. Configuration
 
-### 5.1 `village.yaml` (`channels` section; zod schemas in each package, merged into the config reference in M9)
+### 5.1 `comvivo.yaml` (`channels` section; zod schemas in each package, merged into the config reference in M9)
 
 ```yaml
 channels:
@@ -1594,8 +1603,8 @@ channels:
 | `SLACK_BOT_TOKEN` (`xoxb-`), `SLACK_APP_TOKEN` (`xapp-`) | Slack |
 | `MATRIX_ACCESS_TOKEN`; the recovery key is in `data/keys/matrix-recovery.key` | Matrix |
 | none (signal-cli holds the account keys in its own data dir) | Signal |
-| `VILLAGE_DEV_WEB_TOKEN` (dev only) | Web |
-| `VILLAGE_IMAP_PASSWORD` (or `VILLAGE_IMAP_PASSWORD_FILE`; name per 08 §3.10 and 12 §3.3) | Email ingestion (spine `email.imap.*`, job `email.poll`, M11): the IMAP mailbox password. Host-only (01 §14 A14); never in the DB or `village.yaml`. On appliance installs it may be entered once via the setup page into `keys/secrets.enc` (01 §14 A29) |
+| `COMVIVO_DEV_WEB_TOKEN` (dev only) | Web |
+| `COMVIVO_IMAP_PASSWORD` (or `COMVIVO_IMAP_PASSWORD_FILE`; name per 08 §3.10 and 12 §3.3) | Email ingestion (spine `email.imap.*`, job `email.poll`, M11): the IMAP mailbox password. Host-only (01 §14 A14); never in the DB or `comvivo.yaml`. On appliance installs it may be entered once via the setup page into `keys/secrets.enc` (01 §14 A29) |
 
 **DB-persisted runtime settings** (dashboard-editable, spine ADR-014): per-group `replyInThread`, `nativePolls` and `observeReactions`. Nothing secret.
 
@@ -1703,7 +1712,7 @@ The permission integer is the sum of these bits ([permissions](https://docs.disc
   - A string serializer scrubs the regexes `bot\d+:[A-Za-z0-9_-]{30,}`, `xox[abp]-[A-Za-z0-9-]+`, `xapp-[A-Za-z0-9-]+`, Discord token shape `[\w-]{24,}\.[\w-]{6}\.[\w-]{27,}`, `syt_[A-Za-z0-9_]+`, and E.164 phone numbers.
   - Telegram file URLs (which contain the token) are never logged.
   - Conformance C22 enforces all of this.
-- **Content in logs:** none above `debug` (spine §11.7). `raw` payloads are kept only with `VILLAGE_DEBUG_CONTENT=1`.
+- **Content in logs:** none above `debug` (spine §11.7). `raw` payloads are kept only with `COMVIVO_DEBUG_CONTENT=1`.
 - **Unclaimed chats:** no persistence (CH-4). This minimizes data collected from people who never agreed to Village.
 - **Untrusted content:** forwarded and external-quote content, link previews and documents are flagged so ingestion labels them `untrusted` (03 injection defense). Adapters never interpret message text as instructions; the router does all intent handling.
 - **Markup injection:** every renderer escapes per §3.5.3, with an injection corpus test. Inputs include `</b><a href="javascript:…">`, `<!channel>`, `@everyone`, `<@123>`, `]( `, triple backticks, and RTL override characters. URL schemes are allowlisted. No mass mentions are ever produced.

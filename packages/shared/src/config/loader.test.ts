@@ -50,6 +50,55 @@ describe('defaultConfig', () => {
     expect(loaded.ok).toBe(true);
     if (loaded.ok) expect(loaded.value.config).toEqual(defaultConfig());
   });
+
+  it('defaults to the safe side of every choice a host would notice', () => {
+    // The assertion above is **circular**: `defaultConfig()` is `configSchema.parse({})` and so is
+    // the loader's own path, so both sides are the same expression and the equality can never
+    // fail. It is still worth keeping — it says the loader does not post-process a default away —
+    // but only once some defaults are pinned independently. Found by the M1 independent review.
+    //
+    // These are the ones where a silent flip is a privacy or safety change rather than a
+    // preference: encryption on, content logging off, retention bounded, nothing reaching a
+    // private network, and the dashboard not listening wide open.
+    const config = defaultConfig();
+    expect(config.privacy.encryptAtRest).toBe(true);
+    expect(config.logging.debugContent).toBe(false);
+    expect(config.logging.level).toBe('info');
+    expect(config.privacy.messageRetentionDays).toBe(90);
+    expect(config.privacy.maxMessageRetentionDays).toBe(365);
+    expect(config.privacy.logRetentionDays).toBe(14);
+    expect(config.privacy.localOnly).toBe(false);
+    expect(config.logging.file.enabled).toBe(false);
+
+    // The twenty-three top-level sections, pinned: a section added without a default would
+    // otherwise appear here with whatever zod inferred, and a section removed would take its
+    // defaults with it unnoticed.
+    expect(Object.keys(config)).toEqual([
+      'instance',
+      'models',
+      'embeddings',
+      'transcription',
+      'channels',
+      'email',
+      'dashboard',
+      'ics',
+      'privacy',
+      'traces',
+      'network',
+      'outbound',
+      'jobs',
+      'outbox',
+      'blobs',
+      'budgets',
+      'backups',
+      'security',
+      'plugins',
+      'mcp',
+      'logging',
+      'observability',
+      'updates',
+    ]);
+  });
 });
 
 describe('an empty instance', () => {
@@ -81,6 +130,7 @@ describe('reading the file', () => {
     const result = load({
       [CONFIG]: 'instance:\n  name: The Hendersons\ndashboard:\n  port: 8080\n',
     });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('The Hendersons');
       expect(result.value.config.dashboard.port).toBe(8080);
@@ -94,6 +144,24 @@ describe('reading the file', () => {
     const result = load({ [CONFIG]: 'dashbord:\n  port: 8080\n' });
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error[0]?.message).toContain('dashbord');
+  });
+
+  it.each([
+    ['one level down', 'network:\n  egres:\n    allowPrivate: []\n', 'egres'],
+    ['two levels down', 'network:\n  egress:\n    allowPrivte: ["nas.local:443"]\n', 'allowPrivte'],
+    ['three levels down', 'dashboard:\n  auth:\n    magicLinkz: https\n', 'magicLinkz'],
+    ['a privacy floor', 'privacy:\n  auditRetentionDayz: 3650\n', 'auditRetentionDayz'],
+  ])('rejects a typo %s, not only at the top level', (_label, yaml, typo) => {
+    // The defect this closes: `.strict()` was on the outermost object only, and zod 4's `z.object`
+    // **strips** unknown keys rather than refusing them — so every one of these was accepted and
+    // discarded. Each is a host changing a security or privacy setting and being told nothing:
+    // `allowPrivte` is an egress allowlist that does not exist, `magicLinkz` is a login mode that
+    // never takes effect, `auditRetentionDayz` is a retention floor that stays at its default.
+    const result = load({ [CONFIG]: yaml });
+    expect(result.ok, yaml).toBe(false);
+    if (!result.ok) {
+      expect(result.error.map((problem) => problem.message).join(' ')).toContain(typo);
+    }
   });
 
   it('rejects a value outside its range, naming the path', () => {
@@ -137,6 +205,7 @@ describe('reading the file', () => {
       [CONFIG]: 'instance:\n  name: Current\n',
       [legacy]: 'instance:\n  name: Old\n',
     });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('Current');
       expect(result.value.warnings).toEqual([]);
@@ -147,6 +216,7 @@ describe('reading the file', () => {
 describe('.env', () => {
   it('reads values from .env', () => {
     const result = load({ [ENV_FILE]: `${BRAND.envPrefix}LOGGING_LEVEL=debug\n` });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.logging.level).toBe('debug');
       expect(result.value.envFile).toBe(ENV_FILE);
@@ -158,6 +228,7 @@ describe('.env', () => {
       { [ENV_FILE]: `${BRAND.envPrefix}LOGGING_LEVEL=debug\n` },
       { [`${BRAND.envPrefix}LOGGING_LEVEL`]: 'warn' },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.level).toBe('warn');
   });
 
@@ -203,6 +274,7 @@ describe('.env', () => {
 describe('environment overrides', () => {
   it('coerces and applies a typed override', () => {
     const result = load({}, { [`${BRAND.envPrefix}DASHBOARD_PORT`]: '9999' });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.dashboard.port).toBe(9999);
       expect(result.value.origin.get('dashboard.port')).toBe('env');
@@ -214,6 +286,7 @@ describe('environment overrides', () => {
       { [CONFIG]: 'dashboard:\n  port: 8080\n' },
       { [`${BRAND.envPrefix}DASHBOARD_PORT`]: '9999' },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.dashboard.port).toBe(9999);
   });
 
@@ -245,6 +318,7 @@ describe('environment overrides', () => {
 describe('the database, and host-only keys', () => {
   it('applies a group-owned setting from the database', () => {
     const result = load({}, {}, { db: { instance: { name: 'Renamed in the dashboard' } } });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('Renamed in the dashboard');
       expect(result.value.origin.get('instance.name')).toBe('db');
@@ -268,6 +342,7 @@ describe('the database, and host-only keys', () => {
 
   it('ignores an attempt to turn off encryption from the database', () => {
     const result = load({}, {}, { db: { privacy: { encryptAtRest: false } } });
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.privacy.encryptAtRest).toBe(true);
       expect(result.value.rejectedHostOnlyFromDb).toContain('privacy.encryptAtRest');
@@ -276,6 +351,7 @@ describe('the database, and host-only keys', () => {
 
   it('ignores an attempt to enable content debug logging from the database', () => {
     const result = load({}, {}, { db: { logging: { debugContent: true } } });
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.debugContent).toBe(false);
   });
 
@@ -285,6 +361,7 @@ describe('the database, and host-only keys', () => {
       {},
       { db: { logging: { debugContent: false } } },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) expect(result.value.config.logging.debugContent).toBe(true);
   });
 
@@ -294,6 +371,7 @@ describe('the database, and host-only keys', () => {
       {},
       { db: { instance: { name: 'ok' }, logging: { debugContent: true } } },
     );
+    expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.value.config.instance.name).toBe('ok');
       expect(result.value.config.logging.debugContent).toBe(false);
@@ -309,15 +387,19 @@ describe('precedence, end to end', () => {
 
     expect(load({}).ok && load({}).ok).toBe(true);
     const def = load({});
+    expect(def.ok).toBe(true);
     if (def.ok) expect(def.value.config.logging.level).toBe('info');
 
     const fromYaml = load(yaml);
+    expect(fromYaml.ok).toBe(true);
     if (fromYaml.ok) expect(fromYaml.value.config.logging.level).toBe('error');
 
     const fromDb = load(yaml, {}, { db });
+    expect(fromDb.ok).toBe(true);
     if (fromDb.ok) expect(fromDb.value.config.logging.level).toBe('warn');
 
     const fromEnv = load(yaml, { [name]: 'debug' }, { db });
+    expect(fromEnv.ok).toBe(true);
     if (fromEnv.ok) expect(fromEnv.value.config.logging.level).toBe('debug');
   });
 });
@@ -355,7 +437,13 @@ describe('coerceEnvValue', () => {
     ['off', false],
   ])('reads %s as a boolean', (raw, expected) => {
     const result = coerceEnvValue(leafFor('privacy.encryptAtRest')!, raw);
-    expect(result.ok && result.value).toBe(expected);
+    // `expect(result.ok && result.value).toBe(expected)` passed the four `false` rows whether the
+    // coercion produced `false` **or failed outright** — `false && anything` is `false` either way.
+    // So half this table was asserting nothing about half its cases, and the setting it covers is
+    // `privacy.encryptAtRest`: a host writing `COMVIVO_PRIVACY_ENCRYPT_AT_REST=off` and a host
+    // writing a typo would have been indistinguishable here. Found by the M1 independent review.
+    expect(result.ok, `coercing ${raw} failed`).toBe(true);
+    expect(result.ok ? result.value : undefined).toBe(expected);
   });
 
   it('rejects a boolean it cannot read, and lists what it accepts', () => {

@@ -51,7 +51,11 @@ export {
 } from './config/precedence.js';
 export { type Config, configSchema, defaultConfig } from './config/schema.js';
 export {
+  CHILD_ENV_ALLOWLIST,
+  childEnv,
+  isSecretEnvName,
   isSecretName,
+  loadSecrets,
   type ResolvedSecret,
   resolveSecret,
   resolveSecrets,
@@ -59,6 +63,7 @@ export {
   type SecretIo,
   type SecretName,
   type SecretSource,
+  scrubSecretsFromEnv,
 } from './config/secrets.js';
 export {
   AppError,
@@ -68,10 +73,106 @@ export {
   type ErrorContext,
   IoError,
   isAppError,
+  STORAGE_ERROR_CODES,
+  StorageError,
+  type StorageErrorCode,
   TimeoutError,
   toAppError,
   ValidationError,
 } from './errors.js';
+// --- Ids, time and canonical JSON (M1-T3) ------------------------------------------------------
+export {
+  EXIT_CODES,
+  type ExitCode,
+  exitCodeFor,
+  exitCodeForStorageCode,
+} from './exit-codes.js';
+export { SystemRng, TypeIdGenerator } from './id-generator.js';
+export {
+  type AttachmentId,
+  type AuditId,
+  type CalendarSubscriptionId,
+  type ChannelIdentityId,
+  type ChatBindingId,
+  type ClaimCodeId,
+  type ConfirmationId,
+  type ConsentEventId,
+  type ConstitutionVersionId,
+  type ConstraintId,
+  type ConversationId,
+  type DecisionId,
+  type DeclassificationId,
+  type DelegationId,
+  type DeletionId,
+  type EmbeddingSpaceId,
+  type EntityId,
+  type EventId,
+  type ExportId,
+  type FeedbackId,
+  type GroupExtensionId,
+  type GroupId,
+  type IcsFeedTokenId,
+  ID_PREFIX,
+  type Id,
+  type IdEntity,
+  type IdError,
+  type IdErrorKind,
+  type IdPrefix,
+  type InstanceId,
+  type InteractionTokenId,
+  type InternedId,
+  type InviteCodeId,
+  idSchema,
+  internedId,
+  isId,
+  isValidPrefix,
+  type JobId,
+  type JobScheduleId,
+  KNOWN_PREFIXES,
+  type LabelId,
+  type LedgerEntryId,
+  type LinkCodeId,
+  type ListId,
+  type ListItemId,
+  type LoginTokenId,
+  type McpServerId,
+  type McpTokenId,
+  type MemberId,
+  type MemoryId,
+  type MessageId,
+  type OutboxId,
+  type PairingId,
+  type PersonId,
+  type PlanId,
+  type PlanStepId,
+  type PluginId,
+  type PluginVersionId,
+  type PollId,
+  type ProactiveCandidateId,
+  type ProposalId,
+  parseId,
+  prefixOf,
+  type ReaderSetId,
+  type ReminderFiringId,
+  type ReminderId,
+  type RotationId,
+  type SessionId,
+  type SkillId,
+  type StandingApprovalId,
+  type StepUpId,
+  type TaskId,
+  type TaskSwapId,
+  type TurnEffectId,
+  type TurnId,
+  type TurnTraceId,
+  type UsageId,
+  unwrapId,
+} from './ids.js';
+export {
+  type CanonicalValue,
+  canonicalJson,
+  canonicalJsonBytes,
+} from './json/canonical.js';
 // --- Logging (M0-T8) ---------------------------------------------------------------------------
 // Four layers protect `01` §11.7's "logs never contain message or memory content above debug":
 // the closed `LogFields` type, the content gate, depth-unlimited field stripping, and scrubbing.
@@ -102,7 +203,7 @@ export {
   toLoggedError,
 } from './logger/index.js';
 export type { Clock, TimerHandle, Timers } from './ports/clock.js';
-export type { IdGenerator, IdPrefix, TypedId } from './ports/ids.js';
+export type { IdGenerator } from './ports/ids.js';
 export type { Rng } from './ports/rng.js';
 export {
   all,
@@ -120,12 +221,73 @@ export {
 } from './result.js';
 // --- Secrets (M0-T8) ---------------------------------------------------------------------------
 export { isSecretString, REDACTED, SecretString, secret } from './secrets/index.js';
+export { SystemClock, SystemTimers, systemClock } from './time/clock.js';
+export {
+  instantSchema,
+  isStorableInstant,
+  MAX_INSTANT_EPOCH_MS,
+  parseInstant,
+} from './time/instant.js';
+export { nextFireAfter, type SchedulePattern } from './time/schedule.js';
+export {
+  isCanonicalTimeZoneId,
+  isTimeZoneId,
+  parseTimeZoneId,
+  type TimeZoneId,
+  timeZoneIdSchema,
+  UTC,
+} from './time/timezone.js';
+export {
+  CLAIM_CODE_PREFIX,
+  CLOCK_SKEW_SECONDS,
+  type CookieScope,
+  CSRF_HEADER,
+  CSRF_LABEL,
+  canonicalizeTypedCode,
+  MAGIC_LINK_TAG,
+  type MagicLinkPayload,
+  MagicLinkPayloadSchema,
+  type MagicLinkRejection,
+  MCP_ID_CHARS,
+  MCP_SECRET_BYTES,
+  MCP_TOKEN_PREFIX,
+  mintClaimCode,
+  mintMcpToken,
+  mintToken,
+  mintTypedCode,
+  type ParsedCode,
+  type ParsedMcpToken,
+  type ParsedToken,
+  parseClaimCode,
+  parseMcpToken,
+  parseToken,
+  parseTypedCode,
+  pendingCookieName,
+  sessionCookieName,
+  TOKEN_SHAPES,
+  type TokenKind,
+  type TokenMac,
+  type TokenRejection,
+  type TokenShape,
+  TYPED_CODE_CHARS,
+  tokenMac,
+} from './tokens/index.js';
+export {
+  COUNTER_BITS,
+  COUNTER_MAX,
+  isUuidV7,
+  MAX_MS,
+  type RandomBytes,
+  timestampOf,
+  UuidV7Source,
+} from './uuidv7.js';
 export {
   type Branded,
-  brandedId,
+  capped,
   describeIssues,
   type FormattedIssue,
   formatIssues,
   parse,
   parseOrThrow,
+  z,
 } from './zod.js';

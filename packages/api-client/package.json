@@ -22,7 +22,7 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
-    "test": "vitest run"
+    "test": "pnpm -w exec vitest run packages/api-client"
   },
   "devDependencies": {
     "vitest": "catalog:"

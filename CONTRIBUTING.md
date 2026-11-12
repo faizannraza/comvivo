@@ -24,8 +24,11 @@ This is the M0 skeleton. It gets its full form at M15; the outline is `13` §3.F
   request reviews.
 - **DCO, not a CLA.** Sign off every commit with `git commit -s`. That adds a
   `Signed-off-by:` line certifying you wrote the change or have the right to submit it
-  (<https://developercertificate.org>). The DCO app enforces it. There is no copyright assignment
-  and never will be.
+  (<https://developercertificate.org>). **Nothing enforces this automatically yet** — the DCO app
+  has to be installed by the repository owner, and it is not (owner ask `H-11` in
+  `docs/plan/STATUS.md`). A reviewer checks it by hand until then, so a pull request without
+  sign-off will be sent back rather than rejected by a bot. There is no copyright assignment and
+  never will be.
 - Everything is Apache-2.0.
 
 ## 3. Setup, in about five minutes
@@ -101,10 +104,15 @@ request. Three steps need a binary that is not an npm package — actionlint, sh
 and each reports itself as **skipped** when absent rather than as clean, so you can see what you
 are not covering. `brew install actionlint shellcheck vale` covers all three.
 
-Direct pushes to `main` are blocked. Open a pull request, wait for the checks, then add it to the
-merge queue and it merges itself. **Zero approvals are required today** — the project has one
-maintainer and GitHub does not let an author approve their own pull request — so your change is
-gated on the checks rather than on somebody being awake.
+Direct pushes to `main` are blocked. Open a pull request, wait for the checks, then merge it.
+**Zero approvals are required today** — the project has one maintainer and GitHub does not let an
+author approve their own pull request — so your change is gated on the checks rather than on
+somebody being awake.
+
+The **merge queue is configured but cannot be enabled**: GitHub does not offer it on a user-owned
+repository, so it waits on the organisation move (owner ask `H-6`). This file told you to "add it
+to the merge queue and it merges itself" until 2026-11-07, which was an instruction nobody could
+follow.
 
 [`docs/architecture/ci.md`](docs/architecture/ci.md) has the full picture: which checks block, why
 `ci-ok` is the only one branch protection names, and the merge-queue settings.

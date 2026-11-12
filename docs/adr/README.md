@@ -10,7 +10,7 @@ This directory holds one file per architecture decision. ADR-001 … ADR-023 are
 | [ADR-002](ADR-002-monorepo.md) | Monorepo tooling — pnpm workspaces, Turborepo, TS project references, tsdown | Accepted |
 | [ADR-003](ADR-003-lint-and-format.md) | Lint and format — Biome, plus typescript-eslint for type-aware rules only | Accepted |
 | [ADR-004](ADR-004-testing.md) | Testing stack — Vitest, fast-check, Playwright, `@village/evals` | Accepted |
-| [ADR-005](ADR-005-storage.md) | Storage — encrypted SQLite, Drizzle, FTS5, sqlite-vec | **Accepted (addendum pending SP-1)** |
+| [ADR-005](ADR-005-storage.md) | Storage — encrypted SQLite, Drizzle, FTS5, sqlite-vec | **Accepted** (SP-1/SP-3 addendum landed 2026-11-04) |
 | [ADR-006](ADR-006-llm-access.md) | LLM access — own `ModelGateway` port with native provider SDKs | Accepted |
 | [ADR-007](ADR-007-embeddings.md) | Embeddings — local by default via transformers.js; default model from SP-6 | **Accepted (addendum pending SP-6)** |
 | [ADR-008](ADR-008-http.md) | HTTP layer — Hono, `@hono/zod-openapi`, SSE | Accepted |

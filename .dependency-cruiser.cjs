@@ -34,9 +34,47 @@ const PLUGIN_SDK = '^packages/plugin-sdk/';
 const TOOLS = '^packages/tools/';
 const ANY_PACKAGE = '^packages/';
 
-/** Everything test-shaped. Used wherever a rule must not apply to tests. */
+/**
+ * Everything test-shaped. Used wherever a rule must not apply to tests.
+ *
+ * `/spike/` is in here for the same reason `/testing/` is: it is test apparatus, not product code.
+ * `02` M1-T2 defines `packages/storage/spike/` as the encryption spike's permanent regression
+ * suite, and its helper (`spike/open.ts`) transcribes `02` §3.6.2's pragma sequence and generates
+ * throwaway keys with `node:crypto` — which `crypto-only-in-shared-crypto-and-storage-crypto`
+ * correctly refused until this directory was classified.
+ *
+ * Classifying the directory rather than adding a third entry to `CRYPTO_ALLOWED` is deliberate:
+ * "cryptography lives in two reviewed modules" is a claim worth keeping exactly true, and
+ * threading a key through a helper's signature to satisfy a path regex is the kind of workaround
+ * that makes a guard look arbitrary. Nothing under `spike/` ships — `packages/storage`'s `files`
+ * list is `["dist"]`, and `tsconfig.json` includes only `src/`.
+ *
+ * A **package-root `bench/`** joins them at `M1-T33`, by the same argument and with the same
+ * evidence: `packages/storage/bench/` holds the fixture builder and the `dbstat` size reader
+ * beside the `*.bench.ts` files that were already test-shaped by suffix, it is outside
+ * `tsconfig.json`'s `include` so it cannot ship, and the fixture legitimately needs
+ * `applyMigrations`, `silentLogger` and `SeededRng` — three imports from a `testing` subpath that
+ * `testing-subpath-only-from-tests` rightly refused while the directory was unclassified. That
+ * refusal is also *why* `src/perf/seed.ts` takes an already-open database rather than opening one:
+ * the generator is production code and must not reach a `testing` subpath, so the test-shaped
+ * half of the pair opens the database and the production half fills it. Anchored to a package
+ * root, so a `bench` directory nested under `src` does not inherit the exemption by accident.
+ */
 const TEST_SHAPED =
-  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/__fixtures__/|^test/)';
+  '(\\.test\\.ts$|\\.bench\\.ts$|\\.scenario\\.ts$|/testing/|/spike/|^packages/[^/]+/bench/|/__fixtures__/|^test/)';
+
+/**
+ * Build tooling that sits at a package root rather than under `src/`.
+ *
+ * Two files, each named in full: `drizzle.config.ts` (drizzle-kit is a devDependency and the
+ * config imports it) and `vitest.mutation.config.ts` (`11` §3.1.5's Stryker runner needs a Vitest
+ * config of its own, and it imports `vitest/config`). Both sit outside every package's `files`
+ * list and outside its `tsconfig` `include`, so neither can ship. Named by exact filename rather
+ * than by a `*.config.ts` wildcard, because the point of `no-dev-dep-in-src` is that an exemption
+ * is a decision somebody made once and wrote down — a glob invites the next config file to inherit
+ * it silently, which is how the `apps/docs` exclusion disabled a working rule during M0.
+ */
+const PACKAGE_BUILD_TOOLING = '^packages/[^/]+/(drizzle|vitest\\.mutation)\\.config\\.ts$';
 
 /**
  * Packages that must stay runnable in a browser and free of platform APIs (`01` §4, A11). Their
@@ -64,9 +102,41 @@ const CHILD_PROCESS_ALLOWED =
 /**
  * The only callers allowed to reach memory **search** (`01` §14 A11, amending §4). Both must apply
  * the eligible-label filter, so widening this list silently widens who can read whose memories.
+ *
+ * `^packages/storage/src/search/` is the third entry and is **not** a widening of that: it is the
+ * directory that *implements* the port, and an implementation has to import the interface it
+ * implements. Measured at `M1-T18`, where the rule refused exactly that import. The sibling
+ * `UNFILTERED_CALLERS` below already carries `^packages/storage/src/` for the same reason, so this
+ * closes a gap between two rules of the same shape rather than opening one — and it is kept to the
+ * `search/` subtree, which is tighter than that precedent. Nothing above storage gains access:
+ * a module that wants to search still cannot import the port.
  */
-const MEMORY_SEARCH_CALLERS = '^packages/engine/src/(context|readmodels)/';
+const MEMORY_SEARCH_CALLERS =
+  '(^packages/engine/src/(context|readmodels)/|^packages/storage/src/search/)';
 const MEMORY_SEARCH_PORT = '^packages/core/src/ports/memory-search';
+
+/**
+ * The unfiltered reads (`02` §3.7.1, §3.14 "IFC enforcement in storage").
+ *
+ * Every labeled read takes a branded `EligibleLabelSet`, computed by core `canRead`, **except** a
+ * handful named `…Unfiltered` that deliberately bypass it: the tool executor needs them because it
+ * has already applied the requester's authority itself, and retention needs them because a sweep
+ * that could only see what somebody is allowed to read would leave the rest behind forever.
+ *
+ * `02` §3.7.1 asks for this as "a dependency-cruiser rule", and dependency-cruiser cannot see a
+ * **method name** — so the unfiltered reads get their own module instead, and the restriction is
+ * on the import edge, which is the thing a module graph can actually enforce. An ESLint rule bans
+ * the `…Unfiltered` call *shape* outside the same paths, so a method added to an ordinary
+ * interface by mistake is still caught. Two layers, because they fail differently: the import rule
+ * cannot be dodged by renaming a method, and the call rule cannot be dodged by re-exporting a
+ * module. See STATUS → Plan changes (2026-11-03).
+ *
+ * Widening either list widens who can read a family's data without a policy check, which is why
+ * both are named here rather than inline.
+ */
+const UNFILTERED_READS =
+  '^packages/(core/src/ports/storage/unfiltered|storage/src/repos/unfiltered/)';
+const UNFILTERED_CALLERS = '(^packages/engine/src/tools-executor/|^packages/storage/src/)';
 
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
@@ -96,7 +166,7 @@ module.exports = {
         'Production code may import only runtime dependencies. A devDependency that ships is a ' +
         'broken install for every user.',
       severity: 'error',
-      from: { path: '^(packages|apps)/', pathNot: TEST_SHAPED },
+      from: { path: '^(packages|apps)/', pathNot: `(${TEST_SHAPED}|${PACKAGE_BUILD_TOOLING})` },
       to: { dependencyTypes: ['npm-dev'] },
     },
 
@@ -203,6 +273,27 @@ module.exports = {
       severity: 'error',
       from: { path: PLUGIN_SDK, pathNot: TEST_SHAPED },
       to: { path: ANY_PACKAGE, pathNot: `(${PLUGIN_SDK}|${CORE}|${SHARED}|${CHANNEL_SDK})` },
+    },
+    {
+      name: 'engine-plugin-sdk-types-only',
+      comment:
+        'A11 says `engine` may import `plugin-sdk` **types**. A runtime value import pulls the ' +
+        'third-party SDK into the turn loop, which is the opposite of what the SDK is for: it is a ' +
+        "compatibility surface for other people's code, not a library the engine depends on. " +
+        'The allow-list rule above permitted any import, so the "types" half of A11 was a comment.',
+      severity: 'error',
+      from: { path: '^packages/engine/', pathNot: TEST_SHAPED },
+      to: { path: PLUGIN_SDK, dependencyTypesNot: ['type-only'] },
+    },
+    {
+      name: 'plugin-sdk-channel-sdk-types-only',
+      comment:
+        'A11 says `plugin-sdk` may import `channels/sdk` **types**. A value import would make the ' +
+        "channel SDK part of the plugin SDK's runtime surface, and therefore part of a semver " +
+        'promise to plugin authors that nobody decided to make.',
+      severity: 'error',
+      from: { path: PLUGIN_SDK, pathNot: TEST_SHAPED },
+      to: { path: CHANNEL_SDK, dependencyTypesNot: ['type-only'] },
     },
     {
       name: 'plugin-host-allowed-imports',
@@ -315,6 +406,18 @@ module.exports = {
       to: { path: MEMORY_SEARCH_PORT },
     },
 
+    {
+      name: 'unfiltered-reads-restricted-callers',
+      comment:
+        'Reads named `…Unfiltered` skip the eligible-label filter by design (`02` §3.7.1). Only ' +
+        "the tool executor — which has already applied the requester's authority — and storage " +
+        'internals, including the retention sweep, may reach them. Any other caller is a labeled ' +
+        'read with the label check removed, which is invariant I1 deleted in one import.',
+      severity: 'error',
+      from: { path: '^(packages|apps)/', pathNot: `(${UNFILTERED_CALLERS}|${TEST_SHAPED})` },
+      to: { path: UNFILTERED_READS },
+    },
+
     // --- Purity (01 §4, A11) -------------------------------------------------------------------
     {
       name: 'no-node-builtins-in-pure-packages',
@@ -348,6 +451,19 @@ module.exports = {
       severity: 'error',
       from: { path: '^(packages|apps)/', pathNot: `(${CRYPTO_ALLOWED}|${TEST_SHAPED})` },
       to: { path: '^(node:)?crypto$', dependencyTypes: ['core'] },
+    },
+    {
+      name: 'libsodium-only-in-shared-crypto-and-storage-crypto',
+      comment:
+        'The sibling rule above restricts `node:crypto` and stops there, so the other half of ' +
+        "this project's cryptography — libsodium — was unrestricted. `libsodium-wrappers` is a " +
+        'runtime dependency of `@comvivo/storage` with no importer under `src/`, which means any ' +
+        'storage module could have reached for secretstream directly and passed every rule. ' +
+        '`08` PSC-8 wants one place to review and one place to run known-answer tests against, ' +
+        'and that argument does not depend on which library the primitive comes from.',
+      severity: 'error',
+      from: { path: '^(packages|apps)/', pathNot: `(${CRYPTO_ALLOWED}|${TEST_SHAPED})` },
+      to: { path: 'node_modules/(libsodium-wrappers(-sumo)?|sodium-native)(/|$)' },
     },
     {
       name: 'child-process-only-in-sandbox-and-transcription',

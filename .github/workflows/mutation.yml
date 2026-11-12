@@ -1,0 +1,188 @@
+# Mutation testing for `@comvivo/core` (`11` §3.1.5).
+#
+# Coverage says a line ran. Mutation testing asks whether anything would have noticed if the line
+# were wrong, which is the question that matters for a package where the tests are the only thing
+# standing between an invariant and a silent breach. `M1-T34` ran it for the first time and the
+# answer was instructive: `src/ifc/eligible.ts` scored 87%, and two of the six survivors were
+# `every` → `some` — containment weakened to overlap, which is `I1` lost, with the suite green
+# either way. Both are now pinned by tests and the module is at 100%.
+#
+# ## Two configurations, because Stryker has one `break` threshold per run
+#
+# `packages/core/stryker.ifc-policy.config.json` mutates `src/{ifc,policy}` with `break: 75`;
+# `packages/core/stryker.config.json` mutates the rest of core with `break: 60` (`11` §3.1.5's
+# numbers). `src/policy` arrives at `M4`; until then that run covers IFC alone.
+#
+# ## What gates and what reports
+#
+# On a pull request the IFC and policy run **fails the job** when that code changed, and reports
+# without blocking otherwise — the rule in §3.1.5, implemented as two steps with opposite
+# conditions rather than a dynamic threshold, so the job's conclusion says exactly what happened.
+# The rest of core never blocks a pull request: a mutation score moves with unrelated refactors
+# often enough that gating it would train people to ignore the gate.
+#
+# The weekly run is the one with teeth: `--force` (incremental mode cannot see a dependency change,
+# §3.1.5), both thresholds enforced, reports kept for 90 days, and an issue filed for every
+# surviving mutant in IFC or policy.
+name: mutation
+
+on:
+  pull_request:
+    paths:
+      - "packages/core/**"
+      - "vitest.shared.ts"
+      - ".github/workflows/mutation.yml"
+  schedule:
+    # Mondays at 04:12 UTC. Off the hour, because every cron in the world fires on it and a
+    # delayed scheduled run is a run nobody sees.
+    - cron: "12 4 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: mutation-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  incremental:
+    name: mutation (pull request)
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          # The IFC check below diffs against the merge base, which needs the base branch.
+          fetch-depth: 0
+
+      - uses: ./.github/actions/setup
+
+      # Stryker's TypeScript checker typechecks `packages/core/tsconfig.json`, which resolves
+      # `@comvivo/shared` through a project reference into `packages/shared/dist`. On a clean
+      # checkout that does not exist, and every mutant fails to compile with *Cannot find module
+      # `@comvivo/shared`* — which is how the first CI run of this workflow failed. The same shape
+      # as the `tsconfig.scripts.json` defect found the hour before: a tool that works on a machine
+      # that has built, and not on one that has not.
+      - name: Build the type declarations Stryker's checker needs
+        run: pnpm -w exec tsc -b packages/core
+
+      # `11` §3.1.5: the previous incremental report comes from `main`, so only changed mutants and
+      # tests are re-run. A miss costs a full run, which is the current behaviour anyway.
+      - name: Restore the incremental report
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: reports/stryker-incremental-*.json
+          key: mutation-incremental-${{ github.sha }}
+          restore-keys: |
+            mutation-incremental-
+
+      - name: Did IFC or policy change?
+        id: scope
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          changed=$(git diff --name-only "$BASE...HEAD" -- \
+            packages/core/src/ifc packages/core/src/policy | wc -l)
+          if [ "$changed" -gt 0 ]; then
+            echo "ifc=true" >> "$GITHUB_OUTPUT"
+            echo "mutation: $changed file(s) under ifc/policy changed — the 75 break threshold gates this job." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ifc=false" >> "$GITHUB_OUTPUT"
+            echo "mutation: no ifc/policy change — both runs report without blocking." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: IFC and policy — gating
+        if: ${{ steps.scope.outputs.ifc == 'true' }}
+        run: pnpm exec stryker run packages/core/stryker.ifc-policy.config.json
+
+      - name: IFC and policy — report only
+        if: ${{ steps.scope.outputs.ifc != 'true' }}
+        continue-on-error: true
+        run: pnpm exec stryker run packages/core/stryker.ifc-policy.config.json
+
+      - name: The rest of core — report only
+        continue-on-error: true
+        run: pnpm exec stryker run packages/core/stryker.config.json
+
+      - name: Summarise
+        if: ${{ always() }}
+        run: pnpm exec tsx scripts/mutation/summary.ts >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: mutation-reports-pr
+          path: reports/mutation/
+          retention-days: 14
+          if-no-files-found: warn
+
+  full:
+    name: mutation (full)
+    if: ${{ github.event_name != 'pull_request' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      # One step needs it: filing an issue per surviving mutant in IFC or policy (`11` §3.1.5).
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # Stryker's TypeScript checker typechecks `packages/core/tsconfig.json`, which resolves
+      # `@comvivo/shared` through a project reference into `packages/shared/dist`. On a clean
+      # checkout that does not exist, and every mutant fails to compile with *Cannot find module
+      # `@comvivo/shared`* — which is how the first CI run of this workflow failed. The same shape
+      # as the `tsconfig.scripts.json` defect found the hour before: a tool that works on a machine
+      # that has built, and not on one that has not.
+      - name: Build the type declarations Stryker's checker needs
+        run: pnpm -w exec tsc -b packages/core
+
+      # `--force`: incremental mode does not detect a dependency change (`11` §3.1.5), so the
+      # weekly run is the one that would notice a test helper that stopped killing anything.
+      - name: IFC and policy
+        run: pnpm exec stryker run packages/core/stryker.ifc-policy.config.json --force
+
+      - name: The rest of core
+        run: pnpm exec stryker run packages/core/stryker.config.json --force
+
+      - name: Summarise
+        if: ${{ always() }}
+        run: pnpm exec tsx scripts/mutation/summary.ts >> "$GITHUB_STEP_SUMMARY"
+
+      # A surviving mutant in IFC or policy is a test gap in the code that enforces `I1`, so it
+      # gets an issue rather than a line in a log nobody reads. The script is idempotent: it
+      # searches for an open issue with the same title before opening one.
+      - name: File an issue for every IFC or policy survivor
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: pnpm exec tsx scripts/mutation/file-survivors.ts
+
+      - name: Save the incremental report for the next pull request
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ always() }}
+        with:
+          path: reports/stryker-incremental-*.json
+          key: mutation-incremental-${{ github.sha }}
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: mutation-reports
+          path: reports/mutation/
+          # Long enough to see a quarter's trend by hand, like `bench.yml`'s artefacts.
+          retention-days: 90
+          if-no-files-found: warn

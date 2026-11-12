@@ -1,7 +1,7 @@
 # 11 — Quality, Evals & Observability
 
 > Status: **draft for review**. Elaborates `00-vision-and-scope.md` (§7 success criteria) and `01-architecture.md` (ADR-004 Testing, ADR-013 Observability, invariants I1–I7, §11 Engineering standards, milestones M0–M15). Where this document needs a spine change, it says so in §12 and stays consistent with the spine until that change is merged.
-> Owns: the test strategy, the simulation harness (`@village/evals`), the eval suites and red-team, the LLM judges, CI pipelines, performance benchmarking, observability (logs, traces, metrics), the debug toolbox, quality gates per milestone, and the human evaluation protocol.
+> Owns: the test strategy, the simulation harness (`@comvivo/evals`), the eval suites and red-team, the LLM judges, CI pipelines, performance benchmarking, observability (logs, traces, metrics), the debug toolbox, quality gates per milestone, and the human evaluation protocol.
 > Third-party facts were verified on 2026-11-01. Sources are listed in §References and cited inline as [R#].
 
 ---
@@ -57,7 +57,7 @@ The method has three layers:
 | Q13 | Nightly cost | Static per-job budget shares, enforced by `EvalBudgetGuard` from live `UsageRecord`s. Default caps: **$20 nightly, $60 weekly, $150 release** (estimate in §8). Judges use the Batches API | Parallel jobs cannot share a counter; static shares are simple and robust. |
 | Q14 | Benchmarks | **Micro: Vitest 5 `bench` fixture** (built on Tinybench) in `*.bench.ts` [R15]. **Macro: in-house runner** (`perf_hooks.createHistogram`, child processes). Trends with **github-action-benchmark** `customSmallerIsBetter` [R16]. PR regressions by **interleaved A/B in one job** | No third-party service needed. A/B in the same runner cancels out hosted-runner noise. CodSpeed is an open question (§11). |
 | Q15 | Raspberry Pi 5 | A **manual release protocol is required**. A self-hosted runner is optional and locked down (selected-workflow runner group, ephemeral, schedule/dispatch triggers only) [R17][R18] | GitHub advises against self-hosted runners on public repos [R17]. |
-| Q16 | Logs | pino with a **typed field allowlist**, `redact` (remove), and a content gate (`log.content()` is a no-op unless `VILLAGE_DEBUG_CONTENT=1`). A **log canary test** runs across all scenarios [R19] | Enforced by construction and verified by test, not by reviewer vigilance. |
+| Q16 | Logs | pino with a **typed field allowlist**, `redact` (remove), and a content gate (`log.content()` is a no-op unless `COMVIVO_DEBUG_CONTENT=1`). A **log canary test** runs across all scenarios [R19] | Enforced by construction and verified by test, not by reviewer vigilance. |
 | Q17 | Tracing | OTel, hand-instrumented to the **GenAI semantic conventions** (status **Development**; now in a separate repo) [R20][R21][R22]. Names live in one pinned constants module. **Content attributes are never emitted.** HTTP auto-instrumentation is off because Telegram bot tokens appear in URLs | Development-status conventions change, so names are isolated in one place. Privacy outranks completeness of the conventions. |
 | Q18 | Metrics | An internal `Metrics` facade. An **optional Prometheus `/metrics`** endpoint (prom-client), off by default, available on loopback or with a bearer token; no per-member labels | Self-hosters run Prometheus and Grafana. Off by default per principle 5. |
 | Q19 | TurnTrace retention | Traces kept **30 days** by default (`traces.retentionDays`, 7–365). Traces hold manifests (ids, labels, hashes, counts, timings), **never content**. Model I/O capture is **opt-in**, kept ≤7 days (max 30), encrypted, and labeled with the context join | A 30-day "why?" window covers the recent-question case at minimum retention; hosts who want a longer window raise it (up to message retention is useful, since "why?" also needs the cited messages). Capturing model I/O is sensitive. |
@@ -87,7 +87,7 @@ The method has three layers:
 Rules:
 - **No network in L1–L4.** A global Vitest setup installs an undici `MockAgent` with `disableNetConnect()` (only `127.0.0.1` and `localhost` are allowed) and patches `net.connect` to throw on non-loopback hosts. Live tests are tagged `live` and run only in L6 workflows.
 - **No sleeps.** `setTimeout`-based waits are banned in tests (lint). Use `VirtualClock.advance()` or `await settle()`.
-- Engine integration tests use the **real storage layer** on a test DB. Mocking repositories is forbidden outside `core` unit tests. Core uses in-memory port fakes from `@village/core/testing`.
+- Engine integration tests use the **real storage layer** on a test DB. Mocking repositories is forbidden outside `core` unit tests. Core uses in-memory port fakes from `@comvivo/core/testing`.
 
 #### 3.1.2 Naming and folder conventions
 
@@ -99,7 +99,7 @@ packages/<pkg>/src/foo.int.test.ts        # integration (L2)
 packages/<pkg>/src/foo.contract.test.ts   # contract (L3)
 packages/<pkg>/src/foo.bench.ts           # micro benchmark (vitest bench)
 packages/<pkg>/src/__fixtures__/…         # small fixtures local to the module
-packages/<pkg>/src/testing/…              # test doubles exported as `@village/<pkg>/testing`
+packages/<pkg>/src/testing/…              # test doubles exported as `@comvivo/<pkg>/testing`
 packages/evals/scenarios/<suite>/<name>.scenario.ts     # hand-written scenarios (TS)
 packages/evals/scenarios/golden/__golden__/<id>.md      # golden transcripts (§3.5)
 fixtures/platforms/<channel>/{inbound,outbound}/<case>.json (+ .expected.json)
@@ -112,14 +112,14 @@ fixtures/media/{pdf,images,voice,email}/…                # multimodal and inje
 ```
 - `describe` names the unit. Test names are behavior sentences: `it('denies a child deleting a parent-owned event')`.
 - One behavior per test; arrange–act–assert. Shared builders live in `testing/`, not in copy-pasted setup blocks.
-- `@village/<pkg>/testing` subpath exports hold test doubles. dependency-cruiser forbids importing `*/testing` from non-test code, with one exception: `apps/server/src/test-mode/**` (§4.6).
+- `@comvivo/<pkg>/testing` subpath exports hold test doubles. dependency-cruiser forbids importing `*/testing` from non-test code, with one exception: `apps/server/src/test-mode/**` (§4.6).
 - `.only`, `.skip` without an issue link, and `it.todo` are rejected on `main` (lint).
 
 #### 3.1.3 Vitest configuration
 
-- `vitest.config.ts` at the root declares `test.projects`: `unit`, `integration`, `contract`, `scenario`, `bench` (Vitest 5 benchmark project) and `dashboard` (jsdom). Each package has a `vitest.config.ts` that merges `vitest.shared.ts`. Turborepo runs the per-package `test` tasks so caching works.
+- `vitest.config.ts` at the root declares `test.projects`: `unit`, `integration`, `contract`, `scenario` and `dashboard` (jsdom). **Amended 2026-11-07** (M0 independent review): there is no `bench` project — Vitest 5.0.5 ships no usable `bench` API, so benchmarks are deferred to `M1-T32` (logged at `M0-T3`) — and there are **no per-package `vitest.config.ts` files**. One root config with projects is the whole arrangement: a per-package config that merges `vitest.shared.ts` would have to restate the project each file belongs to, which is the thing the root projects already decide. Turborepo caches the root `test` task.
 - Pools: `threads` for `core` and `shared`, which are pure and also what Stryker requires. `forks` for anything that loads native modules (better-sqlite3-multiple-ciphers, sqlite-vec, onnxruntime).
-- Environment is pinned in `vitest.setup.ts` and in CI: `TZ=UTC`, `LANG=C.UTF-8`, `VILLAGE_TEST_MODE=1`, `NODE_OPTIONS=--enable-source-maps`. Unhandled rejections and unexpected `console.error` fail the test.
+- Environment is pinned in `vitest.setup.ts` and in CI: `TZ=UTC`, `LANG=C.UTF-8`, `COMVIVO_TEST_MODE=1`, `NODE_OPTIONS=--enable-source-maps`. Unhandled rejections and unexpected `console.error` fail the test.
 - Tags (Vitest ≥4.1, enforced as strict tags) [R3]: `prop`, `db`, `slow` (timeout 30 s), `live` (retry 2, transport errors only), `chaos`, `flaky` (quarantine), `pi`, `golden`. CI filters use `--tags-filter`, for example `--tags-filter="!flaky && !live"`.
 - Reporters: `default` locally; in CI `junit` (for the GitHub test summary), `blob` (shard merge) and `json`.
 - Sharding: `unit` runs as 3 shards with `--shard=i/3`. Coverage merges with `vitest --merge-reports`.
@@ -149,13 +149,20 @@ fixtures/media/{pdf,images,voice,email}/…                # multimodal and inje
 - Two configs, because Stryker has one `break` threshold per run: `packages/core/stryker.ifc-policy.config.json` (`mutate: ["src/{ifc,policy}/**/*.ts", …]`, `break: 75`) and `packages/core/stryker.config.json` (the rest of core, `break: 60`). Both use `testRunner: "vitest"`, `checkers: ["typescript"]`, `vitest.configFile`, `vitest.related: true`, `incremental: true`, an `incrementalFile` under `reports/`, `thresholds: { high: 85, low: 75 }`, and exclude `!src/**/*.test.ts` and `!src/testing/**` [R6][R7].
 - **PR** (`mutation.yml`, path filter `packages/core/**`): incremental run. The previous incremental report is restored from the `main` cache, and only changed mutants and tests are re-run [R7]. The job is required **only** when `core/ifc/**` or `core/policy/**` changed (break = 75). Elsewhere it reports without blocking.
 - **Weekly**: a full run with `--force`. Targets: `core/ifc` and `core/policy` ≥ **80** (break 75); rest of core ≥ 70 (break 60). Surviving mutants in IFC or policy auto-file issues labeled `mutation-survivor`.
-- Known limitations [R6][R7]: Vitest browser mode is unsupported (core does not use it). Incremental mode does not detect dependency changes, so the weekly `--force` run covers that.
+- **Implemented at `M1-T34` on Stryker 10.1.1**, with four mechanical details the section could not have known and one measured result:
+  - **Stryker runs from the repository root**, with both configs still living in `packages/core/`. Its sandbox is a copy of the directory it runs in, and a run from `packages/core/` cannot reach `vitest.shared.ts` two levels up — so the `mutate`, `tsconfigFile` and `vitest.configFile` paths are repo-relative, and `tempDirName` puts each run's sandbox under `.stryker-tmp/` (gitignored, and ignored by Biome and ESLint: linting mutated source reports every mutant as a lint error).
+  - **`plugins` must be named explicitly.** Stryker's default plugin glob is `node_modules/@stryker-mutator/*`, which pnpm's symlinked store does not satisfy; without the array the run fails with *Cannot find Checker plugin "typescript"* after loading the test runner, which reads like a missing dependency rather than a resolution rule.
+  - **`vitest.configFile` is `packages/core/vitest.mutation.config.ts`, not the root config**, which defines five projects: pointing at it would make every mutant discover the integration and scenario tiers. The dedicated config inherits `vitest.shared.ts` and includes `packages/core/src/**/*.test.ts` only — 25 files, 388 tests, 1.1 s.
+  - **The three devDependencies live at the root**, because the binary has to be on the root `node_modules/.bin` for `pnpm run mutation` to find it.
+  - **Measured**: `src/ifc/eligible.ts` **100%** (40 killed, 0 survived; break 75, §3.9's target 80) and the rest of core **70.62%** (697 killed, 270 survived; break 60, target 70). Both in about two minutes on an Apple M1. `scripts/mutation/summary.ts` writes the job summary and `scripts/mutation/file-survivors.ts` files the issues.
+- **What the first run found, which is the argument for the whole technique.** `eligible.ts` scored 87.23% and two of its six survivors were `every` → `some` — containment weakened to overlap, in `canRead`. That is `I1` deleted, and the suite was green either way, because every existing case compared sets that either matched exactly or were disjoint, and for those the two operators agree. Partial overlap is the case that separates them. Three of the remaining four were equivalent mutants and are annotated as such with a reason (`// Stryker disable next-line <Mutator>: <why>`); the fourth, a `requested.length === 0` early return, was removed outright — `[].every(…)` already returns `true`, so the branch could not change an answer, and an unkillable mutant is usually a sign of code that does nothing.
+- Known limitations [R6][R7]: Vitest browser mode is unsupported (core does not use it). Incremental mode does not detect dependency changes, so the weekly `--force` run covers that. Static mutants dominate the cost — 897 of core's 1,342 are module-level (67%), estimated at 98% of the run time — and `ignoreStatic` is deliberately **off**: core's module level is where its zod schemas live, and a schema bound nothing checks is exactly the gap `M1-T34` found in `error-info.ts`.
 - M13 evaluates extending mutation testing to the engine IFC modules (`context`, `guard`, `declassifier`). They need DB-backed tests, and Stryker's `vitest.related` and `threads` constraints may make that too slow. Open question §11.
 
 #### 3.1.6 Property-based testing policy
 
 - **Mandatory** (01 §11.5) for: `core/ifc` (`canRead`, `join`, `checkWrite`: lattice laws, monotonicity, intersection semantics), `core/policy` (deny-by-default, role monotonicity, child restrictions, conflict strategies), fairness (load bounds, no starvation), time (DST transitions, recurrence expansion, quiet hours across timezones), the job queue (model-based), the outbox (model-based, exactly-once intent), and the rich-text renderers (escaping is total: no input breaks markup).
-- World generators live in `@village/evals/arbitraries` (`arbGroup`, `arbConstitution`, `arbLabel`, `arbAudience`, `arbMemorySet`, `arbZonedDateTime` weighted towards DST edges). `03` writes the properties; `11` supplies the generators and the runner.
+- World generators live in `@comvivo/evals/arbitraries` (`arbGroup`, `arbConstitution`, `arbLabel`, `arbAudience`, `arbMemorySet`, `arbZonedDateTime` weighted towards DST edges). `03` writes the properties; `11` supplies the generators and the runner.
 - Run counts: default `numRuns: 100`; `core/ifc`, `core/policy` and fairness use **500 in PRs** and **20,000 nightly** (`FC_NUM_RUNS`, fresh `FC_SEED`, the seed is logged). The helper `fcConfig()` reads `FC_SEED` and `FC_PATH` for replay.
 - **Regression promotion.** Every failing counterexample found by CI is added to that property's `examples:` list, so it re-runs on every PR forever.
 - Model-based: `fc.commands` with `asyncModelRun` for the queue and outbox; `scheduledModelRun` for actor/outbox interleavings. Replay uses `{seed, path}` plus `replayPath` [R5].
@@ -163,11 +170,11 @@ fixtures/media/{pdf,images,voice,email}/…                # multimodal and inje
 #### 3.1.7 Deterministic time, randomness and IDs
 
 ```ts
-// @village/core ports (spine §4): Clock, IdGenerator, Rng.
+// @comvivo/core ports (spine §4): Clock, IdGenerator, Rng.
 // The engine adds Timers so worker and scheduler loops are drivable.
 export interface Timers { setTimeout(fn: () => void, ms: number): TimerHandle; clearTimeout(h: TimerHandle): void; }
 
-// @village/shared/testing
+// @comvivo/shared/testing
 export class VirtualClock implements Clock, Timers {
   constructor(start: Temporal.Instant);
   now(): Temporal.Instant;
@@ -189,7 +196,7 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
 
 #### 3.1.8 Database tests
 
-- `@village/storage/testing`:
+- `@comvivo/storage/testing`:
   - `createTestDb({ encrypted?: boolean; seed?: (db) => void })`. On first call in a Vitest worker it opens `:memory:`, loads sqlite-vec, runs all drizzle migrations and `serialize()`s the result to a buffer. Each call then returns `new Database(templateBuffer)` [R8], re-loads extensions and applies pragmas (`foreign_keys=ON`). Target: < 5 ms per DB.
   - `createTmpDbFile()` returns a file-backed WAL database in `os.tmpdir()/village-test-<worker>-<n>/`, deleted in `afterEach`. Use it for WAL behavior, `SQLITE_BUSY` and lock contention, backup (`VACUUM INTO`) and crash tests.
 - **Encryption**: off by default in L1–L4 for speed. The `integration:encrypted` project re-runs the storage and engine integration suites with encryption on, along whichever ADR-005 path the M1 spike selects.
@@ -226,7 +233,7 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
 
 - Snapshots are allowed **only for rich-text renderers**: `packages/channels/sdk/src/render/**`, each adapter's `render*.test.ts`, and an adapter's `render/` **directory** (added at `M0-T10`: an adapter with several renderers organises them in a folder, and the allowlist is about where renderers live rather than how their files are named). Use `toMatchFileSnapshot` with a real file extension (`.telegram.html`, `.discord.md`, `.slack.mrkdwn`) so reviewers read diffs as rendered markup; `.snap` is refused even inside the allowlist, because it is the thing being replaced.
 - Everywhere else, assert explicit fields. `scripts/check-snapshot-policy.ts` fails CI on `toMatchSnapshot`, `toMatchInlineSnapshot` or `toMatchFileSnapshot` outside the allowed globs.
-- Snapshots are updated locally with `-u` and need CODEOWNERS approval (`@village/channels`). CI never writes snapshots; a missing snapshot fails.
+- Snapshots are updated locally with `-u` and need CODEOWNERS approval (`@comvivo/channels`). CI never writes snapshots; a missing snapshot fails.
 - Golden transcripts (§3.5) are a separate, curated mechanism with normalized IDs. They are not Vitest snapshots.
 
 #### 3.1.11 Flake policy
@@ -241,13 +248,13 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
   - **Quarantine is forbidden** for tests under `core/{ifc,policy}`, `engine/{context,guard,declassifier,tools-executor}`, for chaos oracles and for red-team suites. A flaky test there is treated as a possible real nondeterminism bug: it blocks the merge queue until fixed.
 - **Prevention rules**: no real timers; unique temp dirs; port `0`; no module-level mutable state; no ordering dependence (enforced by shuffle); the network guard (§3.1.1).
 
-### 3.2 Simulation harness (`@village/evals`)
+### 3.2 Simulation harness (`@comvivo/evals`)
 
 #### 3.2.1 Architecture
 
 ```mermaid
 flowchart LR
-  subgraph H["@village/evals harness"]
+  subgraph H["@comvivo/evals harness"]
     SPEC[ScenarioSpec IR] --> RUN[ScenarioRunner]
     RUN --> GF[GroupFactory]
     RUN --> DRV[SimDriver + PersonaAgents]
@@ -256,7 +263,7 @@ flowchart LR
     RUN --> REP[Reporters: JSON · JUnit · HTML]
     BG[EvalBudgetGuard] -.-> RUN
   end
-  subgraph SUT["Village — composeVillage(ports) (same function apps/server uses)"]
+  subgraph SUT["Village — composeComvivo(ports) (same function apps/server uses)"]
     SIM[channel-simulator] --> ING[ingest] --> ACT[actors] --> ENG[router · turn · tools · guard] --> OB[outbox] --> SIM
     ENG --> MG[ModelGateway]
     ENG & ING --> DB[(test SQLite)]
@@ -268,10 +275,10 @@ flowchart LR
   ORC -. reads .- LED & DB & TR[TurnTraces · captured logs · in-memory spans · API probes]
 ```
 
-- **One composition function.** `apps/server` exports `composeVillage(ports: VillagePorts): Village`. The harness calls it with test ports: clock, timers, rng, ids, model gateway, channels, storage, crashpoints, log sink, span exporter and metrics registry. Production calls it with real ports. The harness never re-wires internals, so test wiring cannot drift from production (§12).
+- **One composition function.** `apps/server` exports `composeComvivo(ports: ComvivoPorts): Village`. The harness calls it with test ports: clock, timers, rng, ids, model gateway, channels, storage, crashpoints, log sink, span exporter and metrics registry. Production calls it with real ports. The harness never re-wires internals, so test wiring cannot drift from production (§12).
 - **Two modes.**
   - **In-process** (default; L4 and live evals): everything runs in one Node process, driven by virtual time.
-  - **Process mode** (chaos, Playwright, ZAP, container smoke): the real `village start` runs as a child process with `VILLAGE_TEST_MODE=1`. The simulator channel uses its remote transport to reach `SimPlatformServer` in the harness process, and the model adapter points at `FakeProviderServer` or a live provider.
+  - **Process mode** (chaos, Playwright, ZAP, container smoke): the real `village start` runs as a child process with `COMVIVO_TEST_MODE=1`. The simulator channel uses its remote transport to reach `SimPlatformServer` in the harness process, and the model adapter points at `FakeProviderServer` or a live provider.
 
 #### 3.2.2 World, settle and fast-forward semantics
 
@@ -310,13 +317,13 @@ const w = await World.create({
 
 | Double | Lives in | Behavior | Used by |
 |---|---|---|---|
-| `FakeModelGateway` | `@village/models/testing` | Dispatches by route. Synthesizes `usage` (configurable token counts and cost), adds virtual latency, injects `refusal`, `max_tokens`, `pause_turn` and typed errors | base for all doubles |
-| `ScriptedModel` | `@village/models/testing` | Responses keyed by `(route, turnOrdinal, callOrdinal)` or by a matcher function. Fails loudly when the script runs out | feature scenarios, golden journeys |
-| `LeakyModel` | `@village/evals` | **Worst case for discretion.** `chat` echoes every text block in its context and calls *every* tool, with arguments built from context strings (titles, list items, poll options, reminders). `declassify` returns raw private text in every field. `guard` always returns `pass`. `route` always says respond or interject. `extract` emits label fields | S1 deterministic, twins |
-| `GreedyToolModel` | `@village/evals` | **Worst case for authority.** Calls every mutating tool on every visible entity, adds forged parameters (`actingAs`, `memberId` of someone else, extra properties) and replays confirmations | S2 deterministic |
-| `GullibleModel` | `@village/evals` | **Worst case for injection.** Executes machine-readable intents embedded in untrusted fixtures (`x-intent` blocks) as tool calls and styles its reply as the payload demands | S3 deterministic |
-| `CassetteModel` | `@village/models/testing` | Replays recorded live responses keyed by `sha256(canonical(ModelTurnRequest))`, with IDs and times normalized. Strict mode: a miss fails | golden journeys (recorded), replay `recorded` mode |
-| Live | `@village/models` adapters | Real providers through presets | nightly, weekly, release |
+| `FakeModelGateway` | `@comvivo/models/testing` | Dispatches by route. Synthesizes `usage` (configurable token counts and cost), adds virtual latency, injects `refusal`, `max_tokens`, `pause_turn` and typed errors | base for all doubles |
+| `ScriptedModel` | `@comvivo/models/testing` | Responses keyed by `(route, turnOrdinal, callOrdinal)` or by a matcher function. Fails loudly when the script runs out | feature scenarios, golden journeys |
+| `LeakyModel` | `@comvivo/evals` | **Worst case for discretion.** `chat` echoes every text block in its context and calls *every* tool, with arguments built from context strings (titles, list items, poll options, reminders). `declassify` returns raw private text in every field. `guard` always returns `pass`. `route` always says respond or interject. `extract` emits label fields | S1 deterministic, twins |
+| `GreedyToolModel` | `@comvivo/evals` | **Worst case for authority.** Calls every mutating tool on every visible entity, adds forged parameters (`actingAs`, `memberId` of someone else, extra properties) and replays confirmations | S2 deterministic |
+| `GullibleModel` | `@comvivo/evals` | **Worst case for injection.** Executes machine-readable intents embedded in untrusted fixtures (`x-intent` blocks) as tool calls and styles its reply as the payload demands | S3 deterministic |
+| `CassetteModel` | `@comvivo/models/testing` | Replays recorded live responses keyed by `sha256(canonical(ModelTurnRequest))`, with IDs and times normalized. Strict mode: a miss fails | golden journeys (recorded), replay `recorded` mode |
+| Live | `@comvivo/models` adapters | Real providers through presets | nightly, weekly, release |
 
 Cassettes are recorded only on purpose (`pnpm evals:record <scenario>`, maintainer, live keys) and are reviewed like code. Charter or prompt edits invalidate them by design. Deterministic PR suites therefore rely on Scripted and worst-case doubles, which are independent of prompt text.
 
@@ -487,7 +494,7 @@ Steps: `say`, `dm`, `reply`, `edit`, `forward` (sets `untrusted`), `attach` (pdf
 8. "Why did Village say this?" trace views (`traces.read.own` and `traces.read.group`).
 9. Error messages returned to users.
 
-**Host-level surfaces** must contain no canary from any member: log output at all levels (with `VILLAGE_DEBUG_CONTENT` unset), OTel spans and events (in-memory exporter), metric label values, and `doctor --bundle` output.
+**Host-level surfaces** must contain no canary from any member: log output at all levels (with `COMVIVO_DEBUG_CONTENT` unset), OTel spans and events (in-memory exporter), metric label values, and `doctor --bundle` output.
 
 #### 3.4.3 Noninterference twins
 
@@ -528,7 +535,7 @@ Judge configuration is in §3.7.
 
 ### 3.5 Deterministic replay and golden transcripts
 
-**Replay** (`village eval replay <turnId>`) requires the TurnTrace additions in §12: `contextHash`, `promptVersion`, `toolCatalogHash`, `constitutionVersionId`, `codeVersion`, `modelCalls[].requestHash`, `otelTraceId`. Engine support comes from a `TurnReplayer` service in `@village/engine` (`05`). The CLI calls it through `apps/server`, so the production CLI does not depend on `@village/evals`. Replay never writes to the live DB and never sends: it runs against a `VACUUM INTO` sandbox copy with the simulator channel substituted.
+**Replay** (`village eval replay <turnId>`) requires the TurnTrace additions in §12: `contextHash`, `promptVersion`, `toolCatalogHash`, `constitutionVersionId`, `codeVersion`, `modelCalls[].requestHash`, `otelTraceId`. Engine support comes from a `TurnReplayer` service in `@comvivo/engine` (`05`). The CLI calls it through `apps/server`, so the production CLI does not depend on `@comvivo/evals`. Replay never writes to the live DB and never sends: it runs against a `VACUUM INTO` sandbox copy with the simulator channel substituted.
 
 | Mode | Needs | Does | Output |
 |---|---|---|---|
@@ -550,13 +557,13 @@ Judge configuration is in §3.7.
 - a child approval;
 - the morning brief.
 
-Each runs with Scripted or Cassette doubles. Its full multi-conversation transcript is normalized (`<grp#1>`, `<mem#3>`, virtual timestamps) and stored as Markdown in `packages/evals/scenarios/golden/__golden__/<id>.md`. Updating one requires `pnpm golden:update <id>` and a `@village/quality` CODEOWNERS review. On failure CI prints a unified diff in the job summary. Golden journeys never use live models. The in-browser demo (`13`) reuses three of them, so the demo stays deterministic.
+Each runs with Scripted or Cassette doubles. Its full multi-conversation transcript is normalized (`<grp#1>`, `<mem#3>`, virtual timestamps) and stored as Markdown in `packages/evals/scenarios/golden/__golden__/<id>.md`. Updating one requires `pnpm golden:update <id>` and a `@comvivo/quality` CODEOWNERS review. On failure CI prints a unified diff in the job summary. Golden journeys never use live models. The in-browser demo (`13`) reuses three of them, so the demo stays deterministic.
 
 ### 3.6 Eval suites
 
 **Shared conventions.**
 - Each suite has a `manifest.ts` (`id`, `dataset`, `size`, `metrics`, `tiers`, `presets`).
-- All thresholds live in one file, `packages/evals/src/thresholds.ts`, with zod validation and `@village/quality` CODEOWNERS. Every threshold change records its rationale in `docs/architecture/quality-thresholds.md`.
+- All thresholds live in one file, `packages/evals/src/thresholds.ts`, with zod validation and `@comvivo/quality` CODEOWNERS. Every threshold change records its rationale in `docs/architecture/quality-thresholds.md`.
 - Statistics:
   - proportions: Wilson 95% intervals;
   - means and F1: 2,000-resample bootstrap;
@@ -825,7 +832,7 @@ on:
   push: { branches: [main] }
 permissions: { contents: read }
 concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: ${{ github.event_name == 'pull_request' }} }
-env: { TZ: UTC, VILLAGE_TEST_MODE: '1', TURBO_TELEMETRY_DISABLED: '1' }
+env: { TZ: UTC, COMVIVO_TEST_MODE: '1', TURBO_TELEMETRY_DISABLED: '1' }
 jobs:
   static:      # biome ci · tsc -b · typescript-eslint (type-aware subset) · dependency-cruiser · snapshot-policy · scenario lint · changeset check
   unit:        # strategy.matrix.shard: [1,2,3] → vitest run --project unit --shard … --coverage --reporter=blob
@@ -898,7 +905,7 @@ jobs:
 - **Fork safety.** Live workflows never trigger on `pull_request` or `pull_request_target`. Fork PRs receive no secrets except `GITHUB_TOKEN` [R13]. `pull_request_target` is banned repo-wide, enforced by a lint over `.github/workflows` [R12].
 - **Environments** [R14]:
   - `evals-live`: deployment branches = `main` only. Secrets `ANTHROPIC_API_KEY_EVALS`, `OPENAI_API_KEY_EVALS`. Used by schedules.
-  - `evals-live-manual`: required reviewers (≥1 of `@village/maintainers`), "prevent self-review" on. Used for `workflow_dispatch` on in-repo branches *after code review*, because that code runs with the keys.
+  - `evals-live-manual`: required reviewers (≥1 of `@comvivo/maintainers`), "prevent self-review" on. Used for `workflow_dispatch` on in-repo branches *after code review*, because that code runs with the keys.
   - `platform-contract`: test-bot tokens; `main` only.
   - `quality-publish`: a deploy key scoped to the quality repo; `main` only.
 - **Hardening:**
@@ -936,14 +943,17 @@ Docker build, image scan and SBOM (CycloneDX) jobs belong to `12` and `08`. `qua
 | µ | Micro: `canRead`/`join`, `authorize`, renderers, canary detector, token estimate, RRULE expansion | `vitest bench` | synthetic | trend only | — |
 
 #### 3.9.2 Tooling decision
-- **Micro:** the **Vitest 5 `bench` fixture** inside `test()`, in `*.bench.ts` files, run with `vitest bench`. It uses Tinybench, `bench.compare` (interleaved) and `writeResult` JSON [R15].
-- **Macro:** `packages/evals/src/perf/` uses `perf_hooks.createHistogram()` for percentiles, `process.memoryUsage().rss`, and child processes for B5 and B6. Each benchmark runs a warm-up, then N iterations, then 5 repetitions, and reports the median of the repetitions.
-- Both emit `BenchResult[]` (§4.5). A converter writes **github-action-benchmark** `customSmallerIsBetter` JSON (`name`, `unit`, `value`, `range`, `extra`) [R16].
+- **One harness, not two** (amended in `M1-T32`). The Vitest `bench` fixture this section named **does not exist**: re-verified on Vitest 5.0.5 at implementation time — `bench` is not exported from `vitest`, `vitest/runtime` or `vitest/node`, is not injected as a global with `globals: true`, and there is no `@vitest/bench` package. The deciding reason is the second one, though, and it would hold even if the API existed: every budget in §3.9.1 and `01` §11.10 is a **percentile over a realistic workload**, and a micro-benchmark runner reports ops/s over a tight loop. So `packages/evals/src/perf/` is the harness for both tiers.
+- **The protocol:** `perf_hooks.createHistogram()` for percentiles (an HDR histogram, so memory is bounded whatever N is), `process.memoryUsage().rss` for B6, and child processes for B5 and B6. Each benchmark runs a warm-up, then N iterations, then 5 repetitions, and reports the **median of the repetitions** — the warm-up because V8 tiers up, the histogram because the budgets are p95s, and the median of five because it is the cheapest statistic that survives one noisy neighbour on a shared runner.
+- **A benchmark is a value.** A `*.bench.ts` file default-exports an array of `defineBench({…})`, and `pnpm bench` (`scripts/bench/run.ts`) discovers, runs and records them. A definition that is a value can be imported by a test and run with `scale: 0.01`, which is how the harness itself is tested; one that registered through a global could not be. `BenchOptions.env` and `BenchOptions.gitSha` are **required**, because a result that cannot say which machine and which commit produced it is a point on a chart nobody can attribute — and the commit is resolved by the CLI, since reading it means spawning git and `08` PSC-8 does not allow the library to.
+- **A budget lives on the benchmark** (added in `M1-T33`). `BenchDefinition.budget` is the number in this section's table or `02` §3.16.4's, in the row's own unit, and it travels into the `BenchResult` — so `.bench/results.json` carries the pair a reader needs, the terminal and job-summary tables show the share of budget used, and there is no second table to drift from the code. Direction follows the unit: `ops/s` is a floor, everything else a ceiling, which is the same inversion `toGab` applies. `pnpm bench --gate` exits non-zero on a miss and is **opt-in**, matching §3.9.3: a trend run prints the miss, a release gate fails on it. A row with no budget is a trend row, which is what the µ line is.
+- Both emit `BenchResult[]` (§4.5). A converter writes **github-action-benchmark** `customSmallerIsBetter` JSON (`name`, `unit`, `value`, `range`, `extra`) [R16]. **A throughput result is inverted** on the way out: `customSmallerIsBetter` means what it says, and B4 is jobs per second, so a pass-through would have the dashboard congratulate a throughput collapse and alert on an improvement. `ops/s` becomes `ms/op` — lossless, named in the entry's `extra`, and on the same dashboard as everything else.
 
 #### 3.9.3 Tracking and regression thresholds
-- **Main** (`bench.yml` on push): runs on `ubuntu-24.04` and `ubuntu-24.04-arm` and stores results with github-action-benchmark in the quality repo (`dev/bench`). Settings: `alert-threshold: '125%'`, `comment-on-alert: true`, `fail-on-alert: false`; an alert opens a `perf-regression` issue.
+- **Main** (`bench.yml` on push): runs on `ubuntu-24.04` and `ubuntu-24.04-arm` and stores results with github-action-benchmark in the quality repo (`dev/bench`). Settings: `alert-threshold: '125%'`, `comment-on-alert: true`, `fail-on-alert: false`; an alert opens a `perf-regression` issue. **The store waits on the `comvivo` organisation** (owner ask H-6), so `M1-T32`'s workflow does everything that does not need it — runs the suite on both architectures, writes the JSON, puts the table in the job summary, and keeps the artefact for 90 days. Every run before the store exists is already in the format it will take.
 - **PRs**, with a path filter: an **interleaved A/B** in one job. The runner builds the merge base and the head and alternates their runs ×10. The job **fails** if any macro metric is slower by more than **15%** and the 95% bootstrap interval of the ratio excludes 1.0. It warns from 7%. Running both builds on the same runner cancels most hosted-runner noise.
-- **Release:** absolute budgets (§3.9.1) on the reference runners are hard gates. The Pi budgets are gated through the Pi attestation.
+- **Release:** absolute budgets (§3.9.1) on the reference runners are hard gates — `pnpm bench --gate`, which reads the budget each benchmark declares (§3.9.2). The Pi budgets are gated through the Pi attestation.
+- **What a gate is worth, measured.** `M1-T33` turned `02` §3.16.4's budgets on and the first gated run failed one row — `hydrate` at 16.8 ms against 15 ms on the `knn-50k` profile, a row that passed on the larger fixture. The cause was a query plan that flips with the *number of labels a group has*, so the slow plan landed on small groups; `docs/architecture/storage-benchmarks.md` carries the measurements. A budget nothing checks would have found it at a user's install instead.
 
 #### 3.9.4 Raspberry Pi 5
 - **Required: manual protocol** at every release candidate from M13. A script, `village bench --profile pi --out pi-<version>.json`, runs it.
@@ -980,7 +990,7 @@ Docker build, image scan and SBOM (CycloneDX) jobs belong to `12` and `08`. `qua
 
 **Field allowlist by type.** The logger API is `log.info(event: LogEvent, fields: LogFields, msg?: string)`. `LogFields` is a closed TypeScript interface containing only the fields above plus per-event typed extras (`events.ts`). Content-bearing values (`text`, `content`, `prompt`, `messages`, `richText`, `raw`, `body`, `args`, `result`) have **no field in the type**.
 
-**Content gate.** `log.content(event, payload)` is a no-op unless `VILLAGE_DEBUG_CONTENT=1`. When enabled, it writes at `debug` with `content: true`, prints a startup warning banner (01 §11.7), and **never writes to the log file**, only to stdout.
+**Content gate.** `log.content(event, payload)` is a no-op unless `COMVIVO_DEBUG_CONTENT=1`. When enabled, it writes at `debug` with `content: true`, prints a startup warning banner (01 §11.7), and **never writes to the log file**, only to stdout.
 
 **Redaction** is defense in depth [R19]. pino `redact` with `remove: true` covers:
 - `*.token`, `*.apiKey`, `*.password`, `*.secret`, `*.authorization`, `*.cookie`, `headers.*`;
@@ -1047,8 +1057,8 @@ Spans:
 #### 3.10.3 Metrics (optional Prometheus `/metrics`)
 
 **Decision: yes, optional and off by default.**
-- An internal `Metrics` facade lives in `@village/shared/observability`. Backends: noop (default), **prom-client** (for `/metrics`), and OTel metrics (OTLP, when OTel is enabled).
-- The endpoint is served on the dashboard listener at `/metrics` (never on the ingress listener; there is no separate metrics port). It answers loopback requests, or requests carrying `Authorization: Bearer $VILLAGE_METRICS_TOKEN`; anything else gets 404. In Docker, Prometheus outside the container must use the token.
+- An internal `Metrics` facade lives in `@comvivo/shared/observability`. Backends: noop (default), **prom-client** (for `/metrics`), and OTel metrics (OTLP, when OTel is enabled).
+- The endpoint is served on the dashboard listener at `/metrics` (never on the ingress listener; there is no separate metrics port). It answers loopback requests, or requests carrying `Authorization: Bearer $COMVIVO_METRICS_TOKEN`; anything else gets 404. In Docker, Prometheus outside the container must use the token.
 - Labels never carry member IDs, conversation IDs or content. A `group` label appears only when `metrics.perGroupLabels: true`.
 - Default process metrics come from `collectDefaultMetrics` (RSS, heap, event-loop lag).
 
@@ -1121,8 +1131,8 @@ Spans:
 | backups | per 09 `backups.recent` (last success < 36 h); restore test of the newest snapshot (`--deep`) |
 | budgets | per-group state, and days remaining at the current burn rate |
 | observability | OTel endpoint reachable if enabled; `/metrics` protected if enabled |
-| debug flags | warns if `VILLAGE_DEBUG_CONTENT=1` or `traces.captureModelIO` is on |
-| test mode | **fails** if `VILLAGE_TEST_MODE=1` outside a test data dir |
+| debug flags | warns if `COMVIVO_DEBUG_CONTENT=1` or `traces.captureModelIO` is on |
+| test mode | **fails** if `COMVIVO_TEST_MODE=1` outside a test data dir |
 
 - **`village doctor --bundle [path]`** writes `village-diagnostics-<ts>.tar.gz`, which the host attaches to issues voluntarily. Nothing is uploaded. Contents:
   - the doctor JSON;
@@ -1221,7 +1231,7 @@ Method per 01 §14 A22 (it replaces "3 fresh users" in 00 §7): **≥ 40 fresh-u
 
 These are normative sketches; implementations refine them but do not contradict them. All types are zod-validated at the edges (ADR-010).
 
-### 4.1 Scenario IR (`@village/evals/dsl`)
+### 4.1 Scenario IR (`@comvivo/evals/dsl`)
 ```ts
 export type SuiteId = 'feature' | 'discretion' | 'authority' | 'injection' | 'extraction' | 'retrieval'
   | 'proactivity' | 'fairness' | 'quality' | 'cost-latency' | 'chaos' | 'golden';
@@ -1302,7 +1312,7 @@ export type PersonaAction =
   | { kind: 'vote'; poll: PollRef; options: number[] } | { kind: 'press'; button: ButtonRef }
   | { kind: 'mute'; in: ConvRef } | { kind: 'wait'; for: string } | { kind: 'stay_silent' };
 
-// @village/models/testing
+// @comvivo/models/testing
 export interface ScriptedModelScript {
   routes: Partial<Record<ModelRoute, ScriptedResponse[] | ((req: ModelTurnRequest, ctx: ScriptCtx) => ScriptedResponse)>>;
   onExhausted?: 'fail' | 'repeat-last';
@@ -1312,18 +1322,18 @@ export function canonicalRequestHash(req: ModelTurnRequest): string;            
 
 ### 4.3 Test-mode hooks (production code; inert unless test mode)
 ```ts
-// @village/core/ports — implemented as NoopCrashpoints in production wiring
+// @comvivo/core/ports — implemented as NoopCrashpoints in production wiring
 export type CrashpointName =
   | 'turn.after_effect_commit' | 'turn.before_reply_commit' | 'outbox.after_commit_before_send'
   | 'outbox.after_send_before_ack' | 'job.after_lease' | 'job.before_complete'
   | 'reminder.after_mark_fired' | 'backup.mid_vacuum' | 'migration.mid';
 export interface Crashpoints { hit(name: CrashpointName): void; }
 ```
-- `apps/server/src/test-mode/` (the only non-test code allowed to import `*/testing`) wires `EnvCrashpoints` (plan from `VILLAGE_CRASHPOINTS=<name>@<n>` → `process.kill(process.pid,'SIGKILL')` on the n-th hit), `OffsetClock`, simulator remote transport, FakeProviderServer base URLs, and loopback-only routes:
+- `apps/server/src/test-mode/` (the only non-test code allowed to import `*/testing`) wires `EnvCrashpoints` (plan from `COMVIVO_CRASHPOINTS=<name>@<n>` → `process.kill(process.pid,'SIGKILL')` on the n-th hit), `OffsetClock`, simulator remote transport, FakeProviderServer base URLs, and loopback-only routes:
   - `POST /__test/session {memberRef}` → session cookie (Playwright, ZAP, API probes)
   - `POST /__test/clock {offsetMs}`; `POST /__test/crashpoints {plan}`; `GET /__test/ready`
 - **Guards:** test mode refuses to start if any channel other than simulator or web is enabled; if `models.preset` is not `fake` and `--allow-live` was not passed (live evals in process mode pass it); or if the data dir's DB lacks the test-mode marker (a reserved `PRAGMA application_id` value). `village doctor` fails when test mode runs outside such a DB.
-- **Sabotage for meta-tests is never in production code**: the harness wraps ports (`SabotagedInformationFlow`, `AllowAllPolicyEngine`, `PassThroughGuard`, `RankBeforeFilterRetriever`) via `composeVillage(ports)` (§9).
+- **Sabotage for meta-tests is never in production code**: the harness wraps ports (`SabotagedInformationFlow`, `AllowAllPolicyEngine`, `PassThroughGuard`, `RankBeforeFilterRetriever`) via `composeComvivo(ports)` (§9).
 
 ### 4.4 Results (`EvalRunResult`, JSON, versioned)
 ```ts
@@ -1358,13 +1368,13 @@ export interface BenchResult {
 
 ### 4.6 Observability
 ```ts
-// @village/shared/logger
+// @comvivo/shared/logger
 export interface VillageLogger {
   fatal: LogFn; error: LogFn; warn: LogFn; info: LogFn; debug: LogFn; trace: LogFn;   // type LogFn = (event: LogEvent, fields?: LogFields, msg?: string) => void
   child(bindings: Pick<LogFields, 'component' | 'groupId' | 'conversationId' | 'turnId' | 'jobId' | 'jobKind' | 'channel'>): VillageLogger;
-  content(event: LogEvent, payload: Record<string, unknown>): void;   // no-op unless VILLAGE_DEBUG_CONTENT=1
+  content(event: LogEvent, payload: Record<string, unknown>): void;   // no-op unless COMVIVO_DEBUG_CONTENT=1
 }
-// @village/shared/observability
+// @comvivo/shared/observability
 export interface Metrics {
   counter(name: MetricName, labels?: readonly string[]): { inc(l?: Labels, v?: number): void };
   histogram(name: MetricName, labels?: readonly string[], buckets?: number[]): { observe(l: Labels | undefined, v: number): void };
@@ -1379,7 +1389,7 @@ export const GENAI = { pinnedCommit: '<sha>', OPERATION: 'gen_ai.operation.name'
 ### 4.7 CLI surface (owned UX in `09`; semantics here)
 | Command | Purpose |
 |---|---|
-| `village eval run [--suite s] [--scenario glob] [--tier t] [--preset p \| --matrix file] [--live] [--seed n] [--budget-usd n] [--reps n] [--out dir] [--reporter json,junit,html]` | Run suites. Dynamically imports `@village/evals`; prints install hint if absent (§12) |
+| `village eval run [--suite s] [--scenario glob] [--tier t] [--preset p \| --matrix file] [--live] [--seed n] [--budget-usd n] [--reps n] [--out dir] [--reporter json,junit,html]` | Run suites. Dynamically imports `@comvivo/evals`; prints install hint if absent (§12) |
 | `village eval replay <turnId> [--mode structural\|recorded\|live] [--json] [--explain] [--show-content]` | §3.5 (engine `TurnReplayer`; no evals dependency) |
 | `village eval lint [paths]` · `village eval generate redteam --suite s --catalog <03 file> --seed n --out dir` | DSL lint; scenario generation |
 | `village eval calibrate <judge> [--labels file]` · `village eval label <judge>` · `village eval triage <run> <finding> --verdict … --reason …` | Judge calibration and triage |
@@ -1398,7 +1408,7 @@ export const GENAI = { pinnedCommit: '<sha>', OPERATION: 'gen_ai.operation.name'
 
 ## 5. Configuration
 
-`village.yaml` additions (zod-validated; precedence per ADR-014):
+`comvivo.yaml` additions (zod-validated; precedence per ADR-014):
 ```yaml
 logging:
   level: info                  # fatal|error|warn|info|debug|trace
@@ -1412,7 +1422,7 @@ observability:
     sampleRatio: 1.0
     exportMetrics: false                  # OTLP metrics in addition to /metrics
   metrics:
-    prometheus: { enabled: false, path: /metrics, perGroupLabels: false }   # token: env VILLAGE_METRICS_TOKEN
+    prometheus: { enabled: false, path: /metrics, perGroupLabels: false }   # token: env COMVIVO_METRICS_TOKEN
 traces:
   retentionDays: 30                       # 7–365; manifests only, never content
   captureModelIO: false                   # opt-in; enables replay --mode recorded
@@ -1427,16 +1437,16 @@ Environment variables:
 
 | Variable | Scope | Meaning |
 |---|---|---|
-| `VILLAGE_DEBUG_CONTENT=1` | runtime | Enables `log.content()` at debug, stdout only; startup banner |
-| `VILLAGE_METRICS_TOKEN` | runtime | Bearer token for non-loopback `/metrics` |
-| `VILLAGE_TEST_MODE=1` | test only | Test-mode composition and `/__test/*` routes (§4.3 guards) |
-| `VILLAGE_CRASHPOINTS` | test only | Crash plan, e.g. `outbox.after_send_before_ack@3` |
+| `COMVIVO_DEBUG_CONTENT=1` | runtime | Enables `log.content()` at debug, stdout only; startup banner |
+| `COMVIVO_METRICS_TOKEN` | runtime | Bearer token for non-loopback `/metrics` |
+| `COMVIVO_TEST_MODE=1` | test only | Test-mode composition and `/__test/*` routes (§4.3 guards) |
+| `COMVIVO_CRASHPOINTS` | test only | Crash plan, e.g. `outbox.after_send_before_ack@3` |
 | `FC_SEED`, `FC_PATH`, `FC_NUM_RUNS` | tests | fast-check replay and run counts |
 | `EVALS_BUDGET_USD`, `EVALS_SEED`, `EVALS_ROTATION`, `EVALS_JUDGE_<ID>_MODEL` | evals | Budget share, seed, rotation modulus, judge overrides |
 | `ANTHROPIC_API_KEY_EVALS`, `OPENAI_API_KEY_EVALS` | CI env only | Mapped to provider keys inside eval jobs |
 | `OLLAMA_BASE_URL` | evals | Local preset endpoint in CI |
 
-Eval configuration lives in code, not YAML: `packages/evals/src/{thresholds.ts, matrix.ts, budgets.ts}` (CODEOWNERS `@village/quality`).
+Eval configuration lives in code, not YAML: `packages/evals/src/{thresholds.ts, matrix.ts, budgets.ts}` (CODEOWNERS `@comvivo/quality`).
 
 ---
 
@@ -1512,7 +1522,7 @@ The shares bind. Rotation sizes are tuned in M8 from measured `UsageRecord` data
 
 The harness is software that makes safety claims; it gets its own tests.
 
-1. **Sabotage meta-tests (eval sensitivity).** For each guarantee, a harness-side broken port is injected via `composeVillage(ports)` and the relevant suite **must fail**:
+1. **Sabotage meta-tests (eval sensitivity).** For each guarantee, a harness-side broken port is injected via `composeComvivo(ports)` and the relevant suite **must fail**:
    - `SabotagedInformationFlow(skip: 'dm' | 'sensitivity' | 'group-boundary')` → S1 deterministic must report leaks in ≥95% of categories that exercise that path; twins must diverge.
    - `RankBeforeFilterRetriever` (top-k before IFC filter) → twin divergence detected (no canary needed).
    - `PassThroughGuard` + `SabotagedContextBuilder(inject: privateItem)` → guard recall suite fails (proves guard tests aren't vacuous).
@@ -1544,7 +1554,7 @@ Task IDs are local to this document; `14-milestones.md` references them as `11:<
 - **M0-T4 CI workflow.** Files: `.github/workflows/ci.yml`, `.github/actions/setup/action.yml` (composite: checkout, pnpm, node 26 with a `node24` leg, install, turbo cache). AC: `static`, `unit` (3 shards), `integration`, `coverage`, `build`, `ci-ok` aggregator; `merge_group` trigger; SHA-pinned actions; `permissions: contents: read`; job summary output; p50 ≤12 min on the M0 codebase.
 - **M0-T5 Logger.** Files: `packages/shared/src/logger/{index,fields,events,redact,scrub,ring-buffer}.ts`. AC: typed `LogFields` allowlist (content fields fail typecheck — `@ts-expect-error` test); redact paths removed; `content()` no-op without env; error scrubbing removes URL paths/tokens; ring buffer; file rotation; unit-level canary test.
 - **M0-T6 Observability skeleton.** Files: `packages/shared/src/observability/{metrics,tracer,semconv-genai}.ts`. AC: noop backends by default; lazy OTel import; `GENAI` constants with pinned commit; unit tests for attribute builders (Anthropic input-token sum rule).
-- **M0-T7 Branch protection & docs.** Files: `CONTRIBUTING.md` (testing, flake policy, conventions), `docs/architecture/ci.md`, `.github/CODEOWNERS` (`@village/quality` on `packages/evals/src/{thresholds,judges}/**`, `__golden__/**`). AC: merge queue configured as §3.8.3; required checks set; documented.
+- **M0-T7 Branch protection & docs.** Files: `CONTRIBUTING.md` (testing, flake policy, conventions), `docs/architecture/ci.md`, `.github/CODEOWNERS` (`@comvivo/quality` on `packages/evals/src/{thresholds,judges}/**`, `__golden__/**`). AC: merge queue configured as §3.8.3; required checks set; documented.
 
 ### M1 — Storage
 - **M1-T1 Storage test kit.** Files: `packages/storage/src/testing/{test-db,tmp-db,domain-state}.ts`. AC: `createTestDb` ≤5 ms/clone after template; sqlite-vec loaded per clone; encrypted variant; `exportDomainState(groupId)` canonical JSON (with `02`). Deps: 02 schema/migrations.
@@ -1561,7 +1571,7 @@ Task IDs are local to this document; `14-milestones.md` references them as `11:<
 - **M2-T5 Live smoke + budget guard v0.** Files: `.github/workflows/live-smoke.yml`, `packages/evals/src/budget/{guard,prices}.ts`. AC: manual dispatch under `evals-live-manual`; runs 5 scenarios on Anthropic/OpenAI/Ollama; guard stops at budget; prices table versioned with source date.
 
 ### M3 — Channels, simulator, Telegram, ingestion, outbox
-- **M3-T1 Harness core.** Files: `packages/evals/src/harness/{world,group-factory,settle,job-driver,ledger,member-view}.ts`; `apps/server/src/compose.ts` exports `composeVillage(ports)` (with 05/09). AC: §3.2.2 semantics; 30-day fast-forward family world ≤5 s; `SettleDidNotConverge` diagnostics; multi-group worlds. Deps: 02 job step API, 06 simulator in-memory transport.
+- **M3-T1 Harness core.** Files: `packages/evals/src/harness/{world,group-factory,settle,job-driver,ledger,member-view}.ts`; `apps/server/src/compose.ts` exports `composeComvivo(ports)` (with 05/09). AC: §3.2.2 semantics; 30-day fast-forward family world ≤5 s; `SettleDidNotConverge` diagnostics; multi-group worlds. Deps: 02 job step API, 06 simulator in-memory transport.
 - **M3-T2 Scenario DSL v1 (TS).** Files: `packages/evals/src/dsl/{spec,builders,runner,expectations,vitest-adapter}.ts`, `packages/evals/scenarios/feature/*.scenario.ts`. AC: zod IR; TS builders; expectations `message/noMessage/state/policy/guard/budget/invariants(I5,I6)`; each scenario = one Vitest test in `scenario` project; ≥15 feature scenarios.
 - **M3-T3 Process mode + chaos-lite (outbox).** Files: `packages/evals/src/chaos/{sim-platform-server,process-supervisor,fault-plan,offset-clock}.ts`, `apps/server/src/test-mode/**`, `Crashpoints` port + outbox/turn crashpoint calls (with 05/02). AC: outbox crashpoints × 1 seed + 20 random kills → 0 duplicates, I7 holds; test-mode guards (§4.3) tested. Deps: 06 remote transport.
 - **M3-T4 Telegram contract + renderers.** Files: `fixtures/platforms/telegram/**`, `packages/channels/telegram/src/*.contract.test.ts`, renderer file snapshots, `scripts/record-fixtures.ts` with `ScrubPolicy`. AC: §3.1.9 five properties; gitleaks scan on fixtures. Deps: 06.
@@ -1670,10 +1680,10 @@ Task IDs are local to this document; `14-milestones.md` references them as `11:<
 ## 12. Proposed spine changes
 
 1. **TurnTrace fields for replay (01 §5).** Add `contextHash`, `promptVersion` (hash of charter + layer templates), `toolCatalogHash`, `constitutionVersionId`, `codeVersion`, `modelCalls[].requestHash`, `otelTraceId`. *Rationale:* structural replay and drift diagnosis (§3.5) without storing content. **→ Accepted, owned here** (field list; 05 generates `TurnTrace` and 02 owns the columns per 01 §14 A7).
-2. **Composition as a function (01 §3, apps/server).** `apps/server` exports `composeVillage(ports: VillagePorts)`; production and harness use the same function. *Rationale:* prevents test/prod wiring drift; enables sabotage meta-tests without production flags. **→ Resolved: 01 §14 A15.**
-3. **`*/testing` subpath exports + dependency rule (01 §4).** Each package may export `@village/<pkg>/testing`; only test files and `apps/server/src/test-mode/**` may import them. *Rationale:* shared doubles without leaking into production bundles. **→ Accepted, owned here** (dependency-cruiser rule in M0-T3; enforcement owner per 01 §14 A11).
+2. **Composition as a function (01 §3, apps/server).** `apps/server` exports `composeComvivo(ports: ComvivoPorts)`; production and harness use the same function. *Rationale:* prevents test/prod wiring drift; enables sabotage meta-tests without production flags. **→ Resolved: 01 §14 A15.**
+3. **`*/testing` subpath exports + dependency rule (01 §4).** Each package may export `@comvivo/<pkg>/testing`; only test files and `apps/server/src/test-mode/**` may import them. *Rationale:* shared doubles without leaking into production bundles. **→ Accepted, owned here** (dependency-cruiser rule in M0-T3; enforcement owner per 01 §14 A11).
 4. **`Crashpoints` and `Timers` ports (01 §4 / core ports).** Add `Crashpoints` (no-op in production) and an engine `Timers` port so loops are drivable by virtual time; the job queue exposes a deterministic step API (`runReady(now)`). *Rationale:* chaos at precise points; whole-system fast-forward. **→ Resolved: 01 §14 A15** (`Crashpoints`); the `Timers` port and `runReady(now)` are **accepted, owned here**.
-5. **`apps/cli` → `@village/evals` optional dynamic import (01 §4).** `village eval run|generate|calibrate|report` lazily import `@village/evals` (published separately, optional); `eval replay` and `doctor` stay in production code via engine/server. *Rationale:* 00 lists `village eval` in the CLI, but evals is test-only per §4. **→ Resolved: 01 §14 A17** (`@village/evals` is published; 12 P11 lists it among the public packages).
+5. **`apps/cli` → `@comvivo/evals` optional dynamic import (01 §4).** `village eval run|generate|calibrate|report` lazily import `@comvivo/evals` (published separately, optional); `eval replay` and `doctor` stay in production code via engine/server. *Rationale:* 00 lists `village eval` in the CLI, but evals is test-only per §4. **→ Resolved: 01 §14 A17** (`@comvivo/evals` is published; 12 P11 lists it among the public packages).
 6. **I6 qualification by idempotency class (01 §6.2).** Add `ChannelCapabilities.sendIdempotency: 'native' | 'dedupe-window' | 'none'`; I6 "0 duplicates" is absolute for crashes/429/5xx/partitions on all classes and for ambiguous-success only on `native`. *Rationale:* makes "best effort" testable and honest (00 §7 reliability claim). **→ Resolved: 01 §14 A4** (I6 refined by `sendIdempotency` class).
 7. **Definitions for 00 §7.** "Unsolicited message" (§3.6 S6) and "idle RSS" (Q9) defined normatively. *Rationale:* gates need unambiguous metrics. **→ Resolved: 01 §14 A22** ("unsolicited" = class `proactive`; idle RSS 10 min after the last turn, embedder unloaded; TTFV ≥40 attempts, ≥95% success).
 8. **`FeedbackItem` entity (01 §5; schema in 02).** *Rationale:* local-only human evaluation (§3.13). **→ Resolved: 01 §14 A7.**

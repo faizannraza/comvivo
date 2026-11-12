@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { BRAND } from '../brand.js';
 import { SecretString } from '../secrets/secret-string.js';
 import { contentWarningBanner, createLogger, toLoggedError } from './index.js';
+import { REDACT_PATHS } from './redact.js';
 
 interface Captured {
   readonly lines: Record<string, unknown>[];
@@ -246,7 +247,73 @@ describe('secrets', () => {
   });
 });
 
+/**
+ * `['config', 'security', '*']` with a canary becomes `{config: {security: {anySegment: canary}}}`.
+ *
+ * `*` is replaced by one concrete segment, because pino's `*` matches exactly one — so a payload
+ * built this way sits at precisely the depth the path claims to cover, which is the thing being
+ * tested.
+ */
+function nest(segments: readonly string[], canary: string): Record<string, unknown> {
+  const [head = 'x', ...rest] = segments;
+  const key = head === '*' ? 'anySegment' : head;
+  return { [key]: rest.length === 0 ? canary : nest(rest, canary) };
+}
+
 describe('redaction', () => {
+  it('removes every path it lists, so no path is dead', () => {
+    // 68 entries, two of which were proven effective. The module's own docstring says "a path that
+    // does not match is a path that does nothing", and nothing iterated the list — so a typo, a
+    // wrong `*.` prefix, or a pino version that changed its matching would have left a content or
+    // credential field flowing into the log with the suite green. Found by the M1 independent
+    // review; `config/host-only.test.ts` already had this shape ("protects at least one real leaf
+    // for every pattern, so no pattern is dead") and is the model.
+    //
+    // Each path gets a canary at the depth it claims to cover: a bare name at the root, a
+    // `*.`-prefixed one under a single wrapper segment. That distinction is the whole reason the
+    // list is doubled, and it is the most likely mistake — pino's `*` matches exactly one segment,
+    // so `*.text` does not match a root-level `text`.
+    const survivors: string[] = [];
+    for (const [index, path] of REDACT_PATHS.entries()) {
+      const canary = `REDACTION-CANARY-${String(index)}-${path.replace(/[^a-z]/gi, '')}`;
+      const { sink, out } = capture();
+      const log = createLogger({ destination: sink });
+
+      // Built from the path generically rather than by special-casing `*.`: the list holds
+      // `headers.*`, `req.headers` and `config.security.*` too, and a builder that only understood
+      // a bare name and a `*.` prefix reported eleven of them as dead when they are not. `*`
+      // becomes one concrete segment, since that is exactly what pino's `*` matches.
+      log.info('server.ready', nest(path.split('.'), canary) as never);
+
+      if (out.raw.join('\n').includes(canary)) survivors.push(path);
+    }
+    expect(
+      survivors,
+      'these redact paths did not remove a value placed at the depth they name. A path that does ' +
+        'not match is a path that does nothing.',
+    ).toEqual([]);
+  });
+
+  it('is a list of real size, so the loop above is not empty', () => {
+    // `for…of` over an empty array runs no iterations and leaves `survivors` empty, which would
+    // make the assertion above pass over nothing.
+    expect(REDACT_PATHS.length).toBe(68);
+    // Both spellings of the doubling are present, which is the property the loop relies on.
+    expect(REDACT_PATHS).toContain('text');
+    expect(REDACT_PATHS).toContain('*.text');
+  });
+
+  it('would notice a path that stopped working', () => {
+    // The control: a key that is **not** in the list survives. Without it, a logger that dropped
+    // every field would pass the loop above for the wrong reason.
+    const { sink, out } = capture();
+    createLogger({ destination: sink }).info('server.ready', {
+      notARedactedPath: 'REDACTION-CONTROL',
+    } as never);
+    expect(out.raw.join('\n')).toContain('REDACTION-CONTROL');
+    expect(REDACT_PATHS).not.toContain('notARedactedPath');
+  });
+
   it('removes a credential-shaped path that arrived as unknown', () => {
     // The type stops this at the call site; redaction is the layer for a value that was widened to
     // `unknown` somewhere and lost its type on the way in.
@@ -320,15 +387,71 @@ describe('no content survives to the output, checked on the serialised line', ()
     log.content('debug.content', { text: 'CANARYCONTENT the recital is a surprise' });
 
     const serialised = out.raw.join('\n');
-    for (const canary of [
-      'CANARYCONTENT',
-      'CANARYTOKEN',
-      TELEGRAM_CANARY,
-      'recital',
-      'the recital is a surprise',
-    ]) {
+    // Only the canaries that **could** have reached the output. The content gate is closed on this
+    // logger, so `log.content()` wrote nothing at all — which made `CANARYCONTENT`, `recital` and
+    // `the recital is a surprise` unable to appear under any implementation. Three of the five
+    // canaries in a test named "no content survives to the output" were therefore asserting
+    // nothing, and the two that mattered were the secret ones. Found by the M1 independent review.
+    //
+    // The content half is the test below, with the gate **open**, which is the only arrangement
+    // where content exists to leak.
+    for (const canary of ['CANARYTOKEN', TELEGRAM_CANARY]) {
       expect(serialised, `${canary} reached the log`).not.toContain(canary);
     }
+    // And the content call really did write nothing, so the omission above is the gate working
+    // rather than the canaries being mis-spelled.
+    expect(out.lines.some((line) => line['content'] === true)).toBe(false);
+  });
+
+  it('keeps content off every line above debug, with the gate open', () => {
+    // `CLAUDE.md` §2: "Logs never contain message or memory content above `debug`." With the gate
+    // **open** the content exists, so this is the arrangement where a leak is possible — and the
+    // claim is about *which lines* carry it, not whether it is written at all.
+    const { sink, out } = capture();
+    const log = createLogger({
+      level: 'trace',
+      destination: sink,
+      debugContent: true,
+      instanceId: 'inst_01j8',
+    });
+    const child = log.child({ component: 'engine.turn', groupId: 'grp_01j8' });
+
+    const CONTENT = 'CANARYCONTENT the recital is a surprise';
+    log.content('debug.content', { text: CONTENT });
+    // Ordinary lines at every level above debug, interleaved, each carrying the kind of payload a
+    // turn produces.
+    child.info('server.ready', { turnId: 'turn_01j8', durationMs: 1240 });
+    child.warn('config.host_only_rejected', { detail: { path: 'network.egress.allowPrivate' } });
+    child.error('config.invalid', { err: toLoggedError(new Error('upstream refused')) });
+    log.content('debug.content', { text: CONTENT });
+
+    // The content is present — otherwise everything below passes vacuously, which is exactly how
+    // the previous version of this test went wrong.
+    expect(out.raw.join('\n'), 'the gate is open, so content must be in the output').toContain(
+      'CANARYCONTENT',
+    );
+
+    const above = out.lines.filter(
+      (line) => line['level'] !== 'debug' && line['level'] !== 'trace',
+    );
+    expect(above.length, 'no lines above debug to check').toBeGreaterThan(2);
+    for (const line of above) {
+      const serialised = JSON.stringify(line);
+      for (const canary of ['CANARYCONTENT', 'recital', 'the recital is a surprise']) {
+        expect(serialised, `${canary} reached a ${String(line['level'])} line`).not.toContain(
+          canary,
+        );
+      }
+    }
+    // Every line that does carry it is marked, so a reader can filter content out by one field.
+    for (const line of out.lines) {
+      if (JSON.stringify(line).includes('CANARYCONTENT')) {
+        expect(line['content']).toBe(true);
+        expect(line['level']).toBe('debug');
+      }
+    }
+    // And none of it reached the ring buffer, which `doctor --bundle` pastes into issues.
+    expect(JSON.stringify(log.ringBuffer.toArray())).not.toContain('CANARYCONTENT');
   });
 });
 

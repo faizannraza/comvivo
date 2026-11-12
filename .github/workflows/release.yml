@@ -28,7 +28,15 @@ on:
   workflow_dispatch:
     inputs:
       dry-run:
-        description: Run the version path without opening or updating a pull request.
+        # Only `true` works today, and the mode step **refuses** `false` rather than quietly doing
+        # a dry run anyway. This input was declared and referenced nowhere, so dispatching with
+        # `false` behaved identically to `true` — a knob with no wiring, which is worse than no
+        # knob: it reads as a choice somebody can make. Found by the M0 independent review.
+        #
+        # The publish half of this workflow arrives with `M14`; until then there is no non-dry
+        # path to select, and `02` D15's lesson applies — a command that behaves differently from
+        # the production path is how somebody learns the wrong thing and then relies on it.
+        description: Preview the version path. Only `true` is supported until M14 adds publishing.
         type: boolean
         default: true
 
@@ -67,6 +75,8 @@ jobs:
         name: Select the release mode
         env:
           EVENT: ${{ github.event_name }}
+          # `true` on a push, where the input does not exist — a push is always a preview.
+          DRY_RUN: ${{ github.event.inputs.dry-run || 'true' }}
         run: |
           set -euo pipefail
 
@@ -79,12 +89,19 @@ jobs:
             pending="$(find .changeset -maxdepth 1 -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
           fi
 
+          # A manual dispatch asking for a real release is refused, not silently downgraded. The
+          # previous version had `elif [ "$EVENT" = workflow_dispatch ]; then mode=none; else
+          # mode=none; fi` — both branches identical, dead code shaped like a decision.
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_RUN" != "true" ]; then
+            echo "release: publishing is not wired yet — it arrives with M14 (see 12 §3.10)." >&2
+            echo "release: re-run with dry-run: true to preview the version path." >&2
+            exit 1
+          fi
+
           # A merged version PR has already consumed the changesets, so the next push is the one
           # that publishes.
           if [ "$pending" -gt 0 ]; then
             mode=version
-          elif [ "$EVENT" = "workflow_dispatch" ]; then
-            mode=none
           else
             mode=none
           fi

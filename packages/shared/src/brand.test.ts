@@ -113,11 +113,39 @@ describe('BRAND', () => {
     );
   });
 
-  it('is deeply frozen in spirit: nothing derived from it is shared mutable state', () => {
-    // `readonly` is compile-time only, so this guards the runtime contract the logger and the
-    // config loader rely on: reading BRAND twice always gives the same values.
-    const first = JSON.stringify(BRAND);
-    envVar('ANYTHING');
-    expect(JSON.stringify(BRAND)).toBe(first);
+  it('is deeply frozen, so nothing derived from it is shared mutable state', () => {
+    // `readonly` is compile-time only, and every module in the product reads this one object by
+    // reference: a single write anywhere would move the metric prefix, the env prefix and the data
+    // directory for everyone at once.
+    //
+    // The previous version of this test called `envVar('ANYTHING')` and compared `JSON.stringify`
+    // before and after. `envVar` is string concatenation and could not have mutated anything, so
+    // the test passed while `BRAND` was in fact a plain mutable object. Found by the M1
+    // independent review.
+    //
+    // Walked rather than enumerated: a nested field added later is frozen by `deepFreeze` and
+    // checked here without anyone remembering to add a line.
+    const unfrozen = (value: unknown, path = 'BRAND'): string[] => {
+      if (value === null || typeof value !== 'object') return [];
+      return [
+        ...(Object.isFrozen(value) ? [] : [path]),
+        ...Object.entries(value).flatMap(([key, child]) => unfrozen(child, `${path}.${key}`)),
+      ];
+    };
+    expect(unfrozen(BRAND)).toEqual([]);
+
+    // ESM is always strict mode, so a write to a frozen property throws rather than being ignored.
+    // The replacement value is derived from the current one rather than written out: `brand:check`
+    // forbids a brand literal under `packages/**`, which is the rule that keeps a rename to one
+    // command, and this file is the last place that should break it.
+    const slug = BRAND.slug;
+    expect(() => {
+      (BRAND as { slug: string }).slug = `${slug}-mutated`;
+    }).toThrow(TypeError);
+    expect(() => {
+      (BRAND.botDefaultAliases as string[]).push(`${slug}-mutated`);
+    }).toThrow(TypeError);
+    expect(BRAND.slug).toBe(slug);
+    expect(BRAND.botDefaultAliases).toHaveLength(1);
   });
 });

@@ -57,6 +57,14 @@ export interface LogFields {
   readonly memberId?: string;
   readonly jobId?: string;
   readonly jobKind?: string;
+  /**
+   * `02` §3.10.4: "Logs carry job id, kind and partition, never the payload."
+   *
+   * A group id or `'_instance'`, so a host can see *whose* work is backed up. It is an
+   * identifier, which is the line this interface draws — the payload it belongs to is not here
+   * and has no field.
+   */
+  readonly partitionKey?: string;
   readonly channel?: string;
 
   // --- Tracing ---------------------------------------------------------------------------------
@@ -172,4 +180,27 @@ export const FORBIDDEN_FIELD_NAMES: readonly string[] = [
   'authorization',
   'headers',
   'cookie',
+  // Key material by the names this product actually mints it under (`08` §3.7). The list was
+  // `token`/`apiKey`/`secret`/`password` — the names a *provider* uses — and every name on the
+  // line below went straight through: a 43-character base64url master key in `detail.masterKey`
+  // was logged verbatim at `info`, because it is whitespace-free and therefore "token-shaped" to
+  // `isSafeDetailValue`, and because the shape scrubber's base64 pattern does not include
+  // base64url's `-` and `_`. Found by the M1 exit gate's reviewer.
+  'masterKey',
+  'master_key',
+  'rootKey',
+  'root_key',
+  'slotKey',
+  'slot_key',
+  'dbKey',
+  'db_key',
+  'dbKeyHex',
+  'dek',
+  'kek',
+  'sealed',
+  'recoveryKey',
+  'recovery_key',
+  'passphrase',
+  'privateKey',
+  'private_key',
 ];

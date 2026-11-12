@@ -58,6 +58,19 @@ export const HYGIENE_RULES: readonly Rule[] = [
       'and fails under shuffle. Vitest resets mocks, not your variables.',
   },
   {
+    id: 'no-self-satisfied-unreachable',
+    summary:
+      'An `expect.unreachable` inside a `try` needs a `catch` that its own error would fail.',
+    rationale:
+      '`expect.unreachable(msg)` throws **into the same `catch`**, so the catch runs whether or ' +
+      'not the code under test refused anything. That is harmless when the catch asserts ' +
+      'something the harness error cannot satisfy — an error class, a `code`, a `hint` — and ' +
+      'vacuous when it does not. Two guards in this repo passed while rejecting nothing: one ' +
+      'matched the message "Infinity" against the unreachable text "Infinity should be refused", ' +
+      'and one asserted only that the message omitted a credential, which a missing rejection ' +
+      'also satisfies. Assign the error to a sentinel outside the `try` and assert on it after.',
+  },
+  {
     id: 'no-inline-retry',
     summary: 'No `retry:` outside the `live` tag.',
     rationale:
@@ -86,6 +99,9 @@ export function isExempt(path: string): boolean {
   return EXEMPT.some((pattern) => pattern.test(path));
 }
 
+/** Line and inline block comments, stripped before a construct rule reads the line. */
+const STRIP_COMMENTS = /\/\/.*$|\/\*.*?\*\//g;
+
 /** `// skip(M5-T12): blocked on the guard landing` — a task id and a reason. */
 const JUSTIFIED_SKIP = /\/\/\s*skip\((M\d+-T\d+|[a-z-]+#\d+)\)\s*:\s*\S/;
 
@@ -103,13 +119,26 @@ interface LineContext {
   /** The raw line. */
   readonly text: string;
   /**
-   * The line with string and template literals blanked out.
+   * The line with string and template literals blanked out **and comments removed**.
    *
    * Every construct rule matches against this rather than the raw text, so a rule name quoted in
    * an assertion is not mistaken for the construct itself. Without it, every test asserting on this
    * check's own output would violate it — which is how a linter earns an ignore file.
+   *
+   * Comments are stripped for the same reason, and that half was missing: a comment explaining
+   * *why* a test avoids `tmpdir()` tripped `no-shared-temp-dir`, so the rule punished the sentence
+   * that documented compliance with it. Found by writing exactly that comment.
    */
   readonly code: string;
+  /**
+   * The raw line with **comments** removed and string literals left intact.
+   *
+   * For the rules whose banned construct *is* a string literal — `no-shared-temp-dir` matches
+   * `'/tmp/'` and `tmpdir()`, so blanking strings would make it inert. Those rules read the raw
+   * text, which meant a comment explaining why a test avoids `tmpdir()` tripped the rule that
+   * comment was documenting compliance with. Found by writing exactly that comment.
+   */
+  readonly withoutComments: string;
   readonly previous: string;
   readonly gate: boolean;
 }
@@ -173,9 +202,10 @@ const LINE_RULES: readonly LineRule[] = [
   },
   {
     id: 'no-shared-temp-dir',
-    check: ({ text }) =>
-      // Matched against the raw text: the path is the string literal.
-      /(?:['"]\/tmp\/|tmpdir\s*\(\s*\))/.test(text) && !/mkdtemp/i.test(text)
+    check: ({ withoutComments: line }) =>
+      // String literals are kept, because the path **is** one — but comments are stripped, or a
+      // sentence explaining why a test avoids `tmpdir()` would violate this rule.
+      /(?:['"]\/tmp\/|tmpdir\s*\(\s*\))/.test(line) && !/mkdtemp/i.test(line)
         ? 'use fs.mkdtemp/mkdtempSync so each run gets its own directory.'
         : undefined,
   },
@@ -195,6 +225,107 @@ const LINE_RULES: readonly LineRule[] = [
   },
 ];
 
+/**
+ * Assertions in a `catch` that `expect.unreachable`'s own error could not satisfy.
+ *
+ * Reading a property other than `message` counts, because the harness error is a plain `Error`:
+ * `expect(undefined).toContain(…)` throws rather than passing. An error class, a code or a
+ * `toMatchObject` counts for the obvious reason.
+ */
+const DISCRIMINATING =
+  /toBeInstanceOf\s*\(|toMatchObject\s*\(|\.(?:hint|code|storageCode|detail|cause|findings|issues)\b/;
+
+/** A positive string matcher and its literal argument, e.g. `toContain('no passphrase slot')`. */
+const POSITIVE_LITERAL = /(?<!not)\.(?:toContain|toMatch|toBe)\s*\(\s*(['"])(.*?)\1\s*\)/g;
+
+/** A positive matcher whose argument is not a string literal, so the scanner cannot evaluate it. */
+const POSITIVE_COMPUTED = /(?<!not)\.(?:toContain|toMatch)\s*\(\s*[^'"\s)]/;
+
+/**
+ * `expect.unreachable` inside a `try` whose `catch` the harness error would also satisfy.
+ *
+ * A line scanner cannot see this — it is a relationship between two blocks — so this one rule works
+ * over the file. It stays textual rather than becoming a parser: the question is "does any
+ * assertion in this catch exclude a plain `Error` whose message is the unreachable string", which
+ * is decidable from the text. Measured against all 75 `expect.unreachable` sites in this repo, it
+ * reported the two that were genuinely vacuous and nothing else.
+ */
+/**
+ * The body of the `catch` the `try` containing line `index` ends with, or `undefined`.
+ *
+ * Stops at the next test, because an `expect.unreachable` with no catch below it is fine — that is
+ * most of its uses, and the whole point of this rule is to leave those alone.
+ */
+function catchBlockAfter(lines: readonly string[], index: number): string | undefined {
+  let open = index + 1;
+  while (open < lines.length && !/\}\s*catch\b/.test(lines[open] ?? '')) {
+    if (/^\s*(?:it|test|describe)\s*[(.]/.test(lines[open] ?? '')) return undefined;
+    open += 1;
+  }
+  if (open >= lines.length) return undefined;
+
+  const indent = /^\s*/.exec(lines[open] ?? '')?.[0] ?? '';
+  const body: string[] = [];
+  for (let k = open + 1; k < lines.length && lines[k] !== `${indent}}`; k += 1) {
+    body.push(lines[k] ?? '');
+  }
+  return body.join('\n');
+}
+
+/**
+ * The literals a catch block matches positively, or `undefined` when it discriminates.
+ *
+ * "Discriminates" means the block contains an assertion that a plain `Error` carrying `message`
+ * would fail, so `expect.unreachable` cannot satisfy it and the guard is sound. A positive matcher
+ * whose argument is not a string literal also counts: the scanner cannot evaluate it, and guessing
+ * would turn a real guard into a false positive.
+ */
+function selfSatisfiedMatches(block: string, message: string): string[] | undefined {
+  if (DISCRIMINATING.test(block) || POSITIVE_COMPUTED.test(block)) return undefined;
+  const positives = [...block.matchAll(POSITIVE_LITERAL)].map((match) => match[2] ?? '');
+  if (positives.some((literal) => literal !== '' && !message.includes(literal))) return undefined;
+  return positives;
+}
+
+/**
+ * `expect.unreachable` inside a `try` whose `catch` the harness error would also satisfy.
+ *
+ * A line scanner cannot see this — it is a relationship between two blocks — so this one rule works
+ * over the file. It stays textual rather than becoming a parser: the question is "does any
+ * assertion in this catch exclude a plain `Error` whose message is the unreachable string", which
+ * is decidable from the text. Measured against all 75 `expect.unreachable` sites in this repo, it
+ * reported the two that were genuinely vacuous and nothing else.
+ */
+function findSelfSatisfiedUnreachable(path: string, source: string): Finding[] {
+  const lines = source.split(/\r?\n/);
+  const found: Finding[] = [];
+
+  lines.forEach((text, index) => {
+    const call = /expect\s*\.\s*unreachable\s*\(\s*(['"`])(.*?)\1\s*\)/.exec(text);
+    if (call === null) return;
+    const message = call[2] ?? '';
+    const block = catchBlockAfter(lines, index);
+    if (block === undefined) return;
+    const positives = selfSatisfiedMatches(block, message);
+    if (positives === undefined) return;
+
+    found.push({
+      file: path,
+      line: index + 1,
+      rule: 'no-self-satisfied-unreachable',
+      message:
+        positives.length === 0
+          ? 'this catch asserts nothing the unreachable error would fail, so it passes when ' +
+            'nothing is rejected. Use a sentinel outside the `try`.'
+          : `the catch only matches ${positives.map((literal) => `"${literal}"`).join(', ')}, ` +
+            'which the unreachable message already contains. Use a sentinel outside the `try`.',
+      source: text.trim(),
+    });
+  });
+
+  return found;
+}
+
 export function findHygieneViolations(
   path: string,
   source: string,
@@ -208,7 +339,10 @@ export function findHygieneViolations(
   lines.forEach((text, index) => {
     const context: LineContext = {
       text,
-      code: text.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""'),
+      // Strings first, then comments: a `//` inside a string literal is not a comment, and
+      // blanking the string makes the comment strip safe.
+      code: text.replace(/(['"`])(?:\\.|(?!\1)[^\\])*\1/g, '""').replace(STRIP_COMMENTS, ''),
+      withoutComments: text.replace(STRIP_COMMENTS, ''),
       previous: lines[index - 1] ?? '',
       gate: options.gate === true,
     };
@@ -226,5 +360,6 @@ export function findHygieneViolations(
     }
   });
 
+  findings.push(...findSelfSatisfiedUnreachable(path, source));
   return findings;
 }

@@ -15,7 +15,7 @@
  * Specified by `M0-T4`: "Each rule has a planted-violation fixture that makes `pnpm verify` fail."
  */
 import { execFile } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
@@ -30,6 +30,14 @@ export interface PlantedFile {
   readonly path: string;
   /** Module specifiers this file imports. Each becomes a side-effect import. */
   readonly imports: readonly string[];
+  /**
+   * Specifiers imported as **types only**, which dependency-cruiser classifies as `type-only`.
+   *
+   * Needed to prove the two A11 edges the other way round: `engine` → `plugin-sdk` and
+   * `plugin-sdk` → `channels/sdk` are allowed as types and forbidden as values, so a rule that
+   * fired on both would be indistinguishable from one that fired on neither.
+   */
+  readonly typeImports?: readonly string[];
 }
 
 export interface CruiseResult {
@@ -119,6 +127,19 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
         // An empty, legitimate index so the clean tree really is clean.
         await write(root, `${dir}/src/index.ts`, 'export const ok = true;\n');
         await write(root, `${dir}/src/testing/index.ts`, 'export const double = true;\n');
+
+        // The package's **own** `node_modules`, symlinked like the root one.
+        //
+        // pnpm puts a package's dependencies under that package, not at the root, so without this
+        // a fixture importing a real runtime dependency — `libsodium-wrappers`, which belongs to
+        // `@comvivo/storage` — did not resolve, and the rule under test never saw the edge. The
+        // root symlink alone made the tree faithful only for dependencies hoisted to the root,
+        // which is why the `no-dev-dep-in-src` fixture worked (`vitest` is a root devDependency)
+        // and a package-level one did not.
+        if (existsSync(join(REPO, dir, 'node_modules'))) {
+          mkdirSync(join(root, dir), { recursive: true });
+          await symlink(join(REPO, dir, 'node_modules'), join(root, dir, 'node_modules'), 'dir');
+        }
       }),
     );
 
@@ -131,12 +152,33 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
     );
     paths['@comvivo/core/ports/memory-search'] = ['packages/core/src/ports/memory-search.ts'];
 
+    // The unfiltered reads, same arrangement: present so the rule has an edge to match, and
+    // arriving in the repository with `M1-T17`. `02` §3.7.1 asks for a dependency-cruiser rule on
+    // a *method name*, which a module graph cannot see — so the reads that skip the eligible-label
+    // filter live in their own module and the restriction is on the import.
+    await write(
+      root,
+      'packages/core/src/ports/storage/unfiltered.ts',
+      'export interface UnfilteredReads { listMessagesUnfiltered(): readonly string[] }\n',
+    );
+    paths['@comvivo/core/ports/storage/unfiltered'] = [
+      'packages/core/src/ports/storage/unfiltered.ts',
+    ];
+
     await Promise.all(
       planted.map((file) =>
         write(
           root,
           file.path,
-          `${file.imports.map((spec) => `import '${spec}';`).join('\n')}\nexport const planted = true;\n`,
+          `${[
+            ...file.imports.map((spec) => `import '${spec}';`),
+            ...(file.typeImports ?? []).map(
+              (spec, index) => `import type { Thing as T${String(index)} } from '${spec}';`,
+            ),
+            ...(file.typeImports ?? []).map(
+              (_spec, index) => `export type Alias${String(index)} = T${String(index)};`,
+            ),
+          ].join('\n')}\nexport const planted = true;\n`,
         ),
       ),
     );

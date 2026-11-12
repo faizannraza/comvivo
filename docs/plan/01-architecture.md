@@ -45,7 +45,7 @@ flowchart LR
 ```
 
 ### Architectural style
-- **Hexagonal (ports and adapters).** `@village/core` is pure domain logic: no I/O, no clocks, no randomness. It is fully deterministic and therefore exhaustively testable. Every side effect sits behind a port interface defined in `core` and implemented in an adapter package.
+- **Hexagonal (ports and adapters).** `@comvivo/core` is pure domain logic: no I/O, no clocks, no randomness. It is fully deterministic and therefore exhaustively testable. Every side effect sits behind a port interface defined in `core` and implemented in an adapter package.
 - **Event-driven pipeline with per-group serialization.** All writes to one group's state happen inside that group's actor, one at a time. This removes whole classes of race conditions (double-assigning a chore, two members editing one plan).
 - **Atomic effects plus turn journal.** better-sqlite3 transactions are synchronous and **must never span an `await`**, so a turn cannot hold one transaction across model calls. Instead:
   - Each tool call commits atomically. That transaction contains the state change, its `AuditEvent` and a `TurnEffect` journal row.
@@ -65,7 +65,7 @@ Each ADR records its alternatives so later contributors understand the trade-off
 | ADR-001 | Language/runtime | **TypeScript 5.x (strict), Node.js 26 LTS** (Active LTS since 2026-10-28) as the primary target for images and CI; **Node.js 24 (≥24.11, Maintenance LTS)** remains supported for native installs, with weaker plugin network isolation (see §14 A1). ESM only | Python, Go, Rust, Bun | Best chat-SDK ecosystem (grammY, discord.js, Bolt, matrix-bot-sdk). Official Anthropic/OpenAI/Google SDKs. One language for server and dashboard. GitHub's largest language community, so the most contributors. Node LTS is chosen over Bun for native-module compatibility (better-sqlite3, sqlite-vec, onnxruntime). We keep the code Bun-compatible where cheap. |
 | ADR-002 | Monorepo | **pnpm workspaces + Turborepo**, TS project references, **tsdown** builds | Nx, Rush, plain tsc | Fast, simple, cache-friendly. tsdown is the maintained successor to tsup. |
 | ADR-003 | Lint/format | **Biome** (format + lint) and **typescript-eslint** limited to type-aware rules (`no-floating-promises`, `no-misused-promises`, `switch-exhaustiveness-check`, `strict-boolean-expressions` in core) | ESLint-only, oxlint | Biome is fast. A handful of type-aware rules catch the async bugs that matter in an event-driven server. |
-| ADR-004 | Testing | **Vitest** (unit/integration), **fast-check** (property-based, mandatory for policy/IFC/fairness), **Playwright** (dashboard e2e), **@village/evals** simulation harness | Jest, Mocha | Vitest is fast, ESM-native and has a good watch mode. Property tests are the only credible way to claim "no leaks". |
+| ADR-004 | Testing | **Vitest** (unit/integration), **fast-check** (property-based, mandatory for policy/IFC/fairness), **Playwright** (dashboard e2e), **@comvivo/evals** simulation harness | Jest, Mocha | Vitest is fast, ESM-native and has a good watch mode. Property tests are the only credible way to claim "no leaks". |
 | ADR-005 | Storage | **SQLite** (WAL) via **better-sqlite3-multiple-ciphers** (SQLCipher-compatible encryption at rest), **Drizzle ORM** + drizzle-kit migrations, **FTS5** for keyword search, **sqlite-vec** for vectors | Postgres+pgvector, LanceDB, LibSQL | Zero-ops single file, ideal for self-hosting and the Pi. Fast enough for any realistic group size. Repositories live behind ports so Postgres can be added after 1.0. **M1 spike** verifies that Drizzle + multiple-ciphers + sqlite-vec work together. If the spike fails, fall back to plain better-sqlite3 with application-level envelope encryption of sensitive columns (documented in `02`). |
 | ADR-006 | LLM access | Own **`ModelGateway`** port with native adapters: **Anthropic via official `@anthropic-ai/sdk`** (default and reference), OpenAI via `openai`, Google via `@google/genai`, and local OpenAI-compatible servers (Ollama, LM Studio, llama.cpp, vLLM) via `openai` with `baseURL` | Vercel AI SDK, LangChain | Native SDKs expose provider-specific power we rely on: Anthropic prompt caching, adaptive thinking + effort, structured outputs, server-side refusal fallbacks, Batches API, count_tokens. A thin port keeps the engine provider-neutral. No LangChain. |
 | ADR-007 | Embeddings | **Local by default, in process**: `@huggingface/transformers` (transformers.js, ONNX) with a small multilingual model (default `multilingual-e5-small`, 384-d; evaluate `bge-m3` in M6). Pluggable: OpenAI, Voyage, Google, Ollama | Always-API embeddings | Privacy: embeddings of private memories never leave the host by default. It is cheap, and works offline and on the Pi. |
@@ -75,7 +75,7 @@ Each ADR records its alternatives so later contributors understand the trade-off
 | ADR-011 | Time | **Temporal API via `temporal-polyfill`** for all date/time/timezone logic. RFC 5545 recurrence via an RRULE library (`rrule-temporal` preferred, `rrule` fallback; decided in the M7 spike). Natural-language dates are parsed by LLM structured output and cross-checked with `chrono-node` | Luxon, date-fns-tz, moment | Correct timezone and DST semantics for families spread across timezones. `Date` is banned in `core` (lint rule). |
 | ADR-012 | Jobs | **In-house durable job queue on SQLite** (leases, retries with backoff, idempotency keys, run_at, per-group partition key) + scheduler loop | BullMQ/Redis, graphile-worker | No extra infrastructure. Transactional with domain writes. Simple and auditable. |
 | ADR-013 | Observability | **pino** structured logs, an optional **OpenTelemetry** exporter (GenAI semantic conventions), and internal **TurnTrace** records in the DB that power "Why did Village say this?" | — | Explainability is a product feature, not just ops. |
-| ADR-014 | Configuration | `village.yaml` (non-secret, versioned) + environment / `.env` (secrets) + DB-persisted runtime settings edited from the dashboard. All validated with zod. Precedence: **env > DB settings > village.yaml > defaults**, except secrets, which are env/keyfile only | Pure env, pure DB | Hosts want a file they can version. Admins want UI editing. Secrets never live in the DB or YAML. |
+| ADR-014 | Configuration | `comvivo.yaml` (non-secret, versioned) + environment / `.env` (secrets) + DB-persisted runtime settings edited from the dashboard. All validated with zod. Precedence: **env > DB settings > comvivo.yaml > defaults**, except secrets, which are env/keyfile only | Pure env, pure DB | Hosts want a file they can version. Admins want UI editing. Secrets never live in the DB or YAML. |
 | ADR-015 | Packaging | Multi-arch Docker image (amd64/arm64), `docker compose`, a thin npm CLI plus a public server-runtime package, a Home Assistant app (HA renamed "add-ons" to "apps"), Umbrel/CasaOS manifests. Single all-in-one process by default. **The npm name `village` is taken.** Throughout this plan, `npx village@latest init` is a placeholder for `npx <final-cli-name>@latest init`, with the final name chosen per `13` §A (see §14 A2) | k8s-first | Meet self-hosters where they already are. |
 | ADR-016 | License & contributions | **Apache-2.0**, DCO sign-off, no CLA, Contributor Covenant 2.1 code of conduct | MIT, AGPL | Permissive, with an explicit patent grant; friendly to contributors and companies. |
 | ADR-017 | Telemetry | **None.** No analytics and no phone-home. Update check is opt-in and fetches a static JSON release manifest only | Opt-in analytics | Trust is the product. |
@@ -129,31 +129,31 @@ village/
 │  ├─ adr/                        # ADR-001… generated in M0 from §2
 │  └─ architecture/               # living architecture notes per package
 ├─ packages/
-│  ├─ shared/                     # @village/shared — ids, errors, logger, config loader, time helpers, zod utils, Result helpers
-│  ├─ core/                       # @village/core — PURE domain: entities, value objects, ports, policy engine,
+│  ├─ shared/                     # @comvivo/shared — ids, errors, logger, config loader, time helpers, zod utils, Result helpers
+│  ├─ core/                       # @comvivo/core — PURE domain: entities, value objects, ports, policy engine,
 │  │                              #   information-flow (labels, join, flow checks), constitution schema+compiler,
 │  │                              #   fairness algorithms, proactivity scoring math. NO I/O.
-│  ├─ storage/                    # @village/storage — drizzle schema, migrations, repositories (implement core ports),
+│  ├─ storage/                    # @comvivo/storage — drizzle schema, migrations, repositories (implement core ports),
 │  │                              #   crypto (keys, envelope encryption), job queue, FTS/vector indexes, blob store
-│  ├─ models/                     # @village/models — ModelGateway adapters (anthropic, openai, google, openai-compatible),
+│  ├─ models/                     # @comvivo/models — ModelGateway adapters (anthropic, openai, google, openai-compatible),
 │  │                              #   embeddings providers, transcription providers, usage/cost accounting, fake model for tests
-│  ├─ engine/                     # @village/engine — application services: ingestion, actors, router, turn orchestrator,
+│  ├─ engine/                     # @comvivo/engine — application services: ingestion, actors, router, turn orchestrator,
 │  │                              #   context builder, declassifier, disclosure guard, memory services (extract/retrieve/
 │  │                              #   consolidate), proactivity engine, scheduler, digests, onboarding/consent flows
-│  ├─ tools/                      # @village/tools — built-in tools (calendar, reminders, tasks/chores, lists, polls, plans,
+│  ├─ tools/                      # @comvivo/tools — built-in tools (calendar, reminders, tasks/chores, lists, polls, plans,
 │  │                              #   decisions, memory, catch-up, settings, constitution, web-search[opt])
 │  ├─ channels/
-│  │  ├─ sdk/                     # @village/channel-sdk — adapter contract, capability model, rich-text AST + renderers, test kit
-│  │  ├─ telegram/                # @village/channel-telegram (grammY)
-│  │  ├─ discord/                 # @village/channel-discord (discord.js)
-│  │  ├─ slack/                   # @village/channel-slack (@slack/bolt, Socket Mode)
-│  │  ├─ matrix/                  # @village/channel-matrix (matrix-bot-sdk + rust crypto)
-│  │  ├─ signal/                  # @village/channel-signal (signal-cli JSON-RPC)
-│  │  ├─ web/                     # @village/channel-web (dashboard chat, SSE)
-│  │  └─ simulator/               # @village/channel-simulator (in-memory, for tests/evals/demo)
-│  ├─ plugin-sdk/                 # @village/plugin-sdk — public, semver-stable API for third-party tools/channels/skills
-│  ├─ mcp/                        # @village/mcp — MCP server (member-scoped) + MCP client (gated external tools)
-│  └─ evals/                      # @village/evals — simulation harness, persona agents, scenario DSL, red-team suites, metrics
+│  │  ├─ sdk/                     # @comvivo/channel-sdk — adapter contract, capability model, rich-text AST + renderers, test kit
+│  │  ├─ telegram/                # @comvivo/channel-telegram (grammY)
+│  │  ├─ discord/                 # @comvivo/channel-discord (discord.js)
+│  │  ├─ slack/                   # @comvivo/channel-slack (@slack/bolt, Socket Mode)
+│  │  ├─ matrix/                  # @comvivo/channel-matrix (matrix-bot-sdk + rust crypto)
+│  │  ├─ signal/                  # @comvivo/channel-signal (signal-cli JSON-RPC)
+│  │  ├─ web/                     # @comvivo/channel-web (dashboard chat, SSE)
+│  │  └─ simulator/               # @comvivo/channel-simulator (in-memory, for tests/evals/demo)
+│  ├─ plugin-sdk/                 # @comvivo/plugin-sdk — public, semver-stable API for third-party tools/channels/skills
+│  ├─ mcp/                        # @comvivo/mcp — MCP server (member-scoped) + MCP client (gated external tools)
+│  └─ evals/                      # @comvivo/evals — simulation harness, persona agents, scenario DSL, red-team suites, metrics
 ├─ apps/
 │  ├─ server/                     # composition root: DI wiring, HTTP API (Hono), worker loops, lifecycle
 │  ├─ cli/                        # `village` CLI (init wizard, start, doctor, backup, restore, export, migrate, eval, keys)
@@ -328,7 +328,7 @@ Per-turn operator instructions use **mid-conversation system messages** where th
 
 ## 7. Key contracts (normative sketches — subsystem specs refine, never contradict)
 
-### 7.1 Channel contract (`@village/channel-sdk`)
+### 7.1 Channel contract (`@comvivo/channel-sdk`)
 ```ts
 export type ChannelId = 'telegram' | 'discord' | 'slack' | 'matrix' | 'signal' | 'web' | 'simulator' | (string & {});
 
@@ -369,7 +369,7 @@ export interface ChannelAdapter {
 }
 ```
 
-### 7.2 Information flow (`@village/core/ifc`)
+### 7.2 Information flow (`@comvivo/core/ifc`)
 ```ts
 export type Audience =
   | { kind: 'members'; groupId: GroupId; memberIds: ReadonlySet<MemberId> } // concrete set of readers
@@ -393,7 +393,7 @@ export interface InformationFlow {
 }
 ```
 
-### 7.3 Policy (`@village/core/policy`)
+### 7.3 Policy (`@comvivo/core/policy`)
 ```ts
 export type Capability =
   | 'chat.ask' | 'memory.read' | 'memory.write' | 'memory.forget.own' | 'memory.forget.any'
@@ -424,7 +424,7 @@ export interface PolicyEngine {
 }
 ```
 
-### 7.4 Tools (`@village/plugin-sdk` public shape; built-ins use the same)
+### 7.4 Tools (`@comvivo/plugin-sdk` public shape; built-ins use the same)
 ```ts
 export interface ToolDefinition<I, O> {
   name: string;                         // snake_case, stable (part of the cached tool catalog)
@@ -439,7 +439,7 @@ export interface ToolDefinition<I, O> {
 }
 ```
 
-### 7.5 Model gateway (`@village/core/ports/model`)
+### 7.5 Model gateway (`@comvivo/core/ports/model`)
 ```ts
 export interface ModelGateway {
   run(req: ModelTurnRequest, signal: AbortSignal): Promise<ModelTurnResult>;           // one model call (tool loop driven by engine)
@@ -490,7 +490,7 @@ export interface ModelGateway {
 ## 10. Configuration surface (abridged — full reference generated from zod schemas in M9)
 
 ```yaml
-# village.yaml
+# comvivo.yaml
 instance:
   name: "Our Village"
   dataDir: ./data                 # db, blobs, keys, backups, logs
@@ -507,7 +507,7 @@ channels:
   slack:    { enabled: false }    # SLACK_BOT_TOKEN + SLACK_APP_TOKEN
   matrix:   { enabled: false, homeserverUrl: null }
   signal:   { enabled: false, cliUrl: http://localhost:8080 }
-email: { enabled: false, imap: { host: null, port: 993, user: null } } # password via env VILLAGE_IMAP_PASSWORD (or _FILE)
+email: { enabled: false, imap: { host: null, port: 993, user: null } } # password via env COMVIVO_IMAP_PASSWORD (or _FILE)
 dashboard: { bind: 127.0.0.1, port: 7777 }
 privacy: { messageRetentionDays: 90, encryptAtRest: true }
 budgets: { preset: auto }        # auto = per-preset defaults (§14 A3); or { monthlyUsd: N, dailyUsd: M }
@@ -525,7 +525,7 @@ observability:                   # off by default; a collector YOU run, never us
 ## 11. Engineering standards (apply to every milestone)
 
 1. **TypeScript strict** plus `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. No `any` outside tests; use `unknown` and parse.
-2. **Every boundary is validated with zod**: config, HTTP, adapters, tool I/O, LLM structured output, DB JSON columns.
+2. **Every boundary is validated with zod**: config, HTTP, adapters, tool I/O, LLM structured output, DB JSON columns. **Closed objects, at every depth** (`z.strictObject`): an unknown key is an error, not a silently stripped one. zod's `z.object` *strips* — measured on 4.6 — so this has to be spelled out rather than assumed, and `M1-T30` found the config schema strict at its top level only, which accepted and discarded `network.egress.allowPrivte`, `dashboard.auth.magicLinkz` and `privacy.auditRetentionDayz`. The exception is a **published** format, where additive evolution is the contract: `02` §3.15's export records pass unknown keys through on purpose, and say so.
 3. **Exhaustive `switch`** over discriminated unions, with a `never` assertion.
 4. **Pure core**: deterministic and side-effect-free. Clock, ID generator and RNG are injected.
 5. **Tests with the code**:
@@ -535,7 +535,7 @@ observability:                   # off by default; a collector YOU run, never us
    - Scenario tests through the simulator for every feature.
    - No feature is "done" without its eval scenarios (`11`).
 6. **No silent catches.** Every caught error is handled, mapped to a typed error, or rethrown with context.
-7. **Logs are structured and never contain message content or memory content above `debug` level.** Debug content logging requires an explicit `VILLAGE_DEBUG_CONTENT=1` and prints a warning banner.
+7. **Logs are structured and never contain message content or memory content above `debug` level.** Debug content logging requires an explicit `COMVIVO_DEBUG_CONTENT=1` and prints a warning banner.
 8. **Docs with the code**: package README, an architecture note for non-trivial modules, and user docs for user-visible features.
 9. **Conventional Commits**, Changesets for versioning, and small reviewable PRs. Each milestone ends green on CI (lint, typecheck, test, build, dependency rules, evals-smoke).
 10. **Performance budgets** are checked in CI where measurable: ingestion < 20 ms p95, context build < 150 ms p95 with 50k memories, cold start < 3 s.
@@ -610,9 +610,9 @@ The subsystem specs (`02`–`13`) proposed changes to this spine, each in its ow
 | **A12** | **MCP.** Target the MCP spec **2026-07-28** and the TypeScript SDK v2 packages (`@modelcontextprotocol/server`, `client`, `hono`, plus `@modelcontextprotocol/node` for stdio if the `10` M12 spike confirms it) per **ADR-021**.<br>• The MCP server is served at **`/mcp` on the main listener** (no separate port).<br>• Token format: `08`. Endpoint and tools: `10`.<br>• 1.0 uses per-member bearer tokens (scoped, expiring); OAuth arrives in 1.1.<br>• Writes from members' agents create **proposed** items that need one confirmation tap in the member's DM. | 10 | 10 |
 | **A13** | **Prompt caching.**<br>• The cached tool layer is keyed by a **catalog hash**: built-ins plus group-enabled extension tools, in stable order.<br>• Requester capabilities, audience and time go in a per-turn mid-conversation system message, not in the charter, so the charter stays fully cacheable.<br>• §6.3 is otherwise unchanged. | 05 S11, 10 | 05 |
 | **A14** | **Config precedence.** **Host-only keys** come from env or YAML only and ignore DB settings. They are: providers and API keys, egress allowlists, plugins, MCP servers, debug-content logging and the exposure mode. All other settings follow ADR-014. | 08 PSC-11 | 08, 09 |
-| **A15** | **Server contracts.**<br>• Fixed health endpoints `/healthz` (liveness) and `/readyz` (readiness, which ignores chat-platform outages).<br>• A `DomainEventBus` port for post-commit events.<br>• `apps/server` exports `composeVillage(ports)` for the harness.<br>• A test-only `Crashpoints` port.<br>• Exit-code contract and `--role=web|worker|all|drill`. | 09, 11, 12 | 09, 11, 12 |
+| **A15** | **Server contracts.**<br>• Fixed health endpoints `/healthz` (liveness) and `/readyz` (readiness, which ignores chat-platform outages).<br>• A `DomainEventBus` port for post-commit events.<br>• `apps/server` exports `composeComvivo(ports)` for the harness.<br>• A test-only `Crashpoints` port.<br>• Exit-code contract and `--role=web|worker|all|drill`. | 09, 11, 12 | 09, 11, 12 |
 | **A16** | **Consent & extraction.** The router skips extraction for consent ∈ {`unknown`, `informed`, `memory_off`}. Members with memory off appear in extraction windows as content-free placeholders. | 03, 04 | 03, 04 |
-| **A17** | **Evals packaging.** `@village/evals` is published so plugin authors can use the simulator kit. The CLI's `village eval` imports it dynamically as an optional dependency, while `replay` and `doctor` live in engine/server code. | 10, 11 | 11 |
+| **A17** | **Evals packaging.** `@comvivo/evals` is published so plugin authors can use the simulator kit. The CLI's `village eval` imports it dynamically as an optional dependency, while `replay` and `doctor` live in engine/server code. | 10, 11 | 11 |
 | **A18** | **Embeddings.** The default model is chosen in the **M6 bake-off** (fixed pass rules in `04`). `multilingual-e5-small` is the baseline and is baked into the image; `granite-embedding-97m-multilingual-r2` is the challenger; `bge-m3` is opt-in only. The embedder loads lazily in a worker thread and unloads when idle (idle-RSS target). | 04, 12 | 04 |
 | **A19** | **Transcription.** Uses the `whisper.cpp` `whisper-cli` **subprocess** plus a static decode-only FFmpeg in the image. Native mode requires these binaries on PATH or an API provider; the transformers.js Whisper fallback is evaluated in M11. | 12 | 05, 12 |
 | **A20** | **Task IDs.** `14-milestones.md` is authoritative for task numbering and order. References to a subsystem spec's own task IDs use a doc prefix (e.g. `03:M5-T4`). | 11, all | 14 |

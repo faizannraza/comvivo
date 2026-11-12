@@ -220,12 +220,43 @@ describe('the backend registry', () => {
 });
 
 describe('lazy loading', () => {
-  it('imports nothing while tracing is disabled', () => {
-    // The contract `11` §3.10.2 states as "OTel disabled = no SDK loaded", asserted rather than
-    // assumed: a loader that is never called cannot have resolved a package.
-    const loader = vi.fn<BackendLoader>();
+  it('imports nothing while tracing is disabled', async () => {
+    // `11` §3.10.2's contract: "OTel disabled = no SDK loaded".
+    //
+    // The previous version created `vi.fn<BackendLoader>()`, passed it **nowhere**, and asserted
+    // it had not been called — unfalsifiable, because `getTracer(name: string)` takes no loader and
+    // nothing could have called it. So the contract had zero coverage behind a comment saying it
+    // was "asserted rather than assumed". Found by the M1 independent review.
+    //
+    // The falsifiable form is the pair: do real span work with the spy in hand and assert it was
+    // not called, **then** enable tracing with the same spy and assert it was. The second half is
+    // what makes the first mean something — without it, a loader that could never be called would
+    // satisfy the assertion just as well.
+    const backend: TracerBackend = {
+      tracer: () => recordingTracer(),
+      shutdown: () => Promise.resolve(),
+    };
+    const loader = vi.fn<BackendLoader>(() =>
+      Promise.resolve({ createOtelTracerBackend: () => Promise.resolve(backend) }),
+    );
+
+    // A full span lifecycle, nested, with attributes and an end — the shape a turn produces.
+    const span = getTracer('engine.turn').startSpan(SPAN.INGEST);
+    span.setAttributes({ 'turn.kind': 'reply' });
+    span.end();
     getTracer('engine.turn').startSpan(SPAN.INGEST).end();
-    expect(loader).not.toHaveBeenCalled();
+
+    expect(tracingEnabled()).toBe(false);
+    expect(
+      loader,
+      'span work loaded the backend while tracing was disabled',
+    ).not.toHaveBeenCalled();
+
+    // And the spy is a working loader, so "not called" is about the disabled path rather than
+    // about the spy being unusable.
+    await enableOtelTracing(CONFIG, loader);
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(tracingEnabled()).toBe(true);
   });
 
   it('imports exactly once when enabled', async () => {

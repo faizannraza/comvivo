@@ -21,6 +21,24 @@ Biome
 zod
 SQLCipher
 sqlite-vec
+# SQLite and sqlite-vec vocabulary (M1). These are identifiers from somebody else's SQL surface,
+# so they appear in prose exactly as they appear in a query; spelling them out would make the docs
+# disagree with the code.
+vec0?
+rowids?
+bm25
+FTS5?
+trigram
+trigrams
+tokenizer
+tokenizers
+tokenise[sd]?
+secretstream
+pragma
+pragmas
+rekeys?
+rekeyed
+rekeying
 Anthropic
 Ollama
 llama\.cpp
@@ -117,3 +135,11 @@ SchemaStore
 jsonc
 dotenv
 Temporal
+Zipf
+lognormal
+# `01` §7's own term for the member a tool acts on behalf of (invariant: requester authority).
+requester
+requester's
+# `02` §3.3's own term for a column copied from a parent so a query need not join.
+denormalised
+denormalisation

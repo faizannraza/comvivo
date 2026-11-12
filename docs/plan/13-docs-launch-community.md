@@ -155,7 +155,7 @@ This document owns how people **find, understand, try, trust, install and join**
 
 - **`BRAND`** (§4.1) in `packages/shared/src/brand.ts` is the only place runtime code holds the name. It covers display name, CLI name, npm scope, env prefix, config filename, data dir, image, URLs and the default bot persona.
 - **AST guard** `scripts/brand/check.ts` runs as part of `pnpm verify`. It fails if any TS/TSX string or template literal under `packages/**` or `apps/**` contains the codename (case-insensitive). Excluded: `brand.ts`, import specifiers of the npm scope, `apps/docs/src/content/**`, fixtures and test snapshots.
-- **Codemod** `scripts/brand/rename.ts --to <slug> --display "<Name>" [--scope @<slug>] [--dry-run]` rewrites every surface the guard does not cover: package names and dependencies, import specifiers, tsconfig references, dependency-cruiser config, Dockerfiles and compose files, HA/Umbrel/CasaOS manifests, workflows, docs prose, README, constitution templates, and file names such as `village.yaml.example`. Replacement preserves case (Village / village / VILLAGE). It ends with a report of leftover matches.
+- **Codemod** `scripts/brand/rename.ts --to <slug> --display "<Name>" [--scope @<slug>] [--dry-run]` rewrites every surface the guard does not cover: package names and dependencies, import specifiers, tsconfig references, dependency-cruiser config, Dockerfiles and compose files, HA/Umbrel/CasaOS manifests, workflows, docs prose, README, constitution templates, and file names such as `comvivo.yaml.example`. Replacement preserves case (Village / village / VILLAGE). It ends with a report of leftover matches.
 - **Rename drill** (`.github/workflows/rename-drill.yml`, weekly plus manual): run the codemod to `zzbrand` in a scratch checkout, then run `pnpm install && pnpm verify && pnpm --filter docs build`. It must be green; a failure opens an issue labelled `brand`.
 - **Legacy compatibility** for a rename before 1.0: `BRAND.legacy` lists the old env prefixes and config filenames. The config loader (owned by 09/shared) accepts them with a deprecation warning until 1.1, and the release notes carry a migration section.
 - **Bot persona vs product name:** `BRAND.botDefaultName` is only a default. Groups can rename their bot (constitution persona and router aliases, owned by 03/05). A later product rename does not change existing groups' bot names.
@@ -241,7 +241,7 @@ You need a bot token for your chat platform (Telegram takes about two minutes wi
 ```sh
 npx <cli>@latest init
 ```
-The wizard asks which chat platform and model you want, writes `village.yaml` and `.env`, and starts Village. Add the bot to your group and say "@village hi".
+The wizard asks which chat platform and model you want, writes `comvivo.yaml` and `.env`, and starts Village. Add the bot to your group and say "@village hi".
 <!-- /sync -->
 
 Most people are done in about five minutes. Step-by-step guides: [Telegram](https://<domain>/start/quickstart/telegram/) · [Discord](https://<domain>/start/quickstart/discord/) · [Slack](https://<domain>/start/quickstart/slack/) · [Matrix](https://<domain>/start/quickstart/matrix/) · [Signal](https://<domain>/start/quickstart/signal/) · [Web only](https://<domain>/start/quickstart/web/)
@@ -490,7 +490,7 @@ Legend: **G** = generated (§3.C.4 rule 4); **A** = audience (H host, M member, 
 | Path | Title | Content | A |
 |---|---|---|---|
 | `/operate/install/` | Install options | npm global, Docker, compose variants (with Ollama, with signal-cli), systemd, Windows via WSL2 [12] | H |
-| `/operate/configuration/` | Configuration | `village.yaml` plus env plus dashboard settings; precedence (ADR-014); secrets; editor autocomplete via JSON Schema | H |
+| `/operate/configuration/` | Configuration | `comvivo.yaml` plus env plus dashboard settings; precedence (ADR-014); secrets; editor autocomplete via JSON Schema | H |
 | `/operate/dashboard-access/` | Dashboard access | Pairing-code login (default), magic links (loopback, or HTTPS with explicit opt-in), the default `127.0.0.1` bind, safe remote access, HA ingress linking, sessions [08, 09] | H |
 | `/operate/backups/` | Backups, restore & export | Schedules, encryption, restore drill, export formats [02, 12] | H |
 | `/operate/upgrades/` | Upgrades | Release channels, migrations, rollback, the opt-in update check (what it fetches) [12] | H |
@@ -516,17 +516,17 @@ Legend: **G** = generated (§3.C.4 rule 4); **A** = audience (H host, M member, 
 | Path | Title | Source | A |
 |---|---|---|---|
 | `/reference/cli/` | CLI | G from `apps/cli` command manifest [09] | H |
-| `/reference/config/` | `village.yaml` | G from the zod config schema (ADR-014) | H |
+| `/reference/config/` | `comvivo.yaml` | G from the zod config schema (ADR-014) | H |
 | `/reference/env/` | Environment variables | G from the config schema plus adapter env declarations | H |
 | `/reference/constitution-schema/` | Constitution schema | G from the zod constitution schema [03]; JSON Schema at `/schemas/constitution.v1.json` | Ad |
 | `/reference/capabilities/` | Capabilities | G from core `Capability` plus descriptions [03] | Ad |
-| `/reference/tools/` | Built-in tools | G from the `@village/tools` catalog: name, description, capability, effect, risk [05, 07] | Ad, Dev |
+| `/reference/tools/` | Built-in tools | G from the `@comvivo/tools` catalog: name, description, capability, effect, risk [05, 07] | Ad, Dev |
 | `/reference/constraints/` | Declassification constraints | G from the constraint catalog [03] | all |
 | `/reference/channels/` | Channel capability matrix | G from each adapter's `capabilities` plus a stability registry [06] | H |
-| `/reference/models/` | Model presets & measured costs | G from `@village/models` presets plus `reports/cost-per-preset.json` [05, 11] | H |
+| `/reference/models/` | Model presets & measured costs | G from `@comvivo/models` presets plus `reports/cost-per-preset.json` [05, 11] | H |
 | `/reference/api/` | HTTP API | G by `starlight-openapi` from `apps/server/openapi.json` [09] | Dev |
-| `/reference/plugin-sdk/` | Plugin SDK | G by TypeDoc from `@village/plugin-sdk` [10] | Dev |
-| `/reference/mcp/` | MCP resources & tools | G from the `@village/mcp` catalog [10] | Dev |
+| `/reference/plugin-sdk/` | Plugin SDK | G by TypeDoc from `@comvivo/plugin-sdk` [10] | Dev |
+| `/reference/mcp/` | MCP resources & tools | G from the `@comvivo/mcp` catalog [10] | Dev |
 | `/reference/doctor/` | Doctor checks | G from the doctor registry [09] | H |
 | `/reference/errors/` | Error codes | G from typed error registry [shared] | H, Dev |
 | `/reference/schemas/` | JSON Schemas | Links and `yaml-language-server` usage | H |
@@ -629,7 +629,7 @@ Honesty rules:
 - Works on iOS Safari and Android Chrome at 360 px wide.
 
 **Tier 2: live engine, replayed model (stretch, gated by the M12-T3 spike)**
-- A Web Worker runs a browser composition root (`apps/docs/src/demo/runtime/worker.ts`) built from: `@village/core`, `@village/engine`, `@village/tools`, `@village/channel-sdk`, `@village/channel-simulator`; **in-memory repositories** from a browser-safe entry point (02/11); `ReplayModelGateway` (05), returning recorded outputs keyed by `(scenarioId, stepIndex, requestFingerprint)`; a deterministic hash embedder (no transformers.js); a virtual clock and seeded IDs.
+- A Web Worker runs a browser composition root (`apps/docs/src/demo/runtime/worker.ts`) built from: `@comvivo/core`, `@comvivo/engine`, `@comvivo/tools`, `@comvivo/channel-sdk`, `@comvivo/channel-simulator`; **in-memory repositories** from a browser-safe entry point (02/11); `ReplayModelGateway` (05), returning recorded outputs keyed by `(scenarioId, stepIndex, requestFingerprint)`; a deterministic hash embedder (no transformers.js); a virtual clock and seeded IDs.
 - The trace panel and "View as" are then **computed live by the real IFC and guard in the browser**. A "simulate a misbehaving model" toggle swaps in a scripted draft that tries to leak, so visitors watch the guard block it.
 - **Spike pass criteria** (all must hold): (a) the bundle is ≤1.5 MB gz; (b) worker cold start ≤2 s on a mid-range Android (Moto G-class, throttled 4× in Lighthouse); (c) zero `node:*` imports reachable from the worker entry (dependency-cruiser rule, §12 P4); (d) all demo scenarios replay identically to Tier 1 recordings.
 - If any criterion fails, ship Tier 1 only. The UI and recording format are identical, so the visitor sees the same thing.
@@ -1195,8 +1195,8 @@ export interface Brand {
   readonly cliName: string;                  // npm bin
   readonly npmCliPackage: string;            // used in `npx <pkg>@latest init` (see §12 P1)
   readonly npmScope: `@${string}`;           // workspace scope
-  readonly envPrefix: string;                // 'VILLAGE_'; platform tokens (TELEGRAM_BOT_TOKEN…) stay unprefixed
-  readonly configFileName: string;           // 'village.yaml'
+  readonly envPrefix: string;                // 'COMVIVO_'; platform tokens (TELEGRAM_BOT_TOKEN…) stay unprefixed
+  readonly configFileName: string;           // 'comvivo.yaml'
   readonly dataDirName: string;
   readonly containerImage: string;           // 'ghcr.io/<org>/<slug>'
   readonly botDefaultName: string;           // default in-chat persona (03/05 consume)
@@ -1213,7 +1213,7 @@ export declare const BRAND: Brand;
 export const envVar = (name: string): string => `${BRAND.envPrefix}${name}`; // envVar('DEBUG_CONTENT')
 ```
 
-`brand.ts` must stay pure and free of I/O, because `@village/core` may import it for name-invocation defaults.
+`brand.ts` must stay pure and free of I/O, because `@comvivo/core` may import it for name-invocation defaults.
 
 ### 4.2 Docs frontmatter (`apps/docs/src/content.config.ts`)
 
@@ -1252,18 +1252,18 @@ Every export below must live in a side-effect-free module. Importing it must not
 
 | Generator | Required export (owner) | Output |
 |---|---|---|
-| `config`, `env` | `villageConfigSchema` (zod) from `@village/shared/config` (09/shared) | `reference/config.mdx`, `reference/env.mdx`, `/schemas/village-config.v1.json` (via `z.toJSONSchema`) |
-| `constitution` | `constitutionSchema` from `@village/core/constitution` (03) | `reference/constitution-schema.mdx`, `/schemas/constitution.v1.json` |
-| `capabilities` | `CAPABILITY_CATALOG: readonly {id: Capability; summary: string; defaultRisk}` from `@village/core/policy` (03) | `reference/capabilities.mdx` |
-| `constraints` | `CONSTRAINT_CATALOG` from `@village/core/ifc` (03) | `reference/constraints.mdx` |
-| `tools` | `builtinToolCatalog()` returning `name, description, capability, effect, risk` from `@village/tools` (05/07) | `reference/tools.mdx` |
+| `config`, `env` | `villageConfigSchema` (zod) from `@comvivo/shared/config` (09/shared) | `reference/config.mdx`, `reference/env.mdx`, `/schemas/village-config.v1.json` (via `z.toJSONSchema`) |
+| `constitution` | `constitutionSchema` from `@comvivo/core/constitution` (03) | `reference/constitution-schema.mdx`, `/schemas/constitution.v1.json` |
+| `capabilities` | `CAPABILITY_CATALOG: readonly {id: Capability; summary: string; defaultRisk}` from `@comvivo/core/policy` (03) | `reference/capabilities.mdx` |
+| `constraints` | `CONSTRAINT_CATALOG` from `@comvivo/core/ifc` (03) | `reference/constraints.mdx` |
+| `tools` | `builtinToolCatalog()` returning `name, description, capability, effect, risk` from `@comvivo/tools` (05/07) | `reference/tools.mdx` |
 | `channels` | `CHANNEL_META` from each adapter's `/meta` entry (`id, stability, capabilities, setupDoc`), without importing platform SDKs (06) | `reference/channels.mdx`, README `platforms` |
-| `models` | `PRESETS` from `@village/models/presets` (05) + `reports/cost-per-preset.json` (11) | `reference/models.mdx`, README `cost-table` |
+| `models` | `PRESETS` from `@comvivo/models/presets` (05) + `reports/cost-per-preset.json` (11) | `reference/models.mdx`, README `cost-table` |
 | `cli`, `doctor` | `pnpm --filter cli manifest:emit` → `apps/cli/dist/manifest.json` (commands, flags, doctor checks) (09) | `reference/cli.mdx`, `reference/doctor.mdx` |
 | `api` | `pnpm --filter server openapi:emit` → `apps/server/openapi.json` (09) | `reference/api/**` via starlight-openapi |
 | `plugin-sdk` | Complete TSDoc on `packages/plugin-sdk/src/index.ts` (10) | `reference/plugin-sdk/**` via starlight-typedoc |
-| `mcp` | `MCP_CATALOG` from `@village/mcp/catalog` (10) | `reference/mcp.mdx` |
-| `errors` | `ERROR_CODES` from `@village/shared/errors` | `reference/errors.mdx` |
+| `mcp` | `MCP_CATALOG` from `@comvivo/mcp/catalog` (10) | `reference/mcp.mdx` |
+| `errors` | `ERROR_CODES` from `@comvivo/shared/errors` | `reference/errors.mdx` |
 | `redteam`, `perf` | `reports/redteam/latest.json`, `reports/perf/latest.json` (11) | `trust/discretion-results.mdx`, the perf table; README `redteam-count` |
 | `thanks`, `changelog` | git log + `CONTRIBUTORS.yml`; `packages/*/CHANGELOG.md` | `project/thanks.mdx`, `project/changelog.mdx` |
 | `health` | Private metrics store (skipped without `METRICS_TOKEN`) | `project/health.mdx` |
@@ -1323,7 +1323,7 @@ A trace is shown only when the "View as" member is in its `visibleTo`, which is 
 
 **Dependencies on other docs:**
 - 05: `ReplayModelGateway implements ModelGateway`. Its key is `sha256(normalized request without volatile fields)` plus `(scenarioId, step)`. A miss produces a typed `ReplayMissError`.
-- 02/11: in-memory repositories at a browser-safe entry point (proposed `@village/storage/memory`) that never imports `better-sqlite3`.
+- 02/11: in-memory repositories at a browser-safe entry point (proposed `@comvivo/storage/memory`) that never imports `better-sqlite3`.
 - 06: the simulator must not use `node:*` in its main entry.
 
 ### 4.6 README sync markers

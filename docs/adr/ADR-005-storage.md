@@ -1,6 +1,6 @@
 # ADR-005 — Storage
 
-- **Status:** **Accepted (addendum pending SP-1)**
+- **Status:** **Accepted.** The SP-1/SP-3 addendum landed 2026-11-04 (`M1-T2`) — see below
 - **Date:** 2026-11-01
 - **Deciders:** project owner (delegated to Claude Code, autonomous mode)
 - **Supersedes / Amended by:** amended by §14 **A8** (synchronous repository ports, explicit SQLCipher configuration, interned labels, blob identity, libsodium binding, snapshot method); related: §14 **A7** (authoritative entity list), **A10** (backup format)
@@ -42,7 +42,7 @@ Nothing about this stack was taken on faith: `01` §2 ADR-005 required an M1 spi
 
 ### Why the status is "addendum pending SP-1"
 
-**SP-1** (`M1-T2`) must prove that Drizzle + `better-sqlite3-multiple-ciphers` (SQLCipher v4 config) + sqlite-vec + FTS5 work **together** on Node 26 and Node 24, on darwin-arm64, linux/amd64 and linux/arm64, and in the `node:26-trixie-slim` image. Its procedure and pass criteria are fixed in `02` §3.6.3: open p50 < 20 ms, no plaintext canary in `village.db`/`-wal`/`-shm`, vec0 partition + metadata `IN` + range KNN, FTS5 contentless-delete and trigram, triggers firing under `trusted_schema=OFF`, Drizzle typing and `drizzle-kit generate` output, crash-safety under `kill -9`, and worker-thread connections. The addendum records the measured numbers and any sub-decision the matrix forces.
+**SP-1** (`M1-T2`) must prove that Drizzle + `better-sqlite3-multiple-ciphers` (SQLCipher v4 config) + sqlite-vec + FTS5 work **together** on Node 26 and Node 24, on darwin-arm64, linux/amd64 and linux/arm64, and in the `node:26-trixie-slim` image. Its procedure and pass criteria are fixed in `02` §3.6.3: open p50 < 20 ms, no plaintext canary in `comvivo.db`/`-wal`/`-shm`, vec0 partition + metadata `IN` + range KNN, FTS5 contentless-delete and trigram, triggers firing under `trusted_schema=OFF`, Drizzle typing and `drizzle-kit generate` output, crash-safety under `kill -9`, and worker-thread connections. The addendum records the measured numbers and any sub-decision the matrix forces.
 
 ### Documented fallback if SP-1 fails
 
@@ -57,6 +57,51 @@ The fallback is not "ship unencrypted" and not "drop search". It is `02` §2 D9 
 | What is lost | Phrase, prefix and trigram queries (so `memory_fts_tri` is dropped); plaintext metadata (ids, timestamps, enums, label ids, sizes, FTS doclist structure) stays visible and must be documented in `08` |
 
 Partial outcomes have their own documented branches in the `02` §3.6.3 decision matrix — for example, if vec0 deletes inside triggers fail, SQLCipher is kept and vector deletes move to the repository with a nightly reconcile; if vec cannot load into multiple-ciphers at all, SQLCipher is kept and only the vector index falls back.
+
+### Addendum: what SP-1 and SP-3 measured (2026-11-04, `M1-T2`)
+
+**The stack composes. Ship D8.** Every criterion in `02` §3.6.3's decision matrix passes, so the
+`02` §3.6.5 plaintext fallback is not used, and `VACUUM INTO` snapshots are encrypted, so `01` §14
+A8's online-backup-API alternative is not needed either. The full report, with the per-criterion
+evidence, is `docs/architecture/storage-spike.md`; the numbers are in
+`docs/architecture/storage-benchmarks.md`. The spike is kept as a 68-test regression suite that
+runs on every `pnpm verify`, because each of these is a fact about somebody else's native module
+and can change on an upgrade.
+
+Measured on darwin-arm64 (Apple M1) and linux-x64 (GitHub Actions), green on **both** Node 26.13.0 and Node 24.22.2, with
+`better-sqlite3-multiple-ciphers@13.0.3` (SQLite 3.53.4), `sqlite-vec@0.1.9`,
+`drizzle-orm@0.45.4`, `drizzle-kit@0.31.11`.
+
+**Four sub-decisions the matrix forced, in descending order of how much they cost to find later:**
+
+1. **`cacheSizeKiB` defaults to 192 MiB, and it is not a tuning knob.** With SQLCipher, a KNN query
+   whose vector index does not fit in the page cache re-reads and **re-decrypts the whole
+   partition**: 508 ms p50 at 50k × 384-d with an 8 MiB cache, **5 ms** with 192 MiB. The small
+   figure is 8× outside `02` §3.16.4's 60 ms budget. Above the cliff the encrypted build is
+   *faster* than the plaintext one (5 ms against 15 ms). `comvivo doctor` warns when the cache is
+   smaller than the largest vector partition, because the symptom otherwise is "search feels slow"
+   with nothing in the logs.
+2. **`better-sqlite3` is declared as a dependency alias of the fork.**
+   `drizzle-orm/better-sqlite3/driver.js` does a top-level `import 'better-sqlite3'`, so Drizzle
+   cannot load at all against the fork without it. `02` §3.6.3 step 6 anticipated a type problem
+   and permitted a cast; the real problem was module resolution, and with the alias **no cast is
+   needed**.
+3. **`trusted_schema` stays ON, now for a measured reason rather than caution.** With it OFF, vec0
+   DML inside a trigger is accepted as DDL and **refused at run time**, so the trigger that removes
+   a retracted memory's vector would look installed and fail on the first retraction. FTS5 is
+   unaffected, so one global switch covers two different answers.
+4. **vec0 metadata `UPDATE` works**, which `02` §3.5 had assumed it might not — so `M1-T18` can
+   update a label or validity window in place instead of deleting and re-inserting the embedding.
+
+**Still owed, and stated rather than glossed:** U7 (the whole `02` §3.16.4 latency table) and
+**SP-2's 40 MB/s gate** are specified on a Raspberry Pi 5, which is owner ask **H-10**. The
+darwin-arm64 numbers are a ceiling, not evidence that the budgets hold, and
+`docs/architecture/storage-benchmarks.md` says so where the numbers are. SP-2 measures **375 MB/s**
+here — the median of five passes after a warm-up, 369–381 across them — which is about **9.4×** the
+40 MB/s threshold, not the "three orders of magnitude" an earlier version of this line claimed
+(372 ÷ 40 is 9.3, and the single timed pass it came from was bimodal: 161–354 MB/s on the same
+machine, which is why the benchmark now reports a median). One order of magnitude of headroom on a
+laptop makes the `sodium-native` switch unlikely, and a Pi is still the only thing that settles it.
 
 ## Alternatives considered
 
@@ -83,7 +128,7 @@ Partial outcomes have their own documented branches in the `02` §3.6.3 decision
 - Vector search is brute-force within a partition. That is correct for group-sized data and would not be for a multi-tenant cloud.
 
 **Follow-ups**
-- `M1-T2` — SP-1 and SP-3; writes the addendum and the decision-matrix outcome.
+- ~~`M1-T2` — SP-1 and SP-3; writes the addendum and the decision-matrix outcome.~~ **Done 2026-11-04**; the addendum is above.
 - `M1-T4` — crypto primitives and SP-2 (the libsodium binding decision).
 - `M1-T8`, `M1-T9` — `openDatabase`/`initDatabase`, `SqliteStore`, `NotPromise` and the no-`await`-in-transaction lint.
 - `M1-T11`–`M1-T14` — schema parts A and B, the search/guard migration (FTS5, vec0, I4 triggers), and the migration runner.

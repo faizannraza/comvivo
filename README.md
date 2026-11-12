@@ -61,14 +61,15 @@ reviewing, merging and accountable for the result. We would rather say so plainl
 noticed.
 
 What makes that defensible is evidence rather than assurance: every guard in this repository has a
-test that plants a violation and asserts the guard fails. That rule exists because **nine guards and
+test that plants a violation and asserts the guard fails. That rule exists because **ten guards and
 gates here have been caught proving nothing** — a dependency checker cruising an empty graph, a lint
 rule with no declared global, a secret-scrubbing pattern that could never match the one case it was
 written for, two file scanners blind to a whole class of file, an ESLint rule whose options a later
 block silently replaced, a test-time network guard that let real HTTP requests out, a plan checker
 whose own fifty-four tests were wired to nothing at all, and a release dry run that had been green
-all milestone because it was versioning an empty set. Each was found by trying to break it, or by
-running it for real, never by reading it.
+all milestone because it was versioning an empty set, and a test of a build alias that passed with
+the alias emptied. Each was found by trying to break it, or by running it for real, never by
+reading it.
 
 Test counts, property tests, the red-team scorecard and the performance budgets are public and
 measured, never estimated. Where a gate needs something only a human can do, the substitution is

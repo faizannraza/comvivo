@@ -1,0 +1,184 @@
+/**
+ * An in-memory database with every migration applied, for the guard and search suites.
+ *
+ * `M1-T15`'s `createTestDb` supersedes this with template cloning (≤ 5 ms per clone) and an
+ * encrypted variant. This is the narrower thing `M1-T13` needs: a real SQLite with sqlite-vec
+ * loaded and the committed migration SQL applied, so the triggers under test are **the ones that
+ * ship** rather than a copy rendered by the test.
+ *
+ * `trusted_schema = ON` is not incidental. `02` §3.5 measured that with it `OFF`, vec0 DML inside
+ * a trigger is refused at *run* time while the DDL is accepted — so a vec space's delete trigger
+ * would look installed and throw on the first retraction. FTS5 is unaffected, which is why one
+ * global switch has two different answers and why this helper sets it before loading the
+ * extension.
+ */
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import type { NotPromise } from '@comvivo/core';
+import Database from 'better-sqlite3-multiple-ciphers';
+import * as sqliteVec from 'sqlite-vec';
+
+const MIGRATIONS_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '../../../migrations');
+
+/**
+ * The committed migrations, in order, read from the journal rather than listed.
+ *
+ * It was a hardcoded two-element literal. A third migration would have been added to
+ * `migrations/`, applied by the real runner on every host, and **not** applied here — so the I4,
+ * FTS and vec0 guard suites would have gone on testing a stale schema and passing. Found by the M1
+ * independent review.
+ *
+ * `meta/_journal.json` is the same source of truth `M1-T14`'s `fileMigrationSource` reads, and
+ * that module already cross-checks the journal against the files on disk in both directions, so
+ * this helper can trust the order without repeating the check.
+ */
+export const MIGRATION_FILES: readonly string[] = (
+  JSON.parse(readFileSync(resolve(MIGRATIONS_DIR, 'meta/_journal.json'), 'utf8')) as {
+    entries: { idx: number; tag: string }[];
+  }
+).entries
+  .toSorted((left, right) => left.idx - right.idx)
+  .map((entry) => `${entry.tag}.sql`);
+
+/** drizzle's statement separator, which the real runner (`M1-T14`) also splits on. */
+const BREAKPOINT = '--> statement-breakpoint';
+
+/** Read one committed migration's SQL. */
+export function migrationSql(file: string): string {
+  return readFileSync(resolve(MIGRATIONS_DIR, file), 'utf8');
+}
+
+/** Apply the committed migrations to `db`, returning how many statements ran. */
+export function applyMigrations(db: Database.Database): number {
+  let applied = 0;
+  for (const file of MIGRATION_FILES) {
+    for (const raw of migrationSql(file).split(BREAKPOINT)) {
+      const statement = raw.trim();
+      if (statement === '') continue;
+      db.exec(statement);
+      applied += 1;
+    }
+  }
+  return applied;
+}
+
+/**
+ * Open a migrated in-memory database and hand it to `fn`, closing it afterwards.
+ *
+ * **`fn` must be synchronous**, and the `NotPromise` return type is what says so. An `async`
+ * callback returns a promise immediately, the `finally` closes the database, and the body then runs
+ * against a closed connection — `TypeError: The database connection is not open`, from somewhere
+ * three frames into drizzle. Exactly the trap `02` §3.7.2 guards `store.write` against, in the
+ * harness rather than in the store; found when the worker-loop tests needed `await`.
+ *
+ * For an asynchronous test, use `withMigratedDbAsync`.
+ */
+export function withMigratedDb<T>(fn: (db: Database.Database) => NotPromise<T>): T {
+  const db = openMigrated();
+  try {
+    return fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * The same, for a test that must `await` — a worker loop, a handler, a virtual clock.
+ *
+ * Separate rather than a widened `withMigratedDb`, so the synchronous guard above stays a type
+ * error: a single function taking either would accept the mistake it exists to prevent.
+ */
+export async function withMigratedDbAsync<T>(
+  fn: (db: Database.Database) => Promise<T>,
+): Promise<T> {
+  const db = openMigrated();
+  try {
+    return await fn(db);
+  } finally {
+    db.close();
+  }
+}
+
+function openMigrated(): Database.Database {
+  const db = new Database(':memory:');
+  // Before `sqliteVec.load`, and before any trigger that touches a vec table runs.
+  db.pragma('trusted_schema = ON');
+  sqliteVec.load(db);
+  db.pragma('foreign_keys = ON');
+  applyMigrations(db);
+  return db;
+}
+
+/** A group with everything a labeled row needs to exist. */
+export interface SeededGroup {
+  readonly groupId: string;
+  readonly personId: string;
+  readonly memberId: string;
+  readonly conversationId: string;
+  readonly readerSetId: number;
+  /** A label belonging to this group — the only one a row in it may carry (I4). */
+  readonly labelId: number;
+}
+
+/** A 26-character Crockford base32 suffix built from `tag`, so ids are readable in a failure. */
+function suffix(tag: string): string {
+  return `01j${tag}`.padEnd(26, '0').slice(0, 26);
+}
+
+/**
+ * Insert one group plus the rows a labeled record needs, and return their ids.
+ *
+ * Two of these give the I4 suite what it needs: a matching label and a foreign one.
+ */
+export function seedGroup(db: Database.Database, tag: string): SeededGroup {
+  const groupId = `grp_${suffix(tag)}`;
+  const personId = `prs_${suffix(tag)}`;
+  const memberId = `mbr_${suffix(tag)}`;
+  const conversationId = `cnv_${suffix(tag)}`;
+
+  db.prepare(
+    `INSERT INTO persons (id, display_name, display_name_source, created_at, updated_at)
+     VALUES (?, 'Seed', 'platform', 0, 0)`,
+  ).run(personId);
+  db.prepare(
+    `INSERT INTO groups (id, name, archetype, history_visibility, timezone, locale, week_start,
+       status, membership_epoch, extensions_version, created_at, updated_at, version)
+     VALUES (?, 'Seed', 'family', 'since_join', 'UTC', 'en', 1, 'active', 0, 0, 0, 0, 1)`,
+  ).run(groupId);
+  db.prepare(
+    `INSERT INTO members (id, group_id, person_id, role, age_band, handle, status, consent,
+       joined_at, created_at, updated_at, version)
+     VALUES (?, ?, ?, 'admin', 'adult', 'm1', 'active', 'informed', 0, 0, 0, 1)`,
+  ).run(memberId, groupId, personId);
+  db.prepare(
+    `INSERT INTO conversations (id, group_id, channel, platform_chat_id, kind, "primary", bound_at,
+       created_at, updated_at)
+     VALUES (?, ?, 'simulator', ?, 'group', 1, 0, 0, 0)`,
+  ).run(conversationId, groupId, `chat-${tag}`);
+
+  // `RETURNING id` rather than `lastInsertRowid`, because both of these are `INTEGER PRIMARY KEY
+  // AUTOINCREMENT` and the interned id is the value every labeled row will carry.
+  const readerSet = db
+    .prepare(
+      `INSERT INTO reader_sets (group_id, kind, canonical_key, member_count, created_at)
+         VALUES (?, 'group', ?, 0, 0) RETURNING id`,
+    )
+    .get(groupId, `g:${tag}`) as { id: number };
+  const label = db
+    .prepare(
+      `INSERT INTO labels (group_id, reader_set_id, owner_member_id, co_owner_member_ids,
+         sensitivity, influence, untrusted, canonical_key, created_at)
+       VALUES (?, ?, NULL, '[]', 'normal', 'none', 0, ?, 0) RETURNING id`,
+    )
+    .get(groupId, readerSet.id, `l:${tag}`) as { id: number };
+
+  return {
+    groupId,
+    personId,
+    memberId,
+    conversationId,
+    readerSetId: readerSet.id,
+    labelId: label.id,
+  };
+}

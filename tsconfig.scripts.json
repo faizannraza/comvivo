@@ -1,6 +1,14 @@
 {
   "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "./tsconfig.base.json",
+  // `tsconfig.paths.json` as well as the base, for the reason that file lists: a script that
+  // imports a workspace package must type against its **source**. Without it the import resolves
+  // through `node_modules` into `dist/`, which exists on a machine that has built and does not on
+  // a clean checkout — so every type-aware ESLint rule over `scripts/**` silently degraded to
+  // `any` in CI, and `pnpm run lint` runs *before* `pnpm run typecheck` in `ci.yml`. It reported
+  // 13 errors on `scripts/bench/run.ts` at `M1-T33` that no local run could reproduce, and it had
+  // been missing real ones for as long as this config has existed. Reproduced by moving every
+  // `dist/` aside and re-running, which is the only way to see a clean checkout from a dirty one.
+  "extends": ["./tsconfig.base.json", "./tsconfig.paths.json"],
   "compilerOptions": {
     "noEmit": true,
     "composite": false,
@@ -16,6 +24,12 @@
     "vitest.config.ts",
     "vitest.shared.ts",
     "vitest.setup.ts",
-    "eslint.config.ts"
+    "eslint.config.ts",
+    "packages/*/drizzle.config.ts",
+    // `11` §3.1.5's mutation runner needs a Vitest config of its own (the root one has five
+    // projects, and Stryker starts an instance per mutant). Named exactly, like the line above:
+    // `eslint.config.ts` routes `packages/*/*.config.ts` to this project, so a config file that is
+    // not in this `include` is a file whose type-aware rules go silently inert.
+    "packages/*/vitest.mutation.config.ts"
   ]
 }

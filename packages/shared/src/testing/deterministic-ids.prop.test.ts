@@ -13,6 +13,7 @@ import fc from 'fast-check';
 import { Temporal } from 'temporal-polyfill';
 import { TypeID } from 'typeid-js';
 import { describe, expect, it } from 'vitest';
+import type { IdPrefix } from '../ids.js';
 import { DeterministicIdGenerator } from './deterministic-ids.js';
 import { fcConfig } from './fc-config.js';
 import { SeededRng } from './seeded-rng.js';
@@ -29,11 +30,15 @@ const plans = fc.array(
   { minLength: 1, maxLength: 25 },
 );
 
-const prefixes = fc.constantFrom('grp', 'mbr', 'mem', 'msg', 'trn', 'job', 'out');
+// `'turn'` and `'out'` were in this list until `M1-T3` — entity names rather than prefixes, where
+// the real ones are `trn` and `obx`. The old port took `prefix: string`, so the property suite was
+// minting ids no parser would ever accept and asserting their *ordering* with great rigour. The
+// closed `IdPrefix` union turned both into compile errors.
+const prefixes = fc.constantFrom('grp', 'mbr', 'mem', 'msg', 'trn', 'job', 'obx');
 
 async function run(
   plan: readonly { advanceMs: number; count: number }[],
-  prefix: string,
+  prefix: IdPrefix,
   seed: number,
 ): Promise<string[]> {
   const clock = new VirtualClock('2026-01-01T00:00:00Z');
@@ -41,7 +46,7 @@ async function run(
   const out: string[] = [];
   for (const step of plan) {
     await clock.advance(Temporal.Duration.from({ milliseconds: step.advanceMs }));
-    for (let i = 0; i < step.count; i += 1) out.push(ids.generate(prefix));
+    for (let i = 0; i < step.count; i += 1) out.push(ids.next(prefix));
   }
   return out;
 }
@@ -118,7 +123,7 @@ describe('DeterministicIdGenerator properties', { tags: ['prop'] }, () => {
     const clock = new VirtualClock('2026-01-01T00:00:00Z');
     const ids = new DeterministicIdGenerator(clock, new SeededRng(1));
     expect(() => {
-      for (let i = 0; i < 5_000; i += 1) ids.generate('grp');
+      for (let i = 0; i < 5_000; i += 1) ids.next('grp');
     }).toThrow();
   });
 });

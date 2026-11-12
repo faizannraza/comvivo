@@ -12,6 +12,7 @@ import {
   COVERAGE_THRESHOLDS,
   NON_UNIT,
   sharedTest,
+  WORKSPACE_ALIASES,
 } from './vitest.shared.js';
 
 // Pin the environment here, in the main process, **before Vitest forks any worker**. Workers
@@ -28,6 +29,14 @@ process.env['COMVIVO_TEST_MODE'] = '1';
 const CI = process.env['CI'] === 'true' || process.env['CI'] === '1';
 
 export default defineConfig({
+  // Every `@comvivo/*` import resolves to **source**, not to a package's `dist/`.
+  //
+  // Without this a test that imports a sibling package needs that package built first, so it
+  // passes on a machine that has built recently and fails on a fresh checkout with "Failed to
+  // resolve entry for package". That is the same shape as M0-T18's `.astro` types: a local check
+  // that is weaker than CI's while printing the same result. Built from `tsconfig.paths.json`, the
+  // one file dependency-cruiser and the test typecheck also read.
+  resolve: { alias: WORKSPACE_ALIASES },
   test: {
     // The integration, contract, scenario and bench layers are populated by their own milestones
     // (M1 storage, M2/M3 adapters, M3-T43 the harness, M1-T32 benches), so an empty project must
@@ -49,22 +58,19 @@ export default defineConfig({
     // right to.
     ...(CI ? { outputFile: { junit: '.vitest/junit.xml', json: '.vitest/results.json' } } : {}),
 
-    // Benchmarks: the globs are declared here, at the root, because `benchmark` is listed in
-    // Vitest 5's `UnsupportedProperties` for *project* configs — `11` §3.1.3's "bench project" is
-    // not expressible any more.
+    // No `benchmark` block: `M1-T32` built the harness instead.
     //
-    // They do not run yet. Vitest 5.0.5 exposes no usable `bench` API: it is not exported from
-    // `vitest`, not from `vitest/runtime` or `vitest/node`, and not injected as a global even with
-    // `globals: true`, and there is no `@vitest/bench` package (both names 404 on the registry).
-    // Verified directly, not inferred. `M1-T32` owns bench infrastructure and decides between a
-    // purpose-built harness and a Vitest version where this works — and a purpose-built one is
-    // probably right regardless, because `01` §11.10 and `11` §8 specify *percentile* budgets over
-    // realistic workloads, which a micro-benchmark runner measures poorly. The globs stay so the
-    // files are already in the right place. See STATUS → Plan changes.
-    benchmark: {
-      include: ['packages/**/src/**/*.bench.ts', 'scripts/**/*.bench.ts'],
-      exclude: [...COMMON_EXCLUDE],
-    },
+    // Vitest 5.0.5 exposes no usable `bench` API — re-verified at `M1-T32` rather than inherited
+    // from the note `M0` left here: `bench` is not exported from `vitest`, `vitest/runtime` or
+    // `vitest/node`, is not injected as a global with `globals: true`, and there is no
+    // `@vitest/bench` package. And the second reason that note gave turned out to be the deciding
+    // one: every budget in `01` §11.10 and `11` §3.9.1 is a **percentile over a realistic
+    // workload**, which a micro-benchmark runner reports poorly.
+    //
+    // So `*.bench.ts` files default-export an array of `BenchDefinition` and `pnpm bench`
+    // (`scripts/bench/run.ts`) discovers, runs and records them. `COMMON_EXCLUDE` keeps them out
+    // of the test projects, and `packages/evals/src/perf/*.test.ts` is where the harness itself is
+    // tested. See STATUS → Plan changes.
 
     coverage: {
       provider: 'v8',
@@ -115,6 +121,10 @@ export default defineConfig({
             'packages/**/src/**/*.int.test.ts',
             'apps/*/src/**/*.int.test.ts',
             'test/**/*.int.test.ts',
+            // `02` M1-T2 keeps the storage spike as a permanent regression suite, and it lives
+            // outside `src/` — so without this glob it would have been written once and never run
+            // again, which makes it a record of what was true in November rather than a guard.
+            'packages/*/spike/**/*.spike.test.ts',
           ],
           testTimeout: 30_000,
         },

@@ -6,9 +6,12 @@
  * The planted-violation fixtures the M0 exit gate asks for are these cases
  * (`docs/plan/14-milestones.md` M0-T5, and the gate's "guards bite" line).
  */
-import { describe, expect, it } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
+import { afterEach, describe, expect, it } from 'vitest';
 import { BRAND } from '../../packages/shared/src/brand.js';
-import { findInSource } from './check.js';
+import { findInSource, scan } from './check.js';
 
 const NAME = BRAND.codename;
 
@@ -74,5 +77,93 @@ describe('brand guard', () => {
     // This string IS the source under test, so the placeholder must stay literal.
     const clean = 'export const a = 1;\nconst b = `${a}`;\n';
     expect(findInSource('x.ts', clean, NAME)).toEqual([]);
+  });
+});
+
+describe('the scan over a real tree (M0-T12 AC)', () => {
+  // The criterion is "fails on a planted codename literal under `packages/**` or `apps/**`", and
+  // it had been verified once by hand at the exit gate: every test above exercises `findInSource`,
+  // and nothing ran the globbing, the exclusion list or the file reading. Those are exactly where
+  // a guard goes quietly blind — a glob that stops matching reports a clean tree, which looks
+  // identical to a clean tree. Found by the M0 independent review.
+  //
+  // A synthetic tree, and a codename that is **not** the real one, so the planted literal cannot
+  // be mistaken for a real violation by `brand:check` itself or by any secret scanner.
+  const CODENAME = 'oldname';
+  const dirs: string[] = [];
+  afterEach(() => {
+    for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+  });
+
+  function tree(files: Readonly<Record<string, string>>): string {
+    const root = mkdtempSync(join(tmpdir(), 'brand-scan-'));
+    dirs.push(root);
+    for (const [path, contents] of Object.entries(files)) {
+      mkdirSync(join(root, dirname(path)), { recursive: true });
+      writeFileSync(join(root, path), contents);
+    }
+    return root;
+  }
+
+  it('finds a planted literal under packages/ and under apps/', () => {
+    const root = tree({
+      'packages/core/src/a.ts': `export const name = '${CODENAME}';\n`,
+      'apps/server/src/b.tsx': `export const other = \`${CODENAME}-server\`;\n`,
+    });
+    const { files, findings } = scan(root, CODENAME);
+    expect(files).toEqual(['apps/server/src/b.tsx', 'packages/core/src/a.ts']);
+    expect(findings.map((finding) => finding.file).toSorted()).toEqual([
+      'apps/server/src/b.tsx',
+      'packages/core/src/a.ts',
+    ]);
+    // The reported position is usable: a host reads `file:line:column` and opens it.
+    expect(findings.every((finding) => finding.line > 0 && finding.column > 0)).toBe(true);
+  });
+
+  it('reports a clean tree as clean, and really did read the files', () => {
+    const root = tree({
+      'packages/core/src/a.ts': "export const name = 'comvivo';\n",
+      'apps/server/src/b.ts': 'export const x = 1;\n',
+    });
+    const { files, findings } = scan(root, CODENAME);
+    expect(findings).toEqual([]);
+    // Non-vacuity: "no findings" over zero files is not evidence of anything.
+    expect(files).toHaveLength(2);
+  });
+
+  it('honours every exclusion, so none of them silently matches everything', () => {
+    // Each of these carries the planted literal and must be skipped for its own reason. A broken
+    // exclusion regex would show up as a finding here rather than as a quietly narrowed scan.
+    const root = tree({
+      'packages/core/src/kept.ts': `export const a = '${CODENAME}';\n`,
+      'packages/core/src/__snapshots__/x.ts': `export const b = '${CODENAME}';\n`,
+      'packages/core/src/x.snap': `export const c = '${CODENAME}';\n`,
+      'packages/api-client/src/generated/x.ts': `export const d = '${CODENAME}';\n`,
+      'packages/core/dist/x.ts': `export const e = '${CODENAME}';\n`,
+      'packages/core/node_modules/dep/x.ts': `export const f = '${CODENAME}';\n`,
+    });
+    const { findings } = scan(root, CODENAME);
+    expect(findings.map((finding) => finding.file)).toEqual(['packages/core/src/kept.ts']);
+  });
+
+  it('scans nothing outside packages/ and apps/', () => {
+    // The documented boundary (`13` §3.A.6), asserted rather than assumed: `scripts/`, `test/` and
+    // Markdown are **not** covered, which is why `CLAUDE.md`'s stale references survived until the
+    // M1 review read them by hand.
+    const root = tree({
+      'scripts/x.ts': `export const a = '${CODENAME}';\n`,
+      'test/y.ts': `export const b = '${CODENAME}';\n`,
+      'docs/z.md': `the ${CODENAME} docs\n`,
+    });
+    const { files, findings } = scan(root, CODENAME);
+    expect(files).toEqual([]);
+    expect(findings).toEqual([]);
+  });
+
+  it('leaves a module specifier alone, which is the one legitimate use', () => {
+    const root = tree({
+      'packages/core/src/a.ts': `import { x } from '@${CODENAME}/shared';\nexport const y = x;\n`,
+    });
+    expect(scan(root, CODENAME).findings).toEqual([]);
   });
 });

@@ -4,7 +4,12 @@ dist/
 .env
 .env.*
 !.env.example
-data/
+# **Anchored.** A bare `data/` matches a directory of that name at *any* depth, and it silently
+# swallowed `packages/storage/src/migrate/data/` — the data-migration registry `02` §3.12.1 asks
+# for. Everything passed locally, because the file was there; CI checks out only what is tracked.
+# This is the host's runtime data directory (`12` §3.7), which is at the root.
+# `test/boundaries/tracked-sources.test.ts` now fails if any source file is ignored.
+/data/
 *.log
 
 # Private naming workspace (13 §3.A.5: the candidate shortlist must not be public,
@@ -15,11 +20,32 @@ naming/
 __pycache__/
 *.pyc
 
+# The storage spike generates a throwaway migration to prove `drizzle-kit` can express a partial
+# index, an expression index and a CHECK (`02` §3.6.3 step 6). It is an assertion, not an artefact:
+# the real migrations live in `packages/storage/migrations/`.
+packages/*/spike/.generated/
+
+# `pnpm db:migrate`'s development database. A host's data lives in the data directory (12 §3.7);
+# this is a scratch file for iterating on migrations.
+packages/storage/.dev/
+
 # Build and tool caches
 .turbo/
 .vitest/
 coverage/
+# `pnpm bench` output. The results that matter are the ones CI uploads (`11` §3.9.3).
+.bench/
+# What `scripts/bench/pi.sh` leaves behind for the owner to paste back (ask H-10): a Pi session
+# should not hand them a dirty tree to explain.
+pi-storage.json
+pi-storage.md
+pi-knn.json
+pi-knn.md
 reports/
+# Stryker's sandbox: a full copy of the repository with one mutant applied, which must never be
+# linted, formatted, typechecked or committed (`11` §3.1.5). Biome reads this file, so naming it
+# here is also what keeps `biome ci .` from reporting 42 errors in mutated source.
+.stryker-tmp/
 *.tsbuildinfo
 .eslintcache
 

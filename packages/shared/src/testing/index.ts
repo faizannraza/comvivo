@@ -15,6 +15,15 @@ export {
   type FcConfigOptions,
   fcConfig,
   fcNumRuns,
+  fcTimeoutMs,
 } from './fc-config.js';
+export {
+  SECRETSTREAM_VECTOR,
+  type SecretStreamVector,
+  type SecretStreamVectorChunk,
+  vectorChunk,
+  vectorHeader,
+  vectorKey,
+} from './secretstream-vector.js';
 export { childSeed, fnv1a32, SeededRng, seedForScenario } from './seeded-rng.js';
 export { VirtualClock } from './virtual-clock.js';
