@@ -29,7 +29,7 @@
 import type { ClaimedJob, JobKindDef } from '@comvivo/core';
 import { JOB_BACKOFF } from '@comvivo/core';
 import { z } from '@comvivo/shared';
-import { fcConfig } from '@comvivo/shared/testing';
+import { fcConfig, fcTimeoutMs } from '@comvivo/shared/testing';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { JobKindRegistry } from '../queue/kinds.js';
@@ -284,7 +284,15 @@ const commands = [
 ];
 
 describe('queue.model-based (02 §9.2, 11 §3.1.6)', { tags: ['prop', 'db'] }, () => {
-  it('never double-runs, respects idempotency, and bounds every backoff', () => {
+  // The timeout scales with the run count, because the M1 exit gate runs this suite at
+  // `FC_NUM_RUNS=20000` by name and a fixed limit cannot survive that: measured at **11 ms per
+  // run** (500 runs in 5.5 s, each a model-based run against a real database), 20,000 runs take
+  // about four minutes. Before this, the gate's own command failed on a 30-second timeout while
+  // the property itself passed — `fc.assert` is synchronous, so Vitest could only report the
+  // overrun after the fact. 25 ms per run is the measured cost with margin for a slower runner.
+  it('never double-runs, respects idempotency, and bounds every backoff', {
+    timeout: fcTimeoutMs(25),
+  }, () => {
     fc.assert(
       fc.property(fc.commands(commands, { maxCommands: 40 }), (run) => {
         withRepos((world) => {

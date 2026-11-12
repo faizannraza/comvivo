@@ -6,7 +6,7 @@
  * install **over somebody's database**, which is the most destructive thing this product could do.
  * So "no marker, but there is data" has its own outcome and its own test.
  */
-import { readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { open, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { type InstanceId, StorageError } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
@@ -93,9 +93,20 @@ describe('writing it', { tags: ['slow'] }, () => {
       await createLayout(root);
       await writeFormat(root, marker());
 
+      // One open file handle for both assertions, rather than a `stat` and a `readFile` by path:
+      // the mode and the contents then provably belong to the *same* file. CodeQL flags the
+      // two-call form as a file-system race, and it is right that it is one — in a test with its
+      // own temp directory it could not bite, but a handle is no harder to write.
       const path = dataDirLayout(root).format;
-      expect((await stat(path)).mode & 0o777).toBe(FILE_MODE);
-      const text = await readFile(path, 'utf8');
+      const handle = await open(path);
+      const text = await (async () => {
+        try {
+          expect((await handle.stat()).mode & 0o777).toBe(FILE_MODE);
+          return await handle.readFile('utf8');
+        } finally {
+          await handle.close();
+        }
+      })();
       expect(text.startsWith('{\n  "format"')).toBe(true);
       expect(text.endsWith('}\n')).toBe(true);
     });

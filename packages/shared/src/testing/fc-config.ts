@@ -67,3 +67,29 @@ export function fcConfig(options: FcConfigOptions = {}): fc.Parameters<unknown> 
 export function fcNumRuns(fallback = DEFAULT_NUM_RUNS, env = process.env): number {
   return positiveInt(env['FC_NUM_RUNS']) ?? fallback;
 }
+
+/**
+ * A per-test timeout for a property suite, scaled to its run count.
+ *
+ * `11` §3.1.6 raises the mandatory suites to 20,000 runs nightly and the M1 exit gate runs the
+ * queue suite that way by name — and a fixed `testTimeout` cannot survive that: at 11 ms per run
+ * (measured, a model-based queue run against a real database) 20,000 runs take about four minutes
+ * against a 30-second limit. The suite completed and was still reported as a failure, because
+ * `fc.assert` is synchronous and Vitest can only notice the overrun afterwards. So the timeout is
+ * derived from the same number that decides the work.
+ *
+ * `msPerRun` is a **measured** cost with margin, not a guess: measure the suite at its default
+ * run count, divide, and round up. `minimumMs` keeps a small suite on the project's own timeout
+ * rather than giving it a tighter one by accident.
+ */
+export function fcTimeoutMs(
+  msPerRun: number,
+  options: {
+    readonly numRuns?: number;
+    readonly minimumMs?: number;
+    readonly env?: Readonly<Record<string, string | undefined>>;
+  } = {},
+): number {
+  const runs = fcNumRuns(options.numRuns ?? DEFAULT_NUM_RUNS, options.env ?? process.env);
+  return Math.max(options.minimumMs ?? 30_000, Math.ceil(runs * msPerRun));
+}

@@ -362,6 +362,16 @@ async function send(
   outgoing['accept-encoding'] ??= 'gzip, br, deflate';
 
   return await new Promise<IncomingMessage>((resolve, reject) => {
+    // CodeQL reports `js/request-forgery` here, and it is reporting the function's own purpose:
+    // `safeFetch` exists to fetch a URL a caller supplied. What makes it safe is everything above
+    // this line — `classifyUrl` refusing a private, link-local, loopback, metadata, NAT64, 6to4 or
+    // mapped address and every literal spelling of one (`08` §3.9), `refuseByName` for local and
+    // dotless names, a per-purpose allowlist where one applies, and `pinnedLookup` below, which
+    // pins the resolution so the address checked is the address connected to. A taint tracker
+    // cannot see that chain; the suppression says so rather than leaving a permanent critical
+    // alert that trains everyone to ignore the list.
+    //
+    // codeql[js/request-forgery]
     const request = requestFn(target.url, {
       method,
       headers: outgoing,

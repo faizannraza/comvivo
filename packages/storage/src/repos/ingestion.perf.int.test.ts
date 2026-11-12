@@ -16,20 +16,23 @@
  * would measure the cheapest step and miss the three lookups and the commit — and the commit is
  * the part that touches the disk.
  *
- * ## The substitution, stated explicitly (`CLAUDE.md` §8)
+ * ## Who enforces the budget — amended at the M1 exit gate
  *
- * The AC names "the x64 bench", and **there is no bench harness yet** — `M1-T32` builds it, and
- * `M0-T3` already recorded that Vitest 5.0.5 has no usable `bench` API. This test is the strongest
- * automated substitute: real migrated database, real transactions, real statements, a percentile
- * over many samples rather than one reading. What it is **not** is the specified hardware: it runs
- * wherever the suite runs, which is arm64 on the developer machine and x64 in CI. `M1-T33` runs
- * the seeded corpus on a Pi 5, and `M1-T32` turns this into a tracked benchmark.
+ * This file used to assert the AC's 3 ms with a 4× tolerance, as the strongest substitute
+ * available while `M1-T32`'s harness did not exist. It exists now, and `B1` in
+ * `packages/storage/bench/storage.bench.ts` measures the same transaction with `11` §3.9.2's
+ * protocol — warm-up, 200 iterations into an HDR histogram, five repetitions, the median of their
+ * p95s — against a declared 3 ms budget that `pnpm bench --gate` fails on. **That is the AC's
+ * check**, and it measured 0.93 ms p95 on the stress fixture.
  *
- * The budget here is therefore the AC's number with a **tolerance**, and the tolerance is the
- * honest part: a shared CI runner under load is not a bench machine, and a perf gate that flakes
- * gets deleted rather than fixed — which is how a budget stops being enforced at all. The test
- * asserts the AC's 3 ms at p95 and prints the full distribution, so a regression is visible in the
- * numbers even when it stays inside the tolerance.
+ * So the bound here is no longer the budget. It is a "broken, not slow" bound at `storage.slowTxMs`
+ * (50 ms), the threshold `02` §3.7.2 already calls a problem worth logging. The reason is a
+ * measurement, not a preference: this assertion failed at the exit gate at **12.3 ms p95** while
+ * three other processes were saturating the machine, with the same code that benches at 0.93 ms.
+ * An absolute latency bound inside a test suite measures the machine's spare capacity as much as
+ * the code, and a perf gate that flakes gets deleted rather than fixed — which is how a budget
+ * stops being enforced at all. The distribution is still printed on every run, so a regression is
+ * visible in the output, and the gate that fails on it is the one built to.
  */
 import { expectWritten } from '@comvivo/core';
 import { describe, expect, it } from 'vitest';
@@ -45,17 +48,12 @@ import {
 } from './testing/harness.js';
 
 /** `M1-T17`'s acceptance criterion. */
-const P95_BUDGET_MS = 3;
-
 /**
- * How much slack a non-bench host gets.
- *
- * Generous on purpose. The number that must not regress is the one printed; this bound exists to
- * catch a change that makes ingestion *categorically* slower — an un-prepared statement, a missing
- * index, a full scan — rather than to measure a machine. A gate that fires on a noisy neighbour is
- * a gate the next person disables.
+ * `02` §3.7.2's `storage.slowTxMs`: the point at which a transaction is a problem rather than a
+ * slow moment. The *budget* is `B1`'s 3 ms in the benchmark suite; this is the bound that says the
+ * transaction is broken.
  */
-const TOLERANCE = 4;
+const SLOW_TX_MS = 50;
 
 /** Enough samples for a p95 to mean something, and few enough to stay inside a test. */
 const SAMPLES = 400;
@@ -71,7 +69,7 @@ function percentile(sorted: readonly number[], p: number): number {
 }
 
 describe('the ingestion transaction (M1-T17 AC)', { tags: ['slow'] }, () => {
-  it(`stays under ${String(P95_BUDGET_MS)} ms at p95 across ${String(SAMPLES)} messages`, () => {
+  it(`completes ${String(SAMPLES)} transactions and reports the distribution`, () => {
     withRepos((world) => {
       const label = groupLabel(world.groupId);
       world.store.write((uow) => {
@@ -169,7 +167,10 @@ describe('the ingestion transaction (M1-T17 AC)', { tags: ['slow'] }, () => {
         }),
       ).toHaveLength(SAMPLES + WARMUP);
 
-      expect(p95, report).toBeLessThanOrEqual(P95_BUDGET_MS * TOLERANCE);
+      // Not the budget — see the header. `B1` in `bench/storage.bench.ts` owns the 3 ms, with the
+      // protocol and the `--gate` to enforce it; this catches a transaction that has become
+      // broken rather than one that is briefly slow on a loaded machine.
+      expect(p95, report).toBeLessThanOrEqual(SLOW_TX_MS);
     });
   });
 });

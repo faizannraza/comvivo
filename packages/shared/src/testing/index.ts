@@ -15,6 +15,7 @@ export {
   type FcConfigOptions,
   fcConfig,
   fcNumRuns,
+  fcTimeoutMs,
 } from './fc-config.js';
 export {
   SECRETSTREAM_VECTOR,

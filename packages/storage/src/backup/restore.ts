@@ -522,11 +522,6 @@ function writeKeyringFromArchive(options: RestoreOptions, header: BackupHeader):
   const keysDir = join(options.dataDir, 'keys');
   mkdirSync(keysDir, { recursive: true, mode: 0o700 });
   const path = join(keysDir, 'keyring.json');
-  if (existsSync(path)) {
-    // Not overwritten. A host restoring onto their own machine keeps the keyring they can already
-    // unlock — and silently replacing it would be the one failure from which there is no recovery.
-    return false;
-  }
   const keyring = {
     format: `${BRAND.slug}-keyring/1`,
     instanceId: header.instanceId,
@@ -544,7 +539,21 @@ function writeKeyringFromArchive(options: RestoreOptions, header: BackupHeader):
   // the bytes are on disk, so the caller's own `existsSync` saw nothing and a test's cleanup
   // deleted the directory under the pending write — which surfaced as an **unhandled** ENOENT
   // rather than as a failure anyone could trace. A restore's last act is not a place for a race.
-  writeFileSync(path, `${JSON.stringify(keyring, null, 2)}\n`, { mode: 0o600 });
+  //
+  // `flag: 'wx'` — **exclusive create**, which is how "do not overwrite an existing keyring" stops
+  // being advisory. An `existsSync` before the write was the same intent with a window in it: a
+  // keyring created between the check and the write would have been silently replaced, and that is
+  // the one failure from which a host has no recovery. `EEXIST` is the answer to the question the
+  // check was asking, so it is handled rather than raised. Found by CodeQL at the M1 exit gate.
+  try {
+    writeFileSync(path, `${JSON.stringify(keyring, null, 2)}\n`, { mode: 0o600, flag: 'wx' });
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'EEXIST') {
+      // A host restoring onto their own machine keeps the keyring they can already unlock.
+      return false;
+    }
+    throw cause;
+  }
   return true;
 }
 

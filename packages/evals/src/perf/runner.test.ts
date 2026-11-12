@@ -86,6 +86,7 @@ describe('the protocol (11 §3.9.2)', () => {
     // The warm-up is slow and the iterations are fast. If the warm-up were timed, the percentiles
     // would be dominated by it — which is the mistake this part of the protocol prevents, because
     // V8 tiers up and the first calls of anything measure the interpreter.
+    const warmupSpinMs = 12;
     const state = { call: 0 };
     const result = await measure(
       {
@@ -97,12 +98,16 @@ describe('the protocol (11 §3.9.2)', () => {
         repetitions: 1,
         run: () => {
           state.call += 1;
-          spin(state.call <= 2 ? 12 : 0.1);
+          spin(state.call <= 2 ? warmupSpinMs : 0.1);
         },
       },
       OPTIONS,
     );
-    expect(result.p99).toBeLessThan(10);
+    // Against the warm-up's own duration rather than an arbitrary number: a leaked warm-up would
+    // put the p99 at or above 12 ms, and anything below that is a measurement of the fast
+    // iterations. Phrased this way, the assertion says what it is checking and does not also
+    // measure how busy the machine is.
+    expect(result.p99).toBeLessThan(warmupSpinMs);
   });
 
   it('reports the p95 for a latency benchmark and a rate for a throughput one', async () => {
@@ -121,7 +126,26 @@ describe('the protocol (11 §3.9.2)', () => {
     // `01` §11.10 states every budget as a p95, so that is what `value` carries.
     expect(latency.value).toBe(latency.p95);
     expect(latency.value).toBeGreaterThan(1.5);
-    expect(latency.value).toBeLessThan(12);
+
+    // **Monotonic in the work, not bounded in absolute time.** This assertion used to be
+    // `toBeLessThan(12)`, which measures the machine's spare capacity as much as the harness: it
+    // failed at the M1 exit gate at 15.97 ms for a 2 ms spin, with three other processes
+    // saturating the host. What a measuring instrument must actually guarantee is that more work
+    // reads as more time — so a four-times-heavier benchmark is measured in the same run and
+    // compared, which no amount of load can invert.
+    const heavier = await measure(
+      {
+        id: 'micro:latency',
+        name: 'eight milliseconds',
+        unit: 'ms',
+        iterations: 5,
+        warmup: 1,
+        repetitions: 3,
+        run: () => spin(8),
+      },
+      OPTIONS,
+    );
+    expect(heavier.value).toBeGreaterThan(latency.value * 2);
 
     const throughput = await measure(
       {
