@@ -355,8 +355,10 @@ describe('the worker loop (02 §3.10.4)', () => {
       // A third of the lease: `02` §3.10.1's default is 60 s, so 20 s. Two missed ticks still leave
       // room for a third, which is why it is a third rather than a half.
       await clock.advance('PT21S');
-      const extended = world.repos.jobs.job(job?.id ?? ('x' as never))?.leaseUntil;
-      expect(extended?.epochMilliseconds, 'the heartbeat did not extend the lease').toBeGreaterThan(
+      const leaseNow = (): number =>
+        world.repos.jobs.job(job?.id ?? ('x' as never))?.leaseUntil?.epochMilliseconds ?? 0;
+      await settleUntil(() => leaseNow() > (leaseAtClaim?.epochMilliseconds ?? 0));
+      expect(leaseNow(), 'the heartbeat did not extend the lease').toBeGreaterThan(
         leaseAtClaim?.epochMilliseconds ?? 0,
       );
 
@@ -364,7 +366,7 @@ describe('the worker loop (02 §3.10.4)', () => {
       // lease is still valid and the handler can record its own failure. A timeout equal to the
       // lease would race the recovery sweep.
       await clock.advance('PT30S');
-      await settle();
+      await settleUntil(() => aborted);
       expect(aborted, 'the timeout did not abort the handler').toBe(true);
     });
   });
@@ -503,4 +505,24 @@ async function settle(): Promise<void> {
     setImmediate(resolve);
   });
   for (let index = 0; index < 20; index += 1) await Promise.resolve();
+}
+
+/**
+ * Settle until `condition` holds, or give up after `rounds` of it.
+ *
+ * One `settle()` drains the microtask queue and one macrotask turn, which is enough when the
+ * machine is idle and not when it is not: the heartbeat assertion below failed inside a full
+ * `pnpm verify` — 204 files in parallel — and passed on its own, every time. A fixed number of
+ * turns is a race against the scheduler, and a test that is only green on an unloaded machine is
+ * a test that will fail in CI on someone else's branch. Found at the M1 exit gate, which is the
+ * second load-sensitive assertion this milestone has had.
+ *
+ * It still **fails** if the condition never holds: the loop bounds the wait, it does not weaken
+ * the assertion, and the caller asserts afterwards exactly as before.
+ */
+async function settleUntil(condition: () => boolean, rounds = 200): Promise<void> {
+  for (let index = 0; index < rounds; index += 1) {
+    if (condition()) return;
+    await settle();
+  }
 }

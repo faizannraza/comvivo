@@ -25,6 +25,7 @@ import { openDatabase } from '../db/open.js';
 import {
   assertSpaceForBackup,
   databaseBytesOf,
+  mainDatabaseFile,
   nodeSpaceProbe,
   PRE_MIGRATE_DIR,
   preMigrationBackup,
@@ -655,6 +656,42 @@ describe('the free-space guard (12 §3.7 step 6)', () => {
         db.close();
       }
     }
+  });
+
+  it('answers nothing for an in-memory database, which has no file', () => {
+    // `mainDatabaseFile` is what the failed-migration hint names, and `databaseBytesOf` is what
+    // the space check measures — so the in-memory case has to be a clean "no file" rather than an
+    // empty path reaching `statSync`. Every other test here uses a real file, which is how this
+    // branch went uncovered when the helper was extracted at the M1 exit gate.
+    const db = new Database(':memory:');
+    try {
+      expect(mainDatabaseFile(db)).toBeUndefined();
+      expect(databaseBytesOf(db)).toBe(0);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('names the file of a database that has one', () => {
+    const dir = tempDir();
+    const file = join(dir, 'named.db');
+    const db = new Database(file);
+    try {
+      // `endsWith`, not equality: on macOS `/var` is a symlink to `/private/var`, and SQLite
+      // reports the resolved path while `mkdtemp` returns the one it was given.
+      expect(mainDatabaseFile(db)).toMatch(/named\.db$/);
+      expect(mainDatabaseFile(db)).toContain(`${BRAND.slug}-parts-`);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('reports the free space of a path that does not exist as unknown', () => {
+    // The `catch` in `nodeSpaceProbe.freeBytes`: `statfs` on a missing path fails, and the probe
+    // answers `undefined` so `assertSpaceForBackup` allows the upgrade rather than refusing one
+    // that would have worked. Asserted because an exception here would escape as a raw `ENOENT`
+    // from inside a space check.
+    expect(nodeSpaceProbe.freeBytes(join(tempDir(), 'no', 'such', 'path'))).toBeUndefined();
   });
 
   it('refuses a real backup on a disk the probe reports as full', () => {
