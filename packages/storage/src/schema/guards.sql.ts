@@ -338,6 +338,14 @@ export interface GroupAgreement {
   readonly owner?: { readonly via: string; readonly table: string; readonly parentKey: string };
 }
 
+/** One single-column foreign key of a child table, and whether its parent carries a group. */
+interface ParentRef {
+  readonly via: string;
+  readonly parent: string;
+  readonly parentKey: string;
+  readonly parentHasGroup: boolean;
+}
+
 /** Does this table carry a `group_id` column? */
 function hasGroupColumn(table: SQLiteTable): boolean {
   return Object.values(getTableColumns(table)).some((column) => column.name === 'group_id');
@@ -354,7 +362,7 @@ function hasGroupColumn(table: SQLiteTable): boolean {
  */
 function owningParent(
   table: SQLiteTable,
-  parents: readonly { via: string; parent: string; parentKey: string; parentHasGroup: boolean }[],
+  parents: readonly ParentRef[],
 ): { via: string; table: string; parentKey: string } | undefined {
   const named = GROUP_VIA_PARENT[getTableName(table)];
   if (named !== undefined) {
@@ -366,63 +374,77 @@ function owningParent(
     : { via: first.via, table: first.parent, parentKey: first.parentKey };
 }
 
-/** Every foreign key in the schema whose two sides must agree on a group. */
-export function groupAgreements(): readonly GroupAgreement[] {
+/** Every table in the schema, by its SQL name. */
+function tablesByName(): ReadonlyMap<string, SQLiteTable> {
   const byName = new Map<string, SQLiteTable>();
   for (const value of Object.values(schema) as unknown[]) {
     if (is(value, SQLiteTable)) byName.set(getTableName(value), value);
   }
+  return byName;
+}
 
-  const found: GroupAgreement[] = [];
-  for (const [name, table] of byName) {
-    const config = getTableConfig(table);
-    const parents: { via: string; parent: string; parentKey: string; parentHasGroup: boolean }[] =
-      [];
-    for (const key of config.foreignKeys) {
-      const reference = key.reference();
-      // A composite key that already includes `group_id` is the agreement, stated in the schema.
-      if (reference.columns.some((column) => column.name === 'group_id')) continue;
-      if (reference.columns.length !== 1) continue;
-      const via = reference.columns[0]?.name;
-      const parentKey = reference.foreignColumns[0]?.name;
-      const parentTable = reference.foreignTable;
-      if (via === undefined || parentKey === undefined) continue;
-      parents.push({
-        via,
-        parent: getTableName(parentTable),
-        parentKey,
-        parentHasGroup: hasGroupColumn(parentTable),
-      });
-    }
-
-    if (hasGroupColumn(table)) {
-      for (const parent of parents) {
-        if (!parent.parentHasGroup) continue;
-        found.push({
-          table: name,
-          kind: 'direct',
-          via: parent.via,
-          parent: parent.parent,
-          parentKey: parent.parentKey,
-        });
-      }
-      continue;
-    }
-
-    const owner = owningParent(table, parents);
-    if (owner === undefined) continue;
-    for (const parent of parents) {
-      if (!parent.parentHasGroup || parent.via === owner.via) continue;
-      found.push({
-        table: name,
-        kind: 'sibling',
-        via: parent.via,
-        parent: parent.parent,
-        parentKey: parent.parentKey,
-        owner,
-      });
-    }
+/** One table's single-column foreign keys, with whether each parent carries a group. */
+function singleColumnParents(table: SQLiteTable): readonly ParentRef[] {
+  const parents: ParentRef[] = [];
+  for (const key of getTableConfig(table).foreignKeys) {
+    const reference = key.reference();
+    // A composite key that already includes `group_id` is the agreement, stated in the schema.
+    if (reference.columns.some((column) => column.name === 'group_id')) continue;
+    if (reference.columns.length !== 1) continue;
+    const via = reference.columns[0]?.name;
+    const parentKey = reference.foreignColumns[0]?.name;
+    if (via === undefined || parentKey === undefined) continue;
+    const parentTable = reference.foreignTable;
+    parents.push({
+      via,
+      parent: getTableName(parentTable),
+      parentKey,
+      parentHasGroup: hasGroupColumn(parentTable),
+    });
   }
+  return parents;
+}
+
+/**
+ * The agreements one table contributes.
+ *
+ * Two shapes, and the split is the point. A table with its own `group_id` must agree with every
+ * grouped parent it points at (`direct`). A table without one inherits a group through its
+ * **owning** parent, so the agreement to check is between that inherited group and every *other*
+ * grouped parent (`sibling`) — the owner itself cannot disagree with the group it defines.
+ */
+function agreementsFor(name: string, table: SQLiteTable): readonly GroupAgreement[] {
+  const parents = singleColumnParents(table);
+  const grouped = parents.filter((parent) => parent.parentHasGroup);
+
+  if (hasGroupColumn(table)) {
+    return grouped.map((parent) => ({
+      table: name,
+      kind: 'direct' as const,
+      via: parent.via,
+      parent: parent.parent,
+      parentKey: parent.parentKey,
+    }));
+  }
+
+  const owner = owningParent(table, parents);
+  if (owner === undefined) return [];
+  return grouped
+    .filter((parent) => parent.via !== owner.via)
+    .map((parent) => ({
+      table: name,
+      kind: 'sibling' as const,
+      via: parent.via,
+      parent: parent.parent,
+      parentKey: parent.parentKey,
+      owner,
+    }));
+}
+
+/** Every foreign key in the schema whose two sides must agree on a group. */
+export function groupAgreements(): readonly GroupAgreement[] {
+  const found: GroupAgreement[] = [];
+  for (const [name, table] of tablesByName()) found.push(...agreementsFor(name, table));
   return found.sort(
     (left, right) => left.table.localeCompare(right.table) || left.via.localeCompare(right.via),
   );

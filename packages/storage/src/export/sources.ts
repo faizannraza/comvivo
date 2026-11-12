@@ -502,19 +502,31 @@ export function readPrivatePolicy(db: Db, memberId: MemberId): unknown {
  * explicitly — because SQLite rejects an empty `IN ()` list and because a filter that silently
  * became "no filter" is the failure `M1-T21` found in three labeled reads.
  */
-export function readChunk(
-  db: Db,
+/**
+ * What a chunk read is scoped to: the group, the requester's eligible labels, and the two subject
+ * ids a `me/` source narrows by.
+ *
+ * Named rather than inline because three functions now take it.
+ */
+interface ChunkScope {
+  readonly groupId: GroupId;
+  readonly eligible: EligibleLabelSet;
+  readonly personId?: string | undefined;
+  readonly memberId?: MemberId | undefined;
+}
+
+/**
+ * The columns `readChunk` needs by name, or a failure that names the source and the column.
+ *
+ * Split out of `readChunk` for its cognitive complexity: four decisions in one function, each
+ * about a different thing (does the source resolve, what is the subject, what filters the rows,
+ * how is the row shaped), is exactly the shape the `noExcessiveCognitiveComplexity` budget is
+ * there to break up.
+ */
+function chunkColumns(
   source: ExportSource,
-  scope: {
-    readonly groupId: GroupId;
-    readonly eligible: EligibleLabelSet;
-    readonly personId?: string | undefined;
-    readonly memberId?: MemberId | undefined;
-  },
-  after: string | number | undefined,
-  limit: number,
-): readonly Record<string, unknown>[] {
-  const columns = getTableColumns(source.table) as Record<string, SQLiteColumn | undefined>;
+  columns: Record<string, SQLiteColumn | undefined>,
+): { readonly scoped: SQLiteColumn; readonly order: SQLiteColumn } {
   const scoped = columns[source.subjectScope?.column ?? 'groupId'];
   const order = columns[source.orderBy];
   if (scoped === undefined || order === undefined) {
@@ -527,16 +539,29 @@ export function readChunk(
         `(${source.subjectScope?.column ?? 'groupId'}, ${source.orderBy})`,
     );
   }
+  return { scoped, order };
+}
 
-  // An absent subject becomes an id no row can carry, rather than no predicate: a `me/` source
-  // read without a subject must match **nothing**. `sources.int.test.ts` holds both halves.
-  const value =
-    source.subjectScope === undefined
-      ? scope.groupId
-      : source.subjectScope.subject === 'person'
-        ? (scope.personId ?? '')
-        : (scope.memberId ?? '');
-  const where = [eq(scoped, value)];
+/**
+ * The value the scoping column must equal.
+ *
+ * An absent subject becomes an id no row can carry, rather than no predicate: a `me/` source read
+ * without a subject must match **nothing**. `sources.int.test.ts` holds both halves.
+ */
+function subjectValue(source: ExportSource, scope: ChunkScope): string {
+  if (source.subjectScope === undefined) return scope.groupId;
+  return source.subjectScope.subject === 'person' ? (scope.personId ?? '') : (scope.memberId ?? '');
+}
+
+/** Every predicate a chunk read applies: the subject, the member filter, the labels, the cursor. */
+function chunkWhere(
+  source: ExportSource,
+  columns: Record<string, SQLiteColumn | undefined>,
+  scope: ChunkScope,
+  resolved: { readonly scoped: SQLiteColumn; readonly order: SQLiteColumn },
+  after: string | number | undefined,
+): readonly SQL[] {
+  const where: SQL[] = [eq(resolved.scoped, subjectValue(source, scope))];
 
   // A member's own export, where a table with no label may still hold other members' rows.
   if (source.memberOnly !== undefined && scope.memberId !== undefined) {
@@ -560,7 +585,19 @@ export function readChunk(
       scope.eligible.ids.length === 0 ? sql`1 = 0` : inArray(label, [...scope.eligible.ids]),
     );
   }
-  if (after !== undefined) where.push(gt(order, after));
+  if (after !== undefined) where.push(gt(resolved.order, after));
+  return where;
+}
+
+export function readChunk(
+  db: Db,
+  source: ExportSource,
+  scope: ChunkScope,
+  after: string | number | undefined,
+  limit: number,
+): readonly Record<string, unknown>[] {
+  const columns = getTableColumns(source.table) as Record<string, SQLiteColumn | undefined>;
+  const resolved = chunkColumns(source, columns);
 
   // `$dynamic()` so the optional join is one expression rather than two query builders. The
   // selection is explicit because a join without one returns `{members: {...}, persons: {...}}`,
@@ -570,8 +607,8 @@ export function readChunk(
   const joined =
     source.join === undefined ? base : base.leftJoin(source.join.table, source.join.on);
   return joined
-    .where(and(...where))
-    .orderBy(asc(order))
+    .where(and(...chunkWhere(source, columns, scope, resolved, after)))
+    .orderBy(asc(resolved.order))
     .limit(limit)
     .all();
 }
