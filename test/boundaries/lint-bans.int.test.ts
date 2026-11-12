@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { comvivoPlugin, namesASecret, words } from '../../scripts/lint/no-secret-equality.js';
 import {
   CORE_PURITY_RULES,
+  FC_CONFIG_BAN,
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   RAW_TRANSACTION_BAN,
@@ -503,6 +504,41 @@ describe('only SqliteStore may open a transaction (02 §3.7.2)', { tags: ['slow'
     );
     expect(message).toMatch(/store\.write\(fn\)/);
     expect(message).toMatch(/IMMEDIATE lock/);
+  });
+});
+
+describe('a property suite may not override fcConfig (11 §3.1.6)', { tags: ['slow'] }, () => {
+  it.each([
+    ['numRuns', 'export const p = { ...fcConfig(), numRuns: 12 };'],
+    ['seed', 'export const p = { ...fcConfig(), seed: 7 };'],
+    ['endOnFailure', 'export const p = { ...fcConfig(), endOnFailure: false };'],
+    ['a second property after the override', 'export const p = { ...fcConfig(), verbose: true };'],
+  ])('rejects an override of %s', async (_label, code) => {
+    expect(
+      await rulesFiredFor(FC_CONFIG_BAN, code, 'packages/engine/src/a.prop.test.ts'),
+    ).toContain('no-restricted-syntax');
+  });
+
+  it.each([
+    ['the argument form', 'export const p = fcConfig({ numRuns: 12 });'],
+    ['a spread with nothing added', 'export const p = { ...fcConfig() };'],
+    ['an unrelated key beside the spread', 'export const p = { ...fcConfig(), label: "x" };'],
+    ['a spread of something else', 'export const p = { ...other(), numRuns: 12 };'],
+    ['numRuns on its own object', 'export const p = { numRuns: 12 };'],
+  ])('allows %s', async (_label, code) => {
+    expect(
+      await rulesFiredFor(FC_CONFIG_BAN, code, 'packages/engine/src/a.prop.test.ts'),
+    ).not.toContain('no-restricted-syntax');
+  });
+
+  it('names the correct form, because the wrong one looks right', async () => {
+    const message = await firstMessageFor(
+      FC_CONFIG_BAN,
+      'export const p = { ...fcConfig(), numRuns: 12 };',
+      'packages/engine/src/a.prop.test.ts',
+    );
+    expect(message).toMatch(/fcConfig\(\{ numRuns: 12 \}\)/);
+    expect(message).toMatch(/still green/);
   });
 });
 

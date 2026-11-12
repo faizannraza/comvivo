@@ -5,7 +5,7 @@
 Generated from `packages/storage/src/schema/*.ts` and the migration SQL, so it cannot drift:
 `pnpm run schema:check` fails CI when this file no longer matches the schema it describes.
 
-**78 tables**, 901 columns, 109 indexes, 4 virtual tables and 248 triggers, created by 2 migrations.
+**78 tables**, 901 columns, 125 indexes, 4 virtual tables and 248 triggers, created by 2 migrations.
 
 What this is **not**: the design. `docs/plan/02-domain-model-and-storage.md` §3.3 says why each
 table looks the way it does, `docs/architecture/storage.md` covers the module layout, and
@@ -56,6 +56,7 @@ Composite primary key: `group_id`, `sha256`.
 
 | index | | columns |
 |---|---|---|
+| `blobs_storage_addr_unique` | unique | `storage_addr` |
 | `blobs_unref_idx` | partial | `unreferenced_since` |
 
 Check constraints: `blobs_size_ck`.
@@ -186,6 +187,8 @@ Check constraints: `event_overrides_cancelled_bool_ck`.
 |---|---|---|
 | `events_group_recurring_idx` | partial | `group_id`, `recurrence_until_at` |
 | `events_group_start_idx` |  | `group_id`, `start_at` |
+| `events_ics_uid_unique` | unique | `ics_uid` |
+| `events_id_unique` | unique | `id` |
 | `events_series_idx` |  | `series_id` |
 | `events_subscription_src_rec_uq` | unique, partial | `subscription_id`, `source_uid`, `source_recurrence_id` |
 | `events_subscription_src_uq` | unique, partial | `subscription_id`, `source_uid` |
@@ -209,6 +212,7 @@ Check constraints: `events_all_day_bool_ck`, `events_busy_bool_ck`, `events_ics_
 | index | | columns |
 |---|---|---|
 | `ics_feed_tokens_member_idx` |  | `member_id` |
+| `ics_feed_tokens_token_hash_unique` | unique | `token_hash` |
 
 ## `src/schema/decisions.ts`
 
@@ -240,6 +244,7 @@ Check constraints: `events_all_day_bool_ck`, `events_busy_bool_ck`, `events_ics_
 | index | | columns |
 |---|---|---|
 | `decisions_group_decided_idx` |  | `group_id`, `decided_at` |
+| `decisions_id_unique` | unique | `id` |
 | `decisions_memory_uq` | unique, partial | `memory_item_id` |
 
 ## `src/schema/governance.ts`
@@ -556,6 +561,10 @@ Check constraints: `channel_identities_dm_reachable_ck`, `channel_identities_is_
 | `owner_person_id` | `text` | nullable | → `persons.id` |
 | `created_at` | `integer` | not null |  |
 
+| index | | columns |
+|---|---|---|
+| `instance_singleton_unique` | unique | `singleton` |
+
 Check constraints: `instance_singleton_ck`.
 
 ### `persons`
@@ -773,6 +782,7 @@ Composite primary key: `group_id`, `list_kind`, `normalized_key`.
 
 | index | | columns |
 |---|---|---|
+| `list_items_id_unique` | unique | `id` |
 | `list_items_key_idx` |  | `list_id`, `normalized_key` |
 | `list_items_list_idx` |  | `list_id`, `checked`, `position` |
 
@@ -823,6 +833,7 @@ Check constraints: `lists_categories_enabled_bool_ck`, `lists_is_default_bool_ck
 | index | | columns |
 |---|---|---|
 | `embedding_spaces_one_active_uq` | unique, partial | `status` |
+| `embedding_spaces_table_name_unique` | unique | `table_name` |
 
 Check constraints: `embedding_spaces_dims_ck`.
 
@@ -982,6 +993,7 @@ Composite primary key: `memory_rid`, `entity_id`.
 | `memory_embed_pending_idx` | partial | `group_id`, `rid` |
 | `memory_fingerprint_idx` |  | `group_id`, `fingerprint` |
 | `memory_group_status_updated_idx` |  | `group_id`, `status`, `updated_at` |
+| `memory_items_id_unique` | unique | `id` |
 | `memory_label_idx` |  | `label_id` |
 | `memory_pinned_idx` | partial | `group_id` |
 | `memory_supersedes_idx` | partial | `supersedes_id` |
@@ -1119,6 +1131,7 @@ Composite primary key: `message_rid`, `member_id`, `emoji`.
 | `messages_conv_rid_idx` |  | `conversation_id`, `rid` |
 | `messages_dedupe_uq` | unique, partial | `dedupe_key` |
 | `messages_group_sender_idx` |  | `group_id`, `sender_member_id`, `rid` |
+| `messages_id_unique` | unique | `id` |
 | `messages_retention_idx` | partial | `retention_until` |
 
 Check constraints: `messages_delivered_late_ck`, `messages_edit_count_ck`, `messages_truncated_ck`, `messages_untrusted_ck`.
@@ -1177,6 +1190,7 @@ Check constraints: `messages_delivered_late_ck`, `messages_edit_count_ck`, `mess
 | index | | columns |
 |---|---|---|
 | `plans_group_status_idx` |  | `group_id`, `status` |
+| `plans_id_unique` | unique | `id` |
 
 ## `src/schema/polls.ts`
 
@@ -1239,6 +1253,7 @@ Composite primary key: `poll_id`, `member_id`.
 
 | index | | columns |
 |---|---|---|
+| `polls_id_unique` | unique | `id` |
 | `polls_open_deadline_idx` | partial | `group_id`, `deadline_at` |
 
 Check constraints: `polls_allow_multiple_bool_ck`, `polls_anonymous_bool_ck`.
@@ -1418,6 +1433,7 @@ Check constraints: `audit_seq_ck`.
 | `outbox_class_idx` | partial | `group_id`, `message_class`, `sent_at` |
 | `outbox_conv_seq_idx` | partial | `conversation_id`, `seq` |
 | `outbox_dispatch_idx` | partial | `next_attempt_at` |
+| `outbox_messages_idempotency_key_unique` | unique | `idempotency_key` |
 | `outbox_recent_sent_idx` | partial | `conversation_id`, `content_hash`, `sent_at` |
 | `outbox_sending_idx` | partial | `lease_until` |
 
@@ -1445,6 +1461,7 @@ Check constraints: `outbox_attempts_ck`, `outbox_guard_ck`, `outbox_maybe_sent_b
 
 | index | | columns |
 |---|---|---|
+| `turn_effects_idempotency_key_unique` | unique | `idempotency_key` |
 | `turn_effects_intent_idx` | partial | `turn_id` |
 | `turn_effects_root_idx` |  | `root_turn_id` |
 | `turn_effects_turn_seq_uq` | unique | `turn_id`, `seq` |
@@ -1490,6 +1507,7 @@ Check constraints: `turn_effects_seq_ck`.
 |---|---|---|
 | `turn_traces_expires_idx` |  | `expires_at` |
 | `turn_traces_group_created_idx` |  | `group_id`, `created_at` |
+| `turn_traces_turn_id_unique` | unique | `turn_id` |
 
 Check constraints: `turn_traces_cost_ck`.
 
@@ -1741,6 +1759,7 @@ Check constraints: `rotation_participants_active_bool_ck`, `rotation_participant
 | index | | columns |
 |---|---|---|
 | `tasks_assignee_idx` |  | `group_id`, `assignee_member_id`, `status` |
+| `tasks_id_unique` | unique | `id` |
 | `tasks_open_due_idx` | partial | `group_id`, `due_at` |
 | `tasks_rotation_occurrence_uq` | unique, partial | `rotation_id`, `occurrence_key` |
 

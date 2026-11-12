@@ -21,6 +21,8 @@ import {
   consentEventId,
   constitutionId,
   constraintId,
+  eligibleAll,
+  eligibleNone,
   groupLabel,
   member,
   person,
@@ -85,25 +87,6 @@ const request = (
   onExpire: 'drop' as const,
   ...overrides,
 });
-
-function eligibleOf(world: Parameters<Parameters<typeof withRepos>[0]>[0]): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map(
-    (row) => row.id,
-  );
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
-
-const NONE = {
-  groupId: 'grp_x' as never,
-  ids: [],
-  audienceKey: 'g|s:',
-  epoch: '0:0',
-} as unknown as never;
 
 /** A group with three members: a requester and two deciders, which the CAS test needs. */
 function withMembers<T>(
@@ -300,7 +283,7 @@ describe('proposals', () => {
       });
       expect(
         world.repos.governance
-          .openProposals({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .openProposals({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.id),
       ).toEqual([proposalId('a3f'), proposalId('a1f'), proposalId('a2f')]);
     });
@@ -485,7 +468,7 @@ describe('proposals', () => {
         ).kind,
       ).toBe('conflict');
       expect(
-        world.repos.governance.proposal(world.groupId, opened.id, eligibleOf(world))?.status,
+        world.repos.governance.proposal(world.groupId, opened.id, eligibleAll(world))?.status,
       ).toBe('passed');
     });
   });
@@ -1060,7 +1043,7 @@ describe('constraints', () => {
         groupId: world.groupId,
         at: T0,
         limit: 10,
-        eligible: eligibleOf(world),
+        eligible: eligibleAll(world),
       });
       // Only the open-ended active one. The `IS NULL` arm matters: most constraints have no end
       // date, and a plain `valid_to >= :at` would drop every one of them.
@@ -1105,7 +1088,7 @@ describe('constraints', () => {
           groupId: world.groupId,
           at: T0,
           limit: 10,
-          eligible: eligibleOf(world),
+          eligible: eligibleAll(world),
         }),
       ).toEqual([]);
     });
@@ -1132,7 +1115,7 @@ describe('constraints', () => {
       });
       expect(
         world.repos.governance
-          .constraintsAbout(world.groupId, first as never, eligibleOf(world))
+          .constraintsAbout(world.groupId, first as never, eligibleAll(world))
           .map((row) => row.id),
       ).toEqual([constraintId('d1f')]);
     });
@@ -1250,7 +1233,7 @@ describe('group isolation and empty eligibility', () => {
         ),
       );
       expect(
-        world.repos.governance.proposal(world.otherGroupId, opened.id, eligibleOf(world)),
+        world.repos.governance.proposal(world.otherGroupId, opened.id, eligibleAll(world)),
       ).toBeUndefined();
       expect(world.repos.governance.votesOf(world.otherGroupId, opened.id)).toEqual([]);
       expect(world.repos.governance.currentConstitution(world.otherGroupId)).toBeUndefined();
@@ -1319,24 +1302,34 @@ describe('group isolation and empty eligibility', () => {
           'a proposal',
         );
       });
-      expect(world.repos.governance.proposal(world.groupId, opened.id, NONE)).toBeUndefined();
       expect(
-        world.repos.governance.openProposals({ groupId: world.groupId, limit: 10, eligible: NONE }),
+        world.repos.governance.proposal(world.groupId, opened.id, eligibleNone(world)),
+      ).toBeUndefined();
+      expect(
+        world.repos.governance.openProposals({
+          groupId: world.groupId,
+          limit: 10,
+          eligible: eligibleNone(world),
+        }),
       ).toEqual([]);
       expect(
         world.repos.governance.activeConstraints({
           groupId: world.groupId,
           at: T0,
           limit: 10,
-          eligible: NONE,
+          eligible: eligibleNone(world),
         }),
       ).toEqual([]);
       expect(
-        world.repos.governance.constraintsAbout(world.groupId, subject as never, NONE),
+        world.repos.governance.constraintsAbout(
+          world.groupId,
+          subject as never,
+          eligibleNone(world),
+        ),
       ).toEqual([]);
       // The rows are there, so none of the above is vacuous.
       expect(
-        world.repos.governance.proposal(world.groupId, opened.id, eligibleOf(world)),
+        world.repos.governance.proposal(world.groupId, opened.id, eligibleAll(world)),
       ).toBeDefined();
     });
   });
@@ -1704,7 +1697,7 @@ describe('refusals and absences', () => {
             groupId: world.groupId,
             deadlineBefore: at(5),
             limit: 10,
-            eligible: eligibleOf(world),
+            eligible: eligibleAll(world),
           })
           .map((row) => row.id),
       ).toEqual([proposalId('t1f')]);

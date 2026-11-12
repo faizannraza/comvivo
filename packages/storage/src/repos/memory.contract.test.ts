@@ -17,10 +17,11 @@ import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
   conversationId,
+  eligibleAll,
+  eligibleOnly,
   fingerprintFor,
   groupLabel,
   member,
-  memberId,
   memoryId,
   memoryItem,
   messageId,
@@ -150,7 +151,7 @@ describe('MemoryRepository', () => {
         ).toThrow(/MEMORY_CONTENT_IMMUTABLE/);
         // And the row is unchanged, so the refusal is a refusal and not a partial write.
         expect(
-          world.repos.memories.byId(world.groupId, item.id, eligibleOf(world, [item.labelId]))
+          world.repos.memories.byId(world.groupId, item.id, eligibleOnly(world, [item.labelId]))
             ?.statement,
         ).toBe('the original statement');
       });
@@ -217,7 +218,7 @@ describe('MemoryRepository', () => {
         );
         expect(second.supersedesId).toBe(first.id);
 
-        const eligible = eligibleOf(world, [first.labelId, second.labelId]);
+        const eligible = eligibleOnly(world, [first.labelId, second.labelId]);
         const old = world.repos.memories.byId(world.groupId, first.id, eligible);
         expect(old?.status).toBe('superseded');
         expect(old?.supersededById).toBe(second.id);
@@ -257,7 +258,7 @@ describe('MemoryRepository', () => {
           }
           return chain;
         });
-        const eligible = eligibleOf(
+        const eligible = eligibleOnly(
           world,
           ids.map((item) => item.labelId),
         );
@@ -298,7 +299,7 @@ describe('MemoryRepository', () => {
           }),
         ).toThrow('the caller changed its mind');
 
-        const eligible = eligibleOf(world, [first.labelId]);
+        const eligible = eligibleOnly(world, [first.labelId]);
         // Neither half landed. A supersede that committed the new item without retiring the old
         // one would leave two items claiming to be current — the worst intermediate state, because
         // both would answer the same question differently.
@@ -338,7 +339,7 @@ describe('MemoryRepository', () => {
         // The version is checked **before** the new item is written, so a conflict leaves no
         // orphan: a replacement that existed with nothing superseded by it would be an item
         // claiming to correct something that was never retired.
-        const eligible = eligibleOf(world, [first.labelId]);
+        const eligible = eligibleOnly(world, [first.labelId]);
         expect(world.repos.memories.byId(world.groupId, memoryId('f2f'), eligible)).toBeUndefined();
       });
     });
@@ -458,7 +459,7 @@ describe('MemoryRepository', () => {
         );
         // Unversioned on purpose: appending is commutative, so two callers adding different
         // sources must both succeed. Making it conflict would fail one for no reason.
-        const eligible = eligibleOf(world, [item.labelId]);
+        const eligible = eligibleOnly(world, [item.labelId]);
         expect(world.repos.memories.byId(world.groupId, item.id, eligible)?.version).toBe(1);
       });
     });
@@ -644,14 +645,21 @@ describe('MemoryRepository', () => {
             'a memory elsewhere',
           ),
         );
-        const eligible = eligibleOf(world, [elsewhere.labelId]);
-        expect(world.repos.memories.byId(world.groupId, elsewhere.id, eligible)).toBeUndefined();
+        // Two sets, because an eligible set belongs to a group: the forged helper this replaced
+        // put the *other* group's label into a set stamped with this group's id, which is a value
+        // `computeEligible` refuses to produce. A label in this group as well, so the set below is
+        // non-empty — an empty one satisfies these assertions through `02` §3.7.1's early return
+        // without the `group_id` predicate they are about ever running.
+        world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
+        const here = eligibleAll(world);
+        const there = eligibleOnly(world, [elsewhere.labelId], world.otherGroupId);
+        expect(world.repos.memories.byId(world.groupId, elsewhere.id, here)).toBeUndefined();
         expect(
           world.repos.memories.byFingerprint(world.groupId, fingerprintFor('z1f')),
         ).toBeUndefined();
         expect(world.repos.memories.subjectsOf(world.groupId, elsewhere.id)).toEqual([]);
         // And it is there in its own group, so this is about scoping and not about the write.
-        expect(world.repos.memories.byId(world.otherGroupId, elsewhere.id, eligible)?.id).toBe(
+        expect(world.repos.memories.byId(world.otherGroupId, elsewhere.id, there)?.id).toBe(
           elsewhere.id,
         );
       });
@@ -739,17 +747,3 @@ describe('MemoryRepository', () => {
     });
   });
 });
-
-/** An eligible set over interned label ids, shaped as the reader expects one. */
-function eligibleOf(
-  world: Parameters<Parameters<typeof withRepos>[0]>[0],
-  ids: readonly number[],
-): never {
-  void memberId;
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}

@@ -14,6 +14,8 @@ import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleAll,
+  eligibleNone,
   groupLabel,
   ledgerEntryId,
   member,
@@ -47,17 +49,6 @@ function task(
 }
 
 /** An eligible set over every label in the database. */
-function eligibleOf(world: Parameters<Parameters<typeof withRepos>[0]>[0]): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map(
-    (row) => row.id,
-  );
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
 
 /**
  * 400 tasks with a realistic spread of status, assignee and due date.
@@ -273,7 +264,7 @@ describe('TaskRepository', () => {
         ).toThrow('the caller changed its mind');
         // Both or neither. A ledger posted in a separate transaction could record work for a
         // completion that rolled back — and `03` §3.9.3 reads the ledger as *the* record.
-        expect(world.repos.tasks.byId(world.groupId, chore.id, eligibleOf(world))?.status).toBe(
+        expect(world.repos.tasks.byId(world.groupId, chore.id, eligibleAll(world))?.status).toBe(
           'open',
         );
         expect(
@@ -561,7 +552,7 @@ describe('TaskRepository', () => {
         const open = world.repos.tasks.openByDue({
           groupId: world.groupId,
           limit: 10,
-          eligible: eligibleOf(world),
+          eligible: eligibleAll(world),
         });
         // `NULL` sorts before everything in SQLite, so a plain `ORDER BY due_at` would put every
         // undated task at the top of "what is due soonest" — the opposite of useful.
@@ -588,7 +579,7 @@ describe('TaskRepository', () => {
               groupId: world.groupId,
               dueBefore: at(3),
               limit: 10,
-              eligible: eligibleOf(world),
+              eligible: eligibleAll(world),
             })
             .map((entry) => entry.id),
         ).toEqual([taskId('g1f')]);
@@ -615,7 +606,7 @@ describe('TaskRepository', () => {
           world.repos.tasks.openByDue({
             groupId: world.groupId,
             limit: 10,
-            eligible: eligibleOf(world),
+            eligible: eligibleAll(world),
           }),
         ).toEqual([]);
         expect(proposed.status).toBe('proposed');
@@ -656,7 +647,7 @@ describe('TaskRepository', () => {
           groupId: world.groupId,
           assigneeMemberId: first as never,
           limit: 10,
-          eligible: eligibleOf(world),
+          eligible: eligibleAll(world),
         });
         // `open_like` is the default and includes `proposed`: `07` treats a proposed chore as
         // something the group has not settled, and leaving it out would make a proposal invisible
@@ -670,7 +661,7 @@ describe('TaskRepository', () => {
             assigneeMemberId: first as never,
             status: 'done',
             limit: 10,
-            eligible: eligibleOf(world),
+            eligible: eligibleAll(world),
           }),
         ).toHaveLength(1);
       });
@@ -750,12 +741,7 @@ describe('TaskRepository', () => {
             'a task',
           ),
         );
-        const none = {
-          groupId: world.groupId,
-          ids: [],
-          audienceKey: 'g|s:',
-          epoch: '0:0',
-        } as unknown as never;
+        const none = eligibleNone(world);
         expect(world.repos.tasks.byId(world.groupId, created.id, none)).toBeUndefined();
         expect(
           world.repos.tasks.openByDue({ groupId: world.groupId, limit: 10, eligible: none }),
@@ -769,7 +755,7 @@ describe('TaskRepository', () => {
           }),
         ).toEqual([]);
         // The row is there, so none of the above is vacuous.
-        expect(world.repos.tasks.byId(world.groupId, created.id, eligibleOf(world))).toBeDefined();
+        expect(world.repos.tasks.byId(world.groupId, created.id, eligibleAll(world))).toBeDefined();
       });
     });
   });
@@ -836,7 +822,7 @@ describe('TaskRepository', () => {
           ),
         );
         expect(
-          world.repos.tasks.byId(world.groupId, elsewhere.id, eligibleOf(world)),
+          world.repos.tasks.byId(world.groupId, elsewhere.id, eligibleAll(world)),
         ).toBeUndefined();
         expect(() =>
           world.store.write((uow) =>

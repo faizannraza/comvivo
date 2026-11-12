@@ -1,6 +1,7 @@
 import { expectWritten } from '@comvivo/core';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleOnly,
   fingerprintFor,
   groupLabel,
   memoryId,
@@ -43,12 +44,7 @@ describe('a retracted memory is never retrievable (04 R5, R9)', () => {
           'a memory',
         ),
       );
-      const eligible = {
-        groupId: world.groupId,
-        ids: [item.labelId],
-        audienceKey: 'g|s:',
-        epoch: '0:0',
-      } as unknown as never;
+      const eligible = eligibleOnly(world, [item.labelId]);
       world.store.write((uow) =>
         world.repos.memories.forget(uow, world.groupId, item.id, 'forgotten', T0),
       );
@@ -90,12 +86,7 @@ describe('a retracted memory is never retrievable (04 R5, R9)', () => {
           'a memory',
         ),
       );
-      const eligible = {
-        groupId: world.groupId,
-        ids: [item.labelId],
-        audienceKey: 'g|s:',
-        epoch: '0:0',
-      } as unknown as never;
+      const eligible = eligibleOnly(world, [item.labelId]);
       const retracted = world.store.write((uow) =>
         expectWritten(
           world.repos.memories.setStatus(uow, world.groupId, item.id, item.version, 'retracted'),

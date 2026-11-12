@@ -14,6 +14,8 @@ import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
 import { after, FIRST_POSITION, midpoint } from './lists.js';
 import {
+  eligibleAll,
+  eligibleNone,
   groupLabel,
   listId,
   listItemId,
@@ -25,17 +27,6 @@ import {
 import { analyze, expectIndexUsed } from './testing/query-plan.js';
 
 /** An eligible set over every label in the database. */
-function eligibleOf(world: Parameters<Parameters<typeof withRepos>[0]>[0]): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map(
-    (row) => row.id,
-  );
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
 
 describe('midpoint (fractional indices)', () => {
   it('returns something strictly between its neighbours', () => {
@@ -188,7 +179,7 @@ describe('ListRepository', () => {
             'the first default',
           ),
         );
-        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleOf(world))?.id).toBe(
+        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleAll(world))?.id).toBe(
           first.id,
         );
 
@@ -204,11 +195,13 @@ describe('ListRepository', () => {
         );
         // Exactly one, which `lists_default_kind_uq` enforces per statement — so the demotion has
         // to happen before the insert, and this asserts the order is right rather than lucky.
-        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleOf(world))?.id).toBe(
+        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleAll(world))?.id).toBe(
           second.id,
         );
         expect(
-          world.repos.lists.active(world.groupId, eligibleOf(world)).filter((row) => row.isDefault),
+          world.repos.lists
+            .active(world.groupId, eligibleAll(world))
+            .filter((row) => row.isDefault),
         ).toHaveLength(1);
       });
     });
@@ -230,10 +223,10 @@ describe('ListRepository', () => {
         });
         // One per `(group, kind)`, not one per group: "add milk" and "add sunscreen" land on
         // different lists.
-        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleOf(world))?.id).toBe(
+        expect(world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleAll(world))?.id).toBe(
           listId('d1f'),
         );
-        expect(world.repos.lists.defaultFor(world.groupId, 'packing', eligibleOf(world))?.id).toBe(
+        expect(world.repos.lists.defaultFor(world.groupId, 'packing', eligibleAll(world))?.id).toBe(
           listId('d2f'),
         );
       });
@@ -261,7 +254,7 @@ describe('ListRepository', () => {
         // A default nobody sees would make "add milk" resolve to a list that is not rendered.
         expect(archived.isDefault).toBe(false);
         expect(
-          world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleOf(world)),
+          world.repos.lists.defaultFor(world.groupId, 'grocery', eligibleAll(world)),
         ).toBeUndefined();
 
         let caught: unknown;
@@ -319,7 +312,7 @@ describe('ListRepository', () => {
               groupId: world.groupId,
               listId: onList,
               limit: 10,
-              eligible: eligibleOf(world),
+              eligible: eligibleAll(world),
             })
             .map((row) => row.id),
         ).toEqual([listItemId('f1f'), listItemId('f3f')]);
@@ -331,7 +324,7 @@ describe('ListRepository', () => {
               listId: onList,
               includeChecked: true,
               limit: 10,
-              eligible: eligibleOf(world),
+              eligible: eligibleAll(world),
             })
             .map((row) => row.id),
         ).toEqual([listItemId('f1f'), listItemId('f3f'), listItemId('f2f')]);
@@ -455,7 +448,7 @@ describe('ListRepository', () => {
               groupId: world.groupId,
               listId: onList,
               limit: 10,
-              eligible: eligibleOf(world),
+              eligible: eligibleAll(world),
             })
             .map((row) => row.id),
         ).toEqual([third.id, first.id, second.id]);
@@ -531,12 +524,7 @@ describe('ListRepository', () => {
       world.store.write((uow) =>
         world.repos.lists.addItem(uow, item('n1f', world.groupId, onList), label),
       );
-      const none = {
-        groupId: world.groupId,
-        ids: [],
-        audienceKey: 'g|s:',
-        epoch: '0:0',
-      } as unknown as never;
+      const none = eligibleNone(world);
       expect(world.repos.lists.byId(world.groupId, onList, none)).toBeUndefined();
       expect(world.repos.lists.defaultFor(world.groupId, 'generic', none)).toBeUndefined();
       expect(world.repos.lists.active(world.groupId, none)).toEqual([]);
@@ -549,7 +537,7 @@ describe('ListRepository', () => {
         }),
       ).toEqual([]);
       // The rows are there, so none of the above is vacuous.
-      expect(world.repos.lists.byId(world.groupId, onList, eligibleOf(world))).toBeDefined();
+      expect(world.repos.lists.byId(world.groupId, onList, eligibleAll(world))).toBeDefined();
     });
   });
 

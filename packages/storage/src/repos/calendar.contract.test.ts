@@ -12,6 +12,8 @@ import { UTC } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleAll,
+  eligibleNone,
   eventId,
   groupLabel,
   member,
@@ -97,7 +99,7 @@ describe('CalendarRepository', () => {
             'a weekly series that started long ago',
           );
         });
-        const eligible = eligibleOf(world, label);
+        const eligible = eligibleAll(world);
         const window = world.repos.calendar.upcomingOneOff({
           groupId: world.groupId,
           from: at(0),
@@ -154,7 +156,7 @@ describe('CalendarRepository', () => {
           groupId: world.groupId,
           at: at(0),
           limit: 50,
-          eligible: eligibleOf(world, label),
+          eligible: eligibleAll(world),
         });
         // The open-ended one **and** the one that has not finished. The `IS NULL` arm is the case
         // a plain `recurrence_until_at >= :at` would drop, and an open-ended weekly event is the
@@ -186,7 +188,7 @@ describe('CalendarRepository', () => {
             from: at(0),
             to: at(7),
             limit: 50,
-            eligible: eligibleOf(world, label),
+            eligible: eligibleAll(world),
           }),
         ).toEqual([]);
       });
@@ -224,7 +226,7 @@ describe('CalendarRepository', () => {
         expect(moved.splitFromEventId).toBe(series.id);
         expect(moved.rrule).toBeUndefined();
 
-        const eligible = eligibleOf(world, label);
+        const eligible = eligibleAll(world);
         // Both ends of the chain: `bySeries` finds the series row and the split.
         expect(
           world.repos.calendar
@@ -275,7 +277,7 @@ describe('CalendarRepository', () => {
         // Checked before the occurrence is written, so a conflict leaves no orphan event claiming
         // to belong to a series it never joined.
         expect(
-          world.repos.calendar.byId(world.groupId, eventId('f2f'), eligibleOf(world, label)),
+          world.repos.calendar.byId(world.groupId, eventId('f2f'), eligibleAll(world)),
         ).toBeUndefined();
       });
     });
@@ -497,7 +499,13 @@ describe('CalendarRepository', () => {
             'an event elsewhere',
           ),
         );
-        const eligible = eligibleOf(world, groupLabel(world.otherGroupId), [elsewhere.labelId]);
+        // A label in **this** group, so the eligible set below is non-empty: `02` §3.7.1's labeled
+        // reads return early on an empty set, and an empty one would satisfy these three
+        // assertions without the `group_id` predicate they are about ever running. The other
+        // group's label cannot be in a set for this group — `computeEligible` refuses it, which is
+        // the containment the forged helper this replaced could not express.
+        world.store.write((uow) => world.repos.labels.intern(uow, groupLabel(world.groupId)));
+        const eligible = eligibleAll(world);
         expect(world.repos.calendar.byId(world.groupId, elsewhere.id, eligible)).toBeUndefined();
         expect(world.repos.calendar.bySeries(world.groupId, elsewhere.seriesId, eligible)).toEqual(
           [],
@@ -575,9 +583,9 @@ describe('CalendarRepository', () => {
             ),
           ).kind,
         ).toBe('conflict');
-        expect(
-          world.repos.calendar.byId(world.groupId, event.id, eligibleOf(world, label))?.status,
-        ).toBe('tentative');
+        expect(world.repos.calendar.byId(world.groupId, event.id, eligibleAll(world))?.status).toBe(
+          'tentative',
+        );
       });
     });
 
@@ -590,12 +598,7 @@ describe('CalendarRepository', () => {
             'an event',
           ),
         );
-        const none = {
-          groupId: world.groupId,
-          ids: [],
-          audienceKey: 'g|s:',
-          epoch: '0:0',
-        } as unknown as never;
+        const none = eligibleNone(world);
         expect(world.repos.calendar.byId(world.groupId, event.id, none)).toBeUndefined();
         expect(
           world.repos.calendar.upcomingOneOff({
@@ -617,7 +620,7 @@ describe('CalendarRepository', () => {
         expect(world.repos.calendar.bySeries(world.groupId, event.seriesId, none)).toEqual([]);
         // The row is there, so none of the above is vacuous.
         expect(
-          world.repos.calendar.byId(world.groupId, event.id, eligibleOf(world, label)),
+          world.repos.calendar.byId(world.groupId, event.id, eligibleAll(world)),
         ).toBeDefined();
       });
     });
@@ -789,20 +792,3 @@ describe('CalendarRepository', () => {
     });
   });
 });
-
-/** An eligible set over the labels a test interned. */
-function eligibleOf(
-  world: Parameters<Parameters<typeof withRepos>[0]>[0],
-  _label: unknown,
-  ids?: readonly number[],
-): never {
-  const resolved =
-    ids ??
-    (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map((row) => row.id);
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(resolved)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}

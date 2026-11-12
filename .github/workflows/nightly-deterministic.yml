@@ -1,0 +1,195 @@
+# The deterministic nightly (`11` §3.8.1, §3.1.6).
+#
+# `11` §3.1.6 gives every property suite three run counts: 100 locally, 500 on a pull request, and
+# **20,000 nightly** with a fresh seed that gets logged. The first two have been real since M0. The
+# third was a sentence in a spec with no workflow behind it until now — which meant the run that is
+# supposed to find a one-in-ten-thousand labelling bug had never happened, and nothing said so.
+#
+# What runs here today is the fast-check part, sharded one job per `.prop.` file so that a failure
+# names the suite and the slow database-backed ones do not serialise behind the pure ones. The
+# matrix is **derived from the tree** (`git ls-files '*.prop.*'`), not listed, because a list is the
+# thing that rots: a property suite added next month joins this run by existing.
+#
+# §3.8.1 gives this file three more jobs, each of which needs code that does not exist yet:
+#
+#   flake-hunt        unit, integration and deterministic scenarios ×5 with `--sequence.shuffle`,
+#                     auto-filing a `flaky-test` issue (§3.4). Needs the `flaky` tag convention
+#                     and the issue script; the shuffle itself works today.
+#   chaos nightly     `02` §9.3's chaos suite under the fake model gateway — M2 at the earliest.
+#   coverage baseline the ratchet's baseline PR, which `11` §3.1.3 puts after the coverage floor
+#                     stops moving every milestone.
+#
+# They are named rather than silently missing, and each arrives with the milestone that makes it
+# possible.
+#
+# **No issue filing here, deliberately.** §3.4 asks for it for flake-hunt, where the signal is
+# "this test is unreliable" and needs triage. A property failure is a *bug*: the job goes red, the
+# step summary carries the seed and the shrunk counterexample, and a red scheduled run on `main`
+# already reaches the owner. An issue per night of the same failure would be noise.
+name: nightly-deterministic
+
+on:
+  schedule:
+    # 02:07 UTC, the slot `11` §3.8.1 assigns. Off the hour, like every other cron here: the hour
+    # is when every scheduler in the world fires, and a delayed scheduled run is a run nobody sees.
+    - cron: "7 2 * * *"
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: Runs per property (default 20000).
+        required: false
+        default: "20000"
+      seed:
+        description: A specific FC_SEED to replay. Empty means a fresh random one.
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      # The workflow and the helper it depends on, so a change to either is exercised before it is
+      # merged — at 200 runs, which is enough to prove the wiring without a 20-minute pull request.
+      - ".github/workflows/nightly-deterministic.yml"
+      - "packages/shared/src/testing/fc-config.ts"
+
+permissions: {}
+
+concurrency:
+  group: nightly-deterministic-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TZ: UTC
+  TURBO_TELEMETRY_DISABLED: "1"
+
+jobs:
+  shards:
+    name: list the property suites
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      files: ${{ steps.list.outputs.files }}
+      runs: ${{ steps.plan.outputs.runs }}
+      seed: ${{ steps.plan.outputs.seed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Collect every .prop. suite
+        id: list
+        run: |
+          files=$(git ls-files '*.prop.test.ts' '*.prop.int.test.ts' | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          if [ "$files" = "[]" ]; then
+            echo "nightly-deterministic: no .prop. suites found, which means the naming convention moved." >&2
+            exit 1
+          fi
+          echo "files=$files" >> "$GITHUB_OUTPUT"
+
+      # One seed for every shard, so a failing night is reproducible as a whole: `11` §3.1.6 wants
+      # the seed logged, and a per-shard seed would mean reading fifteen logs to replay one run.
+      - name: Choose the run count and the seed
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          REQUESTED_RUNS: ${{ inputs.runs }}
+          REQUESTED_SEED: ${{ inputs.seed }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then
+            runs=200
+          else
+            runs="${REQUESTED_RUNS:-20000}"
+          fi
+          seed="$REQUESTED_SEED"
+          if [ -z "$seed" ]; then
+            seed=$(( RANDOM * 32768 + RANDOM ))
+          fi
+          echo "runs=$runs" >> "$GITHUB_OUTPUT"
+          echo "seed=$seed" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Properties"
+            echo
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Runs per property | \`$runs\` |"
+            echo "| \`FC_SEED\` | \`$seed\` |"
+            echo
+            echo "Replay a failure locally with:"
+            echo
+            echo '```bash'
+            echo "FC_SEED=$seed FC_NUM_RUNS=$runs pnpm exec vitest run <the suite>"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  properties:
+    name: ${{ matrix.file }}
+    needs: shards
+    runs-on: ubuntu-24.04
+    # Measured rather than guessed, because a nightly nobody has run is a nightly that fails on its
+    # first night. Both of the slowest shards were run locally at the real count on an Apple M1:
+    # `export/member-scope.prop` took **604 s** for 20,000 runs (30 ms each — a migrated database
+    # and a written archive per case) and `schema/fts-sync.prop` passed in the same session. 90
+    # minutes is therefore a wide margin for a shared runner, and a shard that hits it is a suite
+    # whose per-case cost has grown, which is worth knowing.
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      # Every shard runs: one failing property must not hide the state of the other fourteen, which
+      # is the whole reason this is a nightly rather than a pull-request job.
+      fail-fast: false
+      matrix:
+        file: ${{ fromJSON(needs.shards.outputs.files) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup
+
+      # `--testTimeout`: a suite that does not derive its own timeout from the run count carries
+      # Vitest's project default, and `fc.assert` is synchronous — so at 20,000 runs the property
+      # completes and Vitest reports the overrun afterwards as a failure. `fcTimeoutMs` is the
+      # per-suite fix for the two suites that needed it; this is the floor under the rest.
+      #
+      # `--hookTimeout` is the same problem one layer out, and it is not hypothetical: the first
+      # 20,000-run pass of `export/member-scope.prop` failed with `Hook timed out in 10000ms` while
+      # the property itself passed, because the teardown deleted twenty thousand accumulated
+      # archives at once. That suite now sweeps per case; the raised limit is the floor under every
+      # other suite whose fixtures grow with the run count.
+      #
+      # `FC_END_ON_FAILURE=0` is `11` §3.1.6's nightly behaviour: gather every failing shape in one
+      # pass. One shape per night costs a night per shape.
+      - name: ${{ matrix.file }}
+        env:
+          FC_NUM_RUNS: ${{ needs.shards.outputs.runs }}
+          FC_SEED: ${{ needs.shards.outputs.seed }}
+          FC_END_ON_FAILURE: "0"
+          SUITE: ${{ matrix.file }}
+        run: pnpm exec vitest run --testTimeout=5400000 --hookTimeout=600000 "$SUITE"
+
+      - name: Say what ran
+        if: ${{ always() }}
+        env:
+          SUITE: ${{ matrix.file }}
+          RUNS: ${{ needs.shards.outputs.runs }}
+          SEED: ${{ needs.shards.outputs.seed }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          echo "- \`$SUITE\` — $RUNS runs, seed \`$SEED\`, outcome **$OUTCOME**" >> "$GITHUB_STEP_SUMMARY"
+
+  # A single job to look at, for the same reason `ci-ok` exists: fifteen shard names in a branch
+  # protection rule is fifteen things to update when a suite is added.
+  properties-ok:
+    name: properties-ok
+    needs: properties
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any property shard did
+        env:
+          RESULT: ${{ needs.properties.result }}
+        run: |
+          echo "properties: $RESULT"
+          [ "$RESULT" = "success" ]

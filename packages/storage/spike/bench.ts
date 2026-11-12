@@ -279,28 +279,41 @@ async function secretstreamThroughput(megabytes: number): Promise<BenchRow[]> {
   const plaintext = randomBytes(chunkSize);
   const key = sodium.crypto_secretstream_xchacha20poly1305_keygen();
 
-  const sealMs = millis(() => {
-    const { state } = sodium.crypto_secretstream_xchacha20poly1305_init_push(key);
-    for (let i = 0; i < chunks; i += 1) {
-      sodium.crypto_secretstream_xchacha20poly1305_push(
-        state,
-        plaintext,
-        null,
-        i === chunks - 1
-          ? sodium.crypto_secretstream_xchacha20poly1305_TAG_FINAL
-          : sodium.crypto_secretstream_xchacha20poly1305_TAG_MESSAGE,
-      );
-    }
-  });
+  const seal = (): number =>
+    millis(() => {
+      const { state } = sodium.crypto_secretstream_xchacha20poly1305_init_push(key);
+      for (let i = 0; i < chunks; i += 1) {
+        sodium.crypto_secretstream_xchacha20poly1305_push(
+          state,
+          plaintext,
+          null,
+          i === chunks - 1
+            ? sodium.crypto_secretstream_xchacha20poly1305_TAG_FINAL
+            : sodium.crypto_secretstream_xchacha20poly1305_TAG_MESSAGE,
+        );
+      }
+    });
 
-  const mbPerSecond = (chunks * chunkSize) / 1024 ** 2 / (sealMs / 1000);
+  // **A warm-up and five passes, reported as the median.** One timed pass is what this was, and
+  // the number it produced was bimodal: the M1 exit gate's reviewer measured 161.8, 353.8, 349.8
+  // and 162.6 MB/s on one machine, which is a 2.2× spread around a figure that `02` D13 reads as a
+  // gate. A WASM module's first pass measures the compiler. This is the number the owner's Pi
+  // session (`scripts/bench/pi.sh`, ask H-10) will report, so it has to be a measurement rather
+  // than a sample — `11` §3.9.2's protocol, at the smallest scale that fits a spike.
+  seal();
+  const passes = Array.from({ length: 5 }, () => seal()).toSorted((a, b) => a - b);
+  const medianMs = passes[2] ?? passes[0] ?? 0;
+  const rate = (ms: number): number => (chunks * chunkSize) / 1024 ** 2 / (ms / 1000);
+  const fastest = rate(passes[0] ?? medianMs);
+  const slowest = rate(passes.at(-1) ?? medianMs);
   return [
     {
       metric: 'libsodium-wrappers secretstream seal (SP-2)',
-      value: `${mbPerSecond.toFixed(1)} MB/s`,
+      value: `${rate(medianMs).toFixed(1)} MB/s`,
       note:
-        `${String(chunks)} × 64 KiB chunks · gate is ≥ 40 MB/s **on a Pi 5** (owner ask H-10); ` +
-        'this machine is not the gate',
+        `median of 5 after a warm-up (${slowest.toFixed(0)}–${fastest.toFixed(0)} MB/s across the ` +
+        `five) · ${String(chunks)} × 64 KiB chunks · gate is ≥ 40 MB/s **on a Pi 5** (owner ask ` +
+        'H-10); this machine is not the gate',
     },
   ];
 }

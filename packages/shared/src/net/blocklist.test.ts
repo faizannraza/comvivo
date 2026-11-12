@@ -150,7 +150,7 @@ describe('08 §3.9’s deny list', () => {
           expect(range !== undefined, address).toBe(theirs);
         },
       ),
-      { ...fcConfig(), numRuns: 1000 },
+      fcConfig({ numRuns: 1000 }),
     );
   });
 

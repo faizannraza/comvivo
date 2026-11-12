@@ -28,6 +28,7 @@ import tseslint from 'typescript-eslint';
 import { comvivoPlugin } from './scripts/lint/no-secret-equality.js';
 import {
   CORE_PURITY_RULES,
+  FC_CONFIG_BAN,
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   RAW_TRANSACTION_ALLOWED_GLOBS,
@@ -88,7 +89,11 @@ const restrict = (list: readonly unknown[]): Linter.RulesRecord => ({
  */
 function restrictedSyntaxBlocks(): ReturnType<typeof defineConfig> {
   const files = ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'];
-  const base = [...selectors(SECURITY_RULES), ...selectors(SYNC_TX_BAN)];
+  const base = [
+    ...selectors(SECURITY_RULES),
+    ...selectors(SYNC_TX_BAN),
+    ...selectors(FC_CONFIG_BAN),
+  ];
   const rawTx = selectors(RAW_TRANSACTION_BAN);
   const unfiltered = selectors(UNFILTERED_READ_BAN);
   const unfilteredExempt = [...UNFILTERED_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'];

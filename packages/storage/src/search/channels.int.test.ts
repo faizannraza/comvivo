@@ -16,6 +16,7 @@ import { StorageError } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleOnly,
   entityId,
   fingerprintFor,
   groupLabel,
@@ -23,16 +24,6 @@ import {
   memoryItem,
   withRepos,
 } from '../repos/testing/harness.js';
-
-/** An eligible set over interned label ids, shaped as the port expects one. */
-function eligibleOf(groupId: string, ids: readonly number[]): never {
-  return {
-    groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
 
 /** A unit vector of the given dimension, so `putEmbedding`'s normalisation check passes. */
 function unit(dims: number): Float32Array {
@@ -82,8 +73,8 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
         entityIds: [entity],
         limit: 10,
         maxState: 1,
-        eligible: eligibleOf(
-          world.groupId,
+        eligible: eligibleOnly(
+          world,
           items.map((item) => item.labelId),
         ),
       });
@@ -116,7 +107,7 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
           entityIds: [],
           limit: 10,
           maxState: 1,
-          eligible: eligibleOf(world.groupId, [item.labelId]),
+          eligible: eligibleOnly(world, [item.labelId]),
         }),
       ).toEqual([]);
     });
@@ -171,7 +162,7 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
       const openOnly = world.repos.memorySearch.aliases({
         groupId: world.groupId,
         aliasNorms: ['sam', 'sammy'],
-        eligible: eligibleOf(world.groupId, [open.labelId]),
+        eligible: eligibleOnly(world, [open.labelId]),
       });
       // Only the alias whose *introducing label* is eligible. Filtering on the entity instead
       // would leak the nickname to the whole group.
@@ -180,7 +171,7 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
       const both = world.repos.memorySearch.aliases({
         groupId: world.groupId,
         aliasNorms: ['sam', 'sammy'],
-        eligible: eligibleOf(world.groupId, [open.labelId, hidden.labelId]),
+        eligible: eligibleOnly(world, [open.labelId, hidden.labelId]),
       });
       expect(both.map((match) => match.aliasNorm).toSorted()).toEqual(['sam', 'sammy']);
       expect(both.every((match) => match.entityId === entity)).toBe(true);
@@ -217,7 +208,7 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
         world.repos.memorySearch.aliases({
           groupId: world.groupId,
           aliasNorms: ['sam'],
-          eligible: eligibleOf(world.groupId, [item.labelId]),
+          eligible: eligibleOnly(world, [item.labelId]),
         }),
       ).toEqual([]);
     });
@@ -251,8 +242,8 @@ describe('the entity and alias channels (04 §3.6.3)', { tags: ['db'] }, () => {
         subjectRefs: [{ type: 'group' }],
         limit: 10,
         maxState: 1,
-        eligible: eligibleOf(
-          world.groupId,
+        eligible: eligibleOnly(
+          world,
           items.map((item) => item.labelId),
         ),
       });

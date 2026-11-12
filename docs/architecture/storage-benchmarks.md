@@ -1,7 +1,11 @@
 # Storage benchmarks
 
-What `packages/storage` actually costs, measured. This replaces the estimates `02` §3.16.2 and
-§3.16.4 carried as **U7** ("to be replaced by measurements"), which is `M1-T33`'s job.
+What `packages/storage` actually costs, measured. `02` §3.16.2 and §3.16.4 carried estimates —
+"the estimates here are only reachable on the right side of that cliff", in §3.16.4's own words —
+and replacing them with arm64 measurements is `M1-T33`'s job. **U7 is narrower than this document**:
+`02` §1's uncertainty list has it as "Pi 5 latencies in §3.16", and that one stays open until the
+hardware exists (*What is not measured*, below). Both section headers in `02` now say which half is
+measured and which is still an estimate.
 
 Everything here is reproducible from the repository:
 
@@ -18,8 +22,10 @@ COMVIVO_BENCH_PROFILE=stress-50k-1m pnpm exec tsx packages/storage/bench/sizes.t
 
 Each benchmark declares its own budget, so `--gate` exits non-zero when a row misses one and there
 is no table here for the code to drift from. A trend run stays non-gating, which is what `11`
-§3.9.3 asks for: `main` records the series, a PR is gated on the interleaved A/B ratio, and the
-absolute budgets are hard gates on the reference runners at release.
+§3.9.3 asks for: `main` records the series and the absolute budgets are hard gates on the reference
+runners at release. **The third tier does not exist yet** — §3.9.3's interleaved A/B ratio on a
+pull request needs the runner and the variance study that `14` assigns to `M13-T18`, as
+`.github/workflows/bench.yml`'s own header says.
 
 ## The fixture
 
@@ -67,8 +73,13 @@ on the right side of that cliff, which the pragma line above is evidence of rath
 
 Measured on `stress-50k-1m` (1M messages, 50k memories, 5 groups; the largest group holds 600k
 messages and 30k memories), except the 50k-partition KNN row, which is `knn-50k` by definition.
-Five repetitions of 200 iterations each, reporting the median of the repetitions' percentiles —
-`11` §3.9.2's protocol.
+`11` §3.9.2's protocol: a warm-up, then N iterations into an HDR histogram, then five
+repetitions, reporting the median of the repetitions' percentiles. **N is per row, not 200 for all
+of them** — a row declares its own count where 200 would mean minutes of fixture work rather than
+a tighter percentile: 200 for the eight query rows, 100 for the job claim, 50 for the context-build
+sequence, and 20 each for the cold open and the retention chunk (which deletes 1,000 messages per
+iteration). The counts live on the benchmarks in `packages/storage/bench/storage.bench.ts`, beside
+the budgets.
 
 | Operation | p50 | p95 | Budget | |
 |---|---|---|---|---|
@@ -86,8 +97,19 @@ Five repetitions of 200 iterations each, reporting the median of the repetitions
 | Cold open + key check + migration check, 687 MB | 1.34 ms | **1.44 ms** | 300 ms of the 3 s cold start | ✅ <1% |
 
 Every row is inside its budget, so there is no deviation to file in `15`. The percentage is the p95
-against the budget. The queue's own round trip, which `11` §3.9.1's `B4` states as a floor, is
-**2,386 ops/s** against ≥ 500 (`micro:queue.roundtrip`), 21% of that floor.
+against the budget.
+
+The queue's own round trip is the one row whose budget is a **floor** rather than a ceiling:
+`11` §3.9.1's `B4` asks for ≥ 500 jobs/s, and `micro:queue.roundtrip` measures the enqueue → claim
+→ complete cycle at **2,260 ops/s** — the median of four runs on 2026-11-12 (2,187, 2,251, 2,268,
+2,329), against 2,437 recorded at `M1-T32` and 2,386 earlier in `M1-T33`. Read it as **2.2k ops/s
+±5% across six runs on two days**, which is the precision a micro-benchmark on a laptop has; the
+number that matters is that it is four times the floor.
+
+`11` §3.9.1's share column **inverts a throughput row**, which is why the gate prints 21–23% here
+rather than 450%: the share is "how much of the budget is used", so for a floor it is
+`floor / measured`. An earlier version of this paragraph called that figure "21% of that floor",
+which reads as the opposite of what it is.
 
 ### What the exercise was for: two query plans
 
@@ -162,14 +184,16 @@ embedding space: a space is a table, so two spaces is two copies.
 
 ## What is not measured, and why
 
-- **The Raspberry Pi 5 column.** `14`'s M1 cut-line allows it to slip to M6 ("Pi numbers may slip
-  to M6, but x64 numbers must land"), and `11` §3.9.4 makes the Pi protocol a signed manual
+- **The Raspberry Pi 5 column.** `14`'s M1 cut-line allows it to slip, in its own words: "`M1-T33`
+  Pi numbers (to M6, but x64 numbers must land)". `11` §3.9.4 makes the Pi protocol a signed manual
   attestation at every release candidate from M13. It needs hardware this session does not have.
   Recorded as a `[human]` item in `STATUS.md` → *Owner asks*. The Pi *budgets* in §3.16.4 stay as
   estimates until then, clearly marked as such.
-- **x64.** These numbers are arm64 (Apple M1). `.github/workflows/bench.yml` runs the same suite on
-  `ubuntu-24.04` and `ubuntu-24.04-arm` on every push to `main`, so the x64 column fills in from
-  CI's own artefacts the first time this branch merges — in the same format, by the same code.
+- **x64.** These numbers are arm64 (Apple M1). `.github/workflows/bench.yml` is wired to run the
+  same suite on `ubuntu-24.04` and `ubuntu-24.04-arm` on every push to `main`, which **has not
+  happened yet** — this branch is the one that adds the suite, so the first push to `main` after it
+  merges is the first x64 run. The column will fill in from CI's own artefacts, in the same format
+  and by the same code; until a run exists there is nothing here to publish.
 - **Encryption on.** `02` §3.6.4 owns the SQLCipher comparison and `M1-T2`'s spike measured it;
   repeating it here would be a second source of truth for the same number. The fixture is
   unencrypted so these figures isolate the query plans and the page cache.
@@ -183,5 +207,8 @@ embedding space: a space is a table, so two spaces is two copies.
   filter, and is labelled as such in the benchmark.
 - **The attachment share of a retention chunk.** `02` §3.16.4's row says "1,000 messages + FTS +
   attachments"; `message_attachments` has no repository until `M6`, so the measured chunk is
-  messages and their FTS postings. The attachment delete is a blob unlink per row, which `M1-T25`
-  measured separately in the blob store's own suite.
+  messages and their FTS postings, and the published row is a **lower bound on the spec's row**.
+  The missing work is one row deleted per attachment plus the blob store's own file unlink, and
+  **neither is measured anywhere** — an earlier version of this bullet credited `M1-T25` with
+  measuring it in the blob store's suite, which has no timing assertions at all. It arrives with
+  the repository in `M6`.

@@ -10,6 +10,11 @@
  *  - **`FC_NUM_RUNS`** — 100 by default; `core/ifc`, `core/policy` and fairness run **500 on a pull
  *    request** and **20,000 nightly**. The nightly run is where a one-in-ten-thousand labelling bug
  *    actually surfaces, and it is also why the default has to stay low enough that a PR is fast.
+ *  - **`FC_END_ON_FAILURE`** — `0`, `false` or `no` keeps the run going after the first
+ *    counterexample. §3.1.6 asks the nightly run to do that, and until the nightly workflow
+ *    existed there was no way to: `endOnFailure` was reachable only from a call site, so the
+ *    documented behaviour was a sentence with nothing behind it. One failing shape per night costs
+ *    a night per shape; the whole list costs one.
  *
  * fast-check is imported **as a type only**, so this module adds no runtime dependency to
  * `@comvivo/shared` — which matters because `shared` sits at the bottom of the dependency graph and
@@ -23,7 +28,10 @@ export const DEFAULT_NUM_RUNS = 100;
 export interface FcConfigOptions {
   /** Override the run count. `FC_NUM_RUNS` still wins, so CI can raise every suite at once. */
   readonly numRuns?: number;
-  /** Fail as soon as a counterexample is found. On by default; nightly turns it off to gather more. */
+  /**
+   * Fail as soon as a counterexample is found. On by default; the nightly run turns it off with
+   * `FC_END_ON_FAILURE=0` to gather every shape in one pass.
+   */
   readonly endOnFailure?: boolean;
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
@@ -32,6 +40,12 @@ function positiveInt(raw: string | undefined): number | undefined {
   if (raw === undefined || raw.trim() === '') return undefined;
   const value = Number(raw);
   return Number.isInteger(value) && value > 0 ? value : undefined;
+}
+
+/** `0`, `false` and `no` are false; anything else absent leaves the caller's choice alone. */
+function falsey(raw: string | undefined): boolean | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  return ['0', 'false', 'no'].includes(raw.trim().toLowerCase()) ? false : undefined;
 }
 
 function anyInt(raw: string | undefined): number | undefined {
@@ -55,7 +69,7 @@ export function fcConfig(options: FcConfigOptions = {}): fc.Parameters<unknown> 
 
   return {
     numRuns,
-    endOnFailure: options.endOnFailure ?? true,
+    endOnFailure: falsey(env['FC_END_ON_FAILURE']) ?? options.endOnFailure ?? true,
     // The seed is reported on failure so it can be pasted straight back in.
     verbose: true,
     ...(seed === undefined ? {} : { seed }),

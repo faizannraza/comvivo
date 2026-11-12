@@ -18,7 +18,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { is } from 'drizzle-orm';
-import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core';
+import { getTableConfig, type SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import * as schema from '../../packages/storage/src/schema/index.js';
 
 export interface ColumnInfo {
@@ -83,6 +83,38 @@ function modulesByExport(root: string): ReadonlyMap<string, string> {
   return byExport;
 }
 
+/**
+ * The indexes a column-level `.unique()` creates, which `getTableConfig().indexes` does not list.
+ *
+ * drizzle keeps a declared `index()`/`uniqueIndex()` in `config.indexes` and a *column's* `.unique()`
+ * on the column itself, and `generate` emits a `CREATE UNIQUE INDEX` for both. Reading only the
+ * first meant the generated reference reported **109 indexes where the migration creates 125**, and
+ * the sixteen it dropped are not incidental: `outbox_messages_idempotency_key_unique` is how `I6`
+ * exactly-once intent is enforced in the database, and `turn_effects_idempotency_key_unique` is
+ * `I7`. A schema reference that omits the constraint enforcing an invariant is worse than no
+ * reference, because it is read as complete. Found by the M1 exit gate's reviewer, who counted the
+ * `CREATE INDEX` statements.
+ *
+ * `partial: false`, always: a column-level unique has no `WHERE`, which is itself worth seeing in
+ * the table — a uniqueness that should have been conditional is a real design question.
+ */
+function columnUniqueIndexes(columns: readonly SQLiteColumn[]): readonly IndexInfo[] {
+  const found: IndexInfo[] = [];
+  for (const column of columns) {
+    // `isUnique`/`uniqueName` are drizzle's own fields on a column built with `.unique()`. They
+    // are not in the public `SQLiteColumn` type, so the cast is the narrowest one that reads them.
+    const flags = column as unknown as { isUnique?: boolean; uniqueName?: string };
+    if (flags.isUnique !== true) continue;
+    found.push({
+      name: flags.uniqueName ?? `${column.name}_unique`,
+      unique: true,
+      partial: false,
+      columns: [column.name],
+    });
+  }
+  return found;
+}
+
 /** Every table the schema declares, grouped by module and sorted by name. */
 export function tables(root: string): readonly TableInfo[] {
   const modules = modulesByExport(root);
@@ -114,8 +146,8 @@ export function tables(root: string): readonly TableInfo[] {
           ...(target === undefined ? {} : { references: target }),
         };
       }),
-      indexes: config.indexes
-        .map((index) => ({
+      indexes: [
+        ...config.indexes.map((index) => ({
           name: index.config.name,
           unique: index.config.unique,
           partial: index.config.where !== undefined,
@@ -125,8 +157,9 @@ export function tables(root: string): readonly TableInfo[] {
           columns: index.config.columns.map((column) =>
             'name' in column ? column.name : '(expression)',
           ),
-        }))
-        .toSorted((left, right) => left.name.localeCompare(right.name)),
+        })),
+        ...columnUniqueIndexes(config.columns),
+      ].toSorted((left, right) => left.name.localeCompare(right.name)),
       checks: config.checks.map((check) => check.name).toSorted(),
       primaryKey: config.primaryKeys.flatMap((key) => key.columns.map((column) => column.name)),
     });

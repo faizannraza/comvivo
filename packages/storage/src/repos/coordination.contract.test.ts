@@ -21,6 +21,8 @@ import { describe, expect, it } from 'vitest';
 import {
   conversationId,
   decisionId,
+  eligibleAll,
+  eligibleNone,
   fingerprintFor,
   firingId,
   groupLabel,
@@ -39,25 +41,6 @@ import { analyze, expectIndexUsed } from './testing/query-plan.js';
 const DAY = 86_400_000;
 const at = (days: number) =>
   Temporal.Instant.fromEpochMilliseconds(T0.epochMilliseconds + days * DAY);
-
-function eligibleOf(world: Parameters<Parameters<typeof withRepos>[0]>[0]): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map(
-    (row) => row.id,
-  );
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
-
-const NONE = {
-  groupId: 'grp_x' as never,
-  ids: [],
-  audienceKey: 'g|s:',
-  epoch: '0:0',
-} as unknown as never;
 
 /** A world with a conversation and two members, which polls and reminders both need. */
 function withWorld<T>(
@@ -345,7 +328,7 @@ describe('PollRepository', () => {
       });
       expect(
         world.repos.polls
-          .open({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .open({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.id),
       ).toEqual([pollId('c3f'), pollId('c1f'), pollId('c2f')]);
     });
@@ -363,11 +346,17 @@ describe('PollRepository', () => {
           'a poll',
         ),
       );
-      expect(world.repos.polls.byId(world.groupId, created.id, NONE)).toBeUndefined();
-      expect(world.repos.polls.open({ groupId: world.groupId, limit: 10, eligible: NONE })).toEqual(
-        [],
-      );
-      expect(world.repos.polls.byId(world.groupId, created.id, eligibleOf(world))).toBeDefined();
+      expect(
+        world.repos.polls.byId(world.groupId, created.id, eligibleNone(world)),
+      ).toBeUndefined();
+      expect(
+        world.repos.polls.open({
+          groupId: world.groupId,
+          limit: 10,
+          eligible: eligibleNone(world),
+        }),
+      ).toEqual([]);
+      expect(world.repos.polls.byId(world.groupId, created.id, eligibleAll(world))).toBeDefined();
     });
   });
 });
@@ -438,10 +427,10 @@ describe('PlanRepository', () => {
       // `02` §3.3.5 gives `plan_steps` **no `label_id`**, and that is what makes a surprise party
       // coherent: the plan's `secrecy` decides who may read it, and a step with an independent
       // label could be readable by someone the plan is hidden from.
-      expect(world.repos.plans.stepsOf(world.groupId, created.id, eligibleOf(world))).toHaveLength(
+      expect(world.repos.plans.stepsOf(world.groupId, created.id, eligibleAll(world))).toHaveLength(
         1,
       );
-      expect(world.repos.plans.stepsOf(world.groupId, created.id, NONE)).toEqual([]);
+      expect(world.repos.plans.stepsOf(world.groupId, created.id, eligibleNone(world))).toEqual([]);
     });
   });
 
@@ -499,7 +488,7 @@ describe('PlanRepository', () => {
       // flights" is exactly what a nudge is for.
       expect(
         world.repos.plans
-          .byStatus({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .byStatus({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.status)
           .toSorted(),
       ).toEqual(['active', 'draft']);
@@ -560,7 +549,7 @@ describe('DecisionRepository', () => {
       });
       expect(
         world.repos.decisions
-          .log({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .log({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.id),
       ).toEqual([decisionId('a2f'), decisionId('a1f')]);
     });
@@ -592,12 +581,12 @@ describe('DecisionRepository', () => {
       // Superseded stays: "what did we decide then" is a question the log exists to answer.
       expect(
         world.repos.decisions
-          .log({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .log({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.id)
           .toSorted(),
       ).toEqual([first.id, second.id].toSorted());
 
-      const retracting = world.repos.decisions.byId(world.groupId, first.id, eligibleOf(world));
+      const retracting = world.repos.decisions.byId(world.groupId, first.id, eligibleAll(world));
       if (retracting === undefined) throw new Error('fixture');
       world.store.write((uow) =>
         world.repos.decisions.retract(uow, world.groupId, first.id, retracting.version),
@@ -606,7 +595,7 @@ describe('DecisionRepository', () => {
       // decided.
       expect(
         world.repos.decisions
-          .log({ groupId: world.groupId, limit: 10, eligible: eligibleOf(world) })
+          .log({ groupId: world.groupId, limit: 10, eligible: eligibleAll(world) })
           .map((row) => row.id),
       ).toEqual([second.id]);
     });
@@ -678,7 +667,7 @@ describe('DecisionRepository', () => {
       );
       expect(refused.kind).toBe('conflict');
       expect(
-        world.repos.decisions.byId(world.groupId, decisionId('d2f'), eligibleOf(world)),
+        world.repos.decisions.byId(world.groupId, decisionId('d2f'), eligibleAll(world)),
       ).toBeUndefined();
     });
   });
@@ -737,7 +726,7 @@ describe('ReminderRepository', () => {
           ),
         );
         expect(firing.outcome).toBe('sent');
-        const after = world.repos.reminders.byId(world.groupId, created.id, eligibleOf(world));
+        const after = world.repos.reminders.byId(world.groupId, created.id, eligibleAll(world));
         expect(after?.nextFireAt?.epochMilliseconds).toBe(at(1).epochMilliseconds);
         expect(after?.status).toBe('scheduled');
       });
@@ -812,7 +801,7 @@ describe('ReminderRepository', () => {
             null,
           ),
         );
-        const after = world.repos.reminders.byId(world.groupId, created.id, eligibleOf(world));
+        const after = world.repos.reminders.byId(world.groupId, created.id, eligibleAll(world));
         // A reminder with no next time and a `scheduled` status would sit in the due index
         // forever, matching nothing and costing a row on every sweep.
         expect(after?.status).toBe('completed_series');
@@ -901,7 +890,7 @@ describe('ReminderRepository', () => {
             at(2),
           ),
         );
-        const after = world.repos.reminders.byId(world.groupId, snoozed.id, eligibleOf(world));
+        const after = world.repos.reminders.byId(world.groupId, snoozed.id, eligibleAll(world));
         // The snooze deferred *this* occurrence. Leaving it set would suppress the next one too.
         expect(after?.snoozedUntil).toBeUndefined();
         expect(after?.status).toBe('scheduled');
@@ -923,7 +912,9 @@ describe('ReminderRepository', () => {
         // reminder stopped firing because the scheduler could not read it.
         expect(world.repos.reminders.due(world.groupId, T0, 10)).toHaveLength(1);
         // But the labeled read **is** filtered.
-        expect(world.repos.reminders.byId(world.groupId, reminderId('b5f'), NONE)).toBeUndefined();
+        expect(
+          world.repos.reminders.byId(world.groupId, reminderId('b5f'), eligibleNone(world)),
+        ).toBeUndefined();
       });
     });
 
@@ -992,7 +983,7 @@ describe('ReminderRepository', () => {
       );
       expect(
         world.repos.reminders
-          .about(world.groupId, 'evt_01jrem00000000000000000001', eligibleOf(world))
+          .about(world.groupId, 'evt_01jrem00000000000000000001', eligibleAll(world))
           .map((row) => row.id),
       ).toEqual([created.id]);
 
@@ -1538,18 +1529,34 @@ describe('refusals and isolation, across all four aggregates', () => {
           label,
         );
       });
-      expect(world.repos.plans.byId(world.groupId, planId('n9f'), NONE)).toBeUndefined();
       expect(
-        world.repos.plans.byStatus({ groupId: world.groupId, limit: 10, eligible: NONE }),
-      ).toEqual([]);
-      expect(world.repos.plans.stepsOf(world.groupId, planId('n9f'), NONE)).toEqual([]);
-      expect(world.repos.decisions.byId(world.groupId, decisionId('n9f'), NONE)).toBeUndefined();
+        world.repos.plans.byId(world.groupId, planId('n9f'), eligibleNone(world)),
+      ).toBeUndefined();
       expect(
-        world.repos.decisions.log({ groupId: world.groupId, limit: 10, eligible: NONE }),
+        world.repos.plans.byStatus({
+          groupId: world.groupId,
+          limit: 10,
+          eligible: eligibleNone(world),
+        }),
       ).toEqual([]);
-      expect(world.repos.reminders.about(world.groupId, 'evt_x', NONE)).toEqual([]);
+      expect(world.repos.plans.stepsOf(world.groupId, planId('n9f'), eligibleNone(world))).toEqual(
+        [],
+      );
+      expect(
+        world.repos.decisions.byId(world.groupId, decisionId('n9f'), eligibleNone(world)),
+      ).toBeUndefined();
+      expect(
+        world.repos.decisions.log({
+          groupId: world.groupId,
+          limit: 10,
+          eligible: eligibleNone(world),
+        }),
+      ).toEqual([]);
+      expect(world.repos.reminders.about(world.groupId, 'evt_x', eligibleNone(world))).toEqual([]);
       // The rows are there, so none of the above is vacuous.
-      expect(world.repos.plans.byId(world.groupId, planId('n9f'), eligibleOf(world))).toBeDefined();
+      expect(
+        world.repos.plans.byId(world.groupId, planId('n9f'), eligibleAll(world)),
+      ).toBeDefined();
     });
   });
 });

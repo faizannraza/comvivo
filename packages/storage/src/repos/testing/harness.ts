@@ -14,6 +14,8 @@
  * the product could never reach.
  */
 import {
+  computeEligible,
+  type EligibleLabelSet,
   expectWritten,
   type Label,
   type NewGroup,
@@ -38,6 +40,7 @@ import {
   type GroupId,
   type JobId,
   type JobScheduleId,
+  type LabelId,
   type LedgerEntryId,
   type ListId,
   type ListItemId,
@@ -129,6 +132,104 @@ export function withRepos<T>(fn: (world: World) => NotPromise<T>): T {
     });
     return fn({ db, drizzle, store, repos, groupId: primary, otherGroupId: other });
   });
+}
+
+/**
+ * An eligible set over the labels this world has interned, built by the real `computeEligible`.
+ *
+ * **Nine test files had their own copy of this**, each returning
+ * `{ groupId, ids, audienceKey: 'g|s:', epoch: '0:0' } as unknown as never` — a hand-forged shape
+ * with the brand cast off, in four different signatures. Two things are wrong with that, and the
+ * second is the one that matters: a forged set cannot disagree with the real one, so every "the
+ * read applies the eligible set" assertion in those files was checked against a value the product
+ * never produces, and a change to `computeEligible`'s output would leave all nine compiling and
+ * green. Found by the M1 exit gate's reviewer. `repos/messages.contract.test.ts` already did it
+ * this way; this is that helper, moved to where the others can use it.
+ *
+ * `group` defaults to the primary one and is a parameter because an `I4` test needs a *real* set
+ * for the other group: a set for group A can only hold A's labels (`computeEligible` throws
+ * otherwise), which is the containment the forged helpers silently sidestepped.
+ *
+ * `canRead: () => true` stands in for `StubInformationFlow`'s answer about a group-readable label
+ * (`M1-T16`), which is what every one of those fixtures interns. The **real** flow checks live in
+ * `eligibility-equivalence.prop.int.test.ts`, which compares `computeEligible` against the SQL
+ * filter over generated label sets — a property, not a fixture, which is the right shape for that
+ * question.
+ */
+export function eligibleAll(world: World, group: GroupId = world.groupId): EligibleLabelSet {
+  const snapshot = world.repos.groups.snapshot(group);
+  if (snapshot === undefined) throw new Error(`fixture: no group ${group}`);
+  return computeEligible(
+    world.repos.labels.groupLabels(group),
+    { kind: 'group', groupId: group },
+    snapshot,
+    { canRead: () => true },
+  );
+}
+
+/**
+ * An eligible set admitting exactly `ids`, and nothing else this group has.
+ *
+ * The whole label map goes in, with a `canRead` that admits the chosen rows: `computeEligible`
+ * derives its `epoch` from the **maximum candidate** id rather than the eligible ones, so filtering
+ * the map first would produce a set with a real brand and an epoch no real caller could get.
+ * Identity comparison on the `Label` values is sound because they come from the same map.
+ */
+export function eligibleOnly(
+  world: World,
+  ids: readonly LabelId[],
+  group: GroupId = world.groupId,
+): EligibleLabelSet {
+  const snapshot = world.repos.groups.snapshot(group);
+  if (snapshot === undefined) throw new Error(`fixture: no group ${group}`);
+  const labels = world.repos.labels.groupLabels(group);
+  const keep = new Set(ids);
+  const idByLabel = new Map<Label, LabelId>();
+  for (const [id, label] of labels) idByLabel.set(label, id);
+  return computeEligible(labels, { kind: 'group', groupId: group }, snapshot, {
+    canRead: (label) => {
+      const id = idByLabel.get(label);
+      return id !== undefined && keep.has(id);
+    },
+  });
+}
+
+/**
+ * A **non-empty** eligible set that does not admit `labelId`.
+ *
+ * `02` §3.7.1's labeled reads return early for an empty set, so a test that only passes
+ * `eligibleNone` never reaches the `label_id IN (…)` predicate at all — the filter could be missing
+ * entirely and the test would still pass. Found in `traces.contract.test.ts` by deleting the filter
+ * and watching the suite stay green.
+ *
+ * It **throws** rather than inventing a non-existent id when the group has nothing else to be
+ * eligible for. The forged version it replaces fell back to `[999_999]`, which is a set no
+ * `computeEligible` can return; a fixture with one label is a fixture that cannot express this
+ * question, and saying so is more useful than a set that only looks like one.
+ */
+export function eligibleExcluding(world: World, labelId: LabelId): EligibleLabelSet {
+  const keep = [...world.repos.labels.groupLabels(world.groupId).keys()].filter(
+    (id) => id !== labelId,
+  );
+  if (keep.length === 0) {
+    throw new Error(
+      'fixture: this group has only the excluded label, so a non-empty excluding set does not ' +
+        'exist — intern a second label first',
+    );
+  }
+  return eligibleOnly(world, keep);
+}
+
+/** An eligible set that admits nothing — the case a wrong `IN ()` turns into "everything". */
+export function eligibleNone(world: World, group: GroupId = world.groupId): EligibleLabelSet {
+  const snapshot = world.repos.groups.snapshot(group);
+  if (snapshot === undefined) throw new Error(`fixture: no group ${group}`);
+  return computeEligible(
+    world.repos.labels.groupLabels(group),
+    { kind: 'group', groupId: group },
+    snapshot,
+    { canRead: () => false },
+  );
 }
 
 /**

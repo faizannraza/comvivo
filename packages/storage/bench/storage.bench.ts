@@ -21,7 +21,7 @@
  * stays inside its job. The numbers in the architecture note are from `stress-50k-1m`, which is
  * what §3.16.4's "1M msgs / 50k memories" column means.
  */
-import { expectWritten } from '@comvivo/core';
+import { computeEligible, type EligibleLabelSet, expectWritten } from '@comvivo/core';
 import type { ConversationId, GroupId, MemoryId } from '@comvivo/shared';
 import { SystemClock, TypeIdGenerator } from '@comvivo/shared';
 import { SeededRng } from '@comvivo/shared/testing';
@@ -45,7 +45,7 @@ interface Context {
   readonly search: SqliteMemorySearch;
   readonly groupId: GroupId;
   readonly conversationId: ConversationId;
-  readonly eligible: never;
+  readonly eligible: EligibleLabelSet;
   readonly memoryIds: readonly MemoryId[];
   readonly vector: Float32Array;
 }
@@ -56,15 +56,19 @@ interface Context {
  * Built by reading the group's labels rather than by casting an empty one: the whole point of
  * these rows is what the `label_id IN (…)` predicate costs, and an empty set would short-circuit
  * to `1 = 0` and measure nothing.
+ *
+ * And built by **`computeEligible`**, not by casting a plausible object into the brand. A benchmark
+ * is a claim about the product's cost, so it has to be measuring the product's own value: a forged
+ * set with a hand-written `epoch` would go on reporting a number after the real shape moved. Nine
+ * test files made the same shortcut and the M1 exit gate's reviewer caught them; this was the
+ * tenth.
  */
-function eligibleFor(repos: Repositories, groupId: GroupId): never {
-  const labels = [...repos.labels.groupLabels(groupId).keys()];
-  return {
-    groupId,
-    ids: labels.toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: `1:${String(labels.length)}`,
-  } as unknown as never;
+function eligibleFor(repos: Repositories, groupId: GroupId): EligibleLabelSet {
+  const snapshot = repos.groups.snapshot(groupId);
+  if (snapshot === undefined) throw new Error(`bench fixture: no group ${groupId}`);
+  return computeEligible(repos.labels.groupLabels(groupId), { kind: 'group', groupId }, snapshot, {
+    canRead: () => true,
+  });
 }
 
 function context(): Context {

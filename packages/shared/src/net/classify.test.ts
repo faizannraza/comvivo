@@ -250,7 +250,7 @@ describe('fuzz.ssrf.classify (08 §3.9)', () => {
       fc.property(fc.string({ maxLength: 120 }), (raw) => {
         expect(() => classifyUrl(raw, EMPTY_POLICY)).not.toThrow();
       }),
-      { ...fcConfig(), numRuns: 500 },
+      fcConfig({ numRuns: 500 }),
     );
   });
 
@@ -279,7 +279,7 @@ describe('fuzz.ssrf.classify (08 §3.9)', () => {
         if (address === undefined) return;
         expect(classifyAddress(address, classified.value), host).toBeDefined();
       }),
-      { ...fcConfig(), numRuns: 500 },
+      fcConfig({ numRuns: 500 }),
     );
   });
 
@@ -298,7 +298,7 @@ describe('fuzz.ssrf.classify (08 §3.9)', () => {
           expect(classifyAddress(address, classified.value), address).toBeDefined();
         },
       ),
-      { ...fcConfig(), numRuns: 500 },
+      fcConfig({ numRuns: 500 }),
     );
   });
 });

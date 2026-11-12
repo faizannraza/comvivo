@@ -45,6 +45,28 @@ describe('FC_NUM_RUNS', () => {
   });
 });
 
+describe('FC_END_ON_FAILURE', () => {
+  it('is on by default, so a pull request fails on the first counterexample', () => {
+    expect(fcConfig({ env: {} }).endOnFailure).toBe(true);
+  });
+
+  it.each(['0', 'false', 'no', 'NO', ' false '])('turns it off for %s', (raw) => {
+    expect(fcConfig({ env: { FC_END_ON_FAILURE: raw } }).endOnFailure).toBe(false);
+  });
+
+  it('beats a call site that asked for early exit, which is what nightly needs', () => {
+    expect(fcConfig({ endOnFailure: true, env: { FC_END_ON_FAILURE: '0' } }).endOnFailure).toBe(
+      false,
+    );
+  });
+
+  it.each(['', '1', 'true', 'yes', 'maybe'])('leaves the default alone for %s', (raw) => {
+    // Only the three false spellings mean anything. A typo must not silently *enable* early exit
+    // on a nightly run that asked for the opposite.
+    expect(fcConfig({ env: { FC_END_ON_FAILURE: raw } }).endOnFailure).toBe(true);
+  });
+});
+
 describe('FC_SEED', () => {
   it('replays a specific seed', () => {
     expect(fcConfig({ env: { FC_SEED: '123456' } }).seed).toBe(123_456);

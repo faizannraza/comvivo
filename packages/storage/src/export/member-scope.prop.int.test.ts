@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type Audience, expectWritten, type Label, StubInformationFlow } from '@comvivo/core';
 import { BRAND } from '@comvivo/shared';
-import { fcConfig } from '@comvivo/shared/testing';
+import { fcConfig, fcTimeoutMs } from '@comvivo/shared/testing';
 import * as fc from 'fast-check';
 import { Temporal } from 'temporal-polyfill';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -51,9 +51,21 @@ import { exportGroup, exportMember } from './export.js';
 import { AUDIT_SOURCE, GROUP_SOURCES, ME_SOURCES } from './sources.js';
 
 const temporaries: string[] = [];
-afterEach(() => {
+
+/**
+ * Delete every directory a case created, and forget them.
+ *
+ * Called **per case** rather than only from `afterEach`, which is what this was. Measured at
+ * `FC_NUM_RUNS=20000` (the count `11` §3.1.6 asks the nightly run for): the property itself passes
+ * and the *hook* fails — `Hook timed out in 10000ms` — because twenty thousand archives and their
+ * data directories accumulate on disk and are then deleted in one teardown. A suite whose
+ * correctness depends on its run count is a suite that is only green by habit. Found by running it.
+ */
+function sweepTemporaries(): void {
   for (const path of temporaries.splice(0)) rmSync(path, { recursive: true, force: true });
-});
+}
+
+afterEach(sweepTemporaries);
 
 function tempDir(): string {
   const path = mkdtempSync(join(tmpdir(), `${BRAND.slug}-exp-`));
@@ -226,7 +238,11 @@ describe('export.member-scope.property (02 §9.3)', () => {
     expect(Object.keys(GROUP_WIDE_FILES).filter((file) => !exported.has(file))).toEqual([]);
   });
 
-  it('exports exactly the records the member may read', async () => {
+  // The timeout scales with the run count, for the reason `fcTimeoutMs` documents: a fixed limit
+  // turns a raised `FC_NUM_RUNS` into a failure *after* the property has passed. Measured at
+  // **33 ms per run** (12 runs in 393 ms, each a migrated database and a written archive), so
+  // 75 ms carries margin for a slower runner and 20,000 runs is about 25 minutes.
+  it('exports exactly the records the member may read', { timeout: fcTimeoutMs(75) }, async () => {
     await fc.assert(
       fc.asyncProperty(
         fc.array(fc.nat({ max: 5 }), { minLength: 1, maxLength: 6 }),
@@ -234,15 +250,28 @@ describe('export.member-scope.property (02 §9.3)', () => {
           await runCase(shape);
         },
       ),
-      // Few runs, because each one builds a migrated database and writes an archive. The shapes
-      // that matter are enumerated rather than hoped for: `runCase` always includes a
-      // group-readable label and a single-member one, and the generator varies the rest.
-      { ...fcConfig(), numRuns: 12 },
+      // Twelve runs **by default**, because each one builds a migrated database and writes an
+      // archive. Through `fcConfig` rather than spread over it: `{ ...fcConfig(), numRuns: 12 }`
+      // put the literal last, so it silently beat `FC_NUM_RUNS` and this property ran twelve cases
+      // however the suite was invoked — in a file named `.prop.`, which is the set `11` §3.1.6
+      // raises nightly. Found by the M1 exit gate's reviewer. The shapes that matter are enumerated
+      // rather than hoped for anyway: `runCase` always includes a group-readable label and a
+      // single-member one, and the generator varies the rest.
+      fcConfig({ numRuns: 12 }),
     );
   });
 });
 
 async function runCase(shape: readonly number[]): Promise<void> {
+  try {
+    await runCaseInner(shape);
+  } finally {
+    // Per case, so disk use is bounded by one archive rather than by the run count.
+    sweepTemporaries();
+  }
+}
+
+async function runCaseInner(shape: readonly number[]): Promise<void> {
   await withReposAsync(async (world) => {
     const { members, convId } = seedMembers(world);
     const [first, second] = members;

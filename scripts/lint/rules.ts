@@ -180,6 +180,39 @@ export const SYNC_TX_BAN: Linter.RulesRecord = {
 };
 
 /**
+ * `11` §3.1.6: a property suite must not override what `fcConfig()` decided.
+ *
+ * `{ ...fcConfig(), numRuns: 12 }` reads like "twelve by default". It is not: the spread puts the
+ * literal **last**, so it beats the environment, and `FC_NUM_RUNS=20000` silently runs twelve
+ * cases. The suite passes either way — which is why this needs a lint rule and not a test. Found
+ * at the M1 exit gate in `export/member-scope.prop.int.test.ts`, a file named `.prop.` and
+ * therefore in the set `11` §3.1.6 raises nightly.
+ *
+ * `fcConfig({ numRuns: 12 })` is the correct form and expresses the precedence the other way
+ * round: the literal is the fallback and `FC_NUM_RUNS` wins. The same trap applies to every key
+ * `fcConfig` computes, so the selector names all five rather than only the one that bit.
+ *
+ * `:has(SpreadElement > …)` without a child combinator, because esquery rejects `:has(> …)` —
+ * measured against the real linter, where the child form matches nothing and would have shipped an
+ * inert rule with a passing test. The looser form can only over-match (an object whose *nested*
+ * object spreads `fcConfig`), which in a test file is a prompt to write the clearer thing.
+ */
+export const FC_CONFIG_BAN: Linter.RulesRecord = {
+  'no-restricted-syntax': [
+    'error',
+    {
+      selector:
+        "ObjectExpression:has(SpreadElement > CallExpression[callee.name='fcConfig']) > " +
+        'Property[key.name=/^(numRuns|endOnFailure|seed|path|verbose)$/]',
+      message:
+        'Spreading `fcConfig()` and then overriding one of its keys reverses the precedence it ' +
+        'exists for: the literal wins and `FC_SEED`/`FC_NUM_RUNS` are ignored, with the suite ' +
+        'still green. Pass the value in instead — `fcConfig({ numRuns: 12 })` (11 §3.1.6).',
+    },
+  ],
+};
+
+/**
  * Files that may call the driver's own `transaction()`.
  *
  * `packages/storage/src/db/tx.ts` is the implementation — `SqliteStore` *is* the single entry

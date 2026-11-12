@@ -19,6 +19,9 @@ import { Temporal } from 'temporal-polyfill';
 import { describe, expect, it } from 'vitest';
 import {
   conversationId,
+  eligibleAll,
+  eligibleExcluding,
+  eligibleNone,
   groupLabel,
   member,
   person,
@@ -33,43 +36,6 @@ const at = (days: number) =>
   Temporal.Instant.fromEpochMilliseconds(T0.epochMilliseconds + days * DAY);
 
 /** An eligible set over every label in the database. */
-function eligibleOf(world: Parameters<Parameters<typeof withRepos>[0]>[0]): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[]).map(
-    (row) => row.id,
-  );
-  return {
-    groupId: world.groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
-
-const NONE = { groupId: 'grp_x', ids: [], audienceKey: 'g|s:', epoch: '0:0' } as unknown as never;
-
-/**
- * A **non-empty** eligible set that does not contain the trace's label.
- *
- * `02` §3.7.1's labeled reads return early for an empty set, so a test that only passes `NONE`
- * never reaches the `label_id IN (…)` predicate at all — the filter could be missing entirely and
- * every such test would still pass. Found by deleting the filter and watching the suite stay green.
- */
-function eligibleExcluding(
-  world: Parameters<Parameters<typeof withRepos>[0]>[0],
-  labelId: number,
-): never {
-  const ids = (world.db.prepare('SELECT id FROM labels').all() as { id: number }[])
-    .map((row) => row.id)
-    .filter((id) => id !== labelId);
-  return {
-    groupId: world.groupId,
-    // A set that is non-empty — if the fixture has only one label, an id that exists nowhere, so
-    // the predicate is still exercised rather than skipped.
-    ids: ids.length > 0 ? ids.toSorted((left, right) => left - right) : [999_999],
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
 
 function withTraces<T>(
   fn: (
@@ -179,18 +145,32 @@ describe('writing and reading a trace', () => {
       expect(written.truncation.truncated).toBe(false);
       expect(written.trace.costMicros).toBe(0);
       expect(written.trace.contextManifest.tokenEstimate).toBe(1200);
-      expect(world.repos.traces.trace(world.groupId, turnId('a1f'), eligibleOf(world))?.id).toBe(
+      expect(world.repos.traces.trace(world.groupId, turnId('a1f'), eligibleAll(world))?.id).toBe(
         traceId('a1f'),
       );
       // A trace is a datum like any other: an audience that cannot read its label cannot read it.
       // Both forms, and the second is the one that matters: an **empty** eligible set is refused by
       // an early return, so it proves nothing about the `label_id IN (…)` predicate. A set that is
       // non-empty and simply does not contain this label is what reaches it.
-      expect(world.repos.traces.trace(world.groupId, turnId('a1f'), NONE)).toBeUndefined();
+      expect(
+        world.repos.traces.trace(world.groupId, turnId('a1f'), eligibleNone(world)),
+      ).toBeUndefined();
+      // A second **real** label, so the excluding set below is one `computeEligible` can produce.
+      // The forged helper this replaced fell back to the id `999_999` when the group had nothing
+      // else — which is the path this test was taking, so its "non-empty eligible set" was an id
+      // that exists in no database. Found by the M1 exit gate's reviewer, confirmed by the harness
+      // helper refusing to invent one.
+      world.store.write((uow) =>
+        world.repos.labels.intern(uow, groupLabel(world.groupId, { sensitivity: 'personal' })),
+      );
       const excluding = eligibleExcluding(world, written.trace.labelId);
       expect(world.repos.traces.trace(world.groupId, turnId('a1f'), excluding)).toBeUndefined();
       expect(
-        world.repos.traces.recentTraces({ groupId: world.groupId, limit: 10, eligible: NONE }),
+        world.repos.traces.recentTraces({
+          groupId: world.groupId,
+          limit: 10,
+          eligible: eligibleNone(world),
+        }),
       ).toEqual([]);
       expect(
         world.repos.traces.recentTraces({
@@ -201,7 +181,7 @@ describe('writing and reading a trace', () => {
       ).toEqual([]);
       // And it is not another group's to read.
       expect(
-        world.repos.traces.trace(world.otherGroupId, turnId('a1f'), eligibleOf(world)),
+        world.repos.traces.trace(world.otherGroupId, turnId('a1f'), eligibleAll(world)),
       ).toBeUndefined();
     });
   });
@@ -229,7 +209,7 @@ describe('writing and reading a trace', () => {
       const listed = world.repos.traces.recentTraces({
         groupId: world.groupId,
         limit: 10,
-        eligible: eligibleOf(world),
+        eligible: eligibleAll(world),
       });
       expect(listed).toHaveLength(3);
       // Same `created_at` for all three (one transaction), so the tiebreak on `id` is what gives a
@@ -316,7 +296,7 @@ describe('the combined 512 KiB budget (02 §3.3.9)', () => {
       expect(written.truncation.bytesBefore).toBeGreaterThan(TRACE_TOTAL_BUDGET_BYTES);
       expect(written.truncation.bytesAfter).toBeLessThanOrEqual(TRACE_TOTAL_BUDGET_BYTES);
       // The **start** of the list is kept, because that is what `11`'s replay reads.
-      const stored = world.repos.traces.trace(world.groupId, turnId('e1f'), eligibleOf(world));
+      const stored = world.repos.traces.trace(world.groupId, turnId('e1f'), eligibleAll(world));
       expect(stored?.toolCalls.length).toBeGreaterThan(0);
       expect(stored?.toolCalls.length).toBeLessThan(100);
       expect((stored?.toolCalls[0] as { name: string } | undefined)?.name).toBe('tool.0');
@@ -443,7 +423,7 @@ describe('expiry (Q-RET-2)', () => {
         world.repos.traces.recentTraces({
           groupId: world.groupId,
           limit: 10,
-          eligible: eligibleOf(world),
+          eligible: eligibleAll(world),
         }),
       ).toHaveLength(1);
       expect(world.store.write((uow) => world.repos.traces.deleteExpired(uow, T0, 10))).toBe(0);

@@ -9,9 +9,12 @@
  * `02` §3.4's maintenance section promises a `search.verify` job that checks FTS/base parity; the
  * cases here are the behaviours that job would be checking *for*.
  */
+
+import type { EligibleLabelSet } from '@comvivo/core';
 import { expectWritten, type Label, type NotPromise } from '@comvivo/core';
 import { describe, expect, it } from 'vitest';
 import {
+  eligibleOnly,
   fingerprintFor,
   groupLabel,
   member,
@@ -19,25 +22,16 @@ import {
   memoryItem,
   person,
   T0,
+  type World,
   withRepos,
 } from '../repos/testing/harness.js';
 import { trigramCanMatch } from './fts-query.js';
-
-/** An eligible set over the given interned labels, as the search port expects one. */
-function eligibleOf(groupId: string, ids: readonly number[]): never {
-  return {
-    groupId,
-    ids: [...new Set(ids)].toSorted((left, right) => left - right),
-    audienceKey: 'g|s:',
-    epoch: '0:0',
-  } as unknown as never;
-}
 
 describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
   /** A world with `items` memories indexed, returning their ids and the eligible set. */
   function withIndexed<T>(
     items: readonly { tag: string; statement: string; terms?: readonly string[] }[],
-    fn: (world: Parameters<Parameters<typeof withRepos>[0]>[0], eligible: never) => NotPromise<T>,
+    fn: (world: World, eligible: EligibleLabelSet) => NotPromise<T>,
   ): T {
     return withRepos((world) => {
       const label: Label = groupLabel(world.groupId);
@@ -61,7 +55,7 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
             ).labelId,
         );
       });
-      return fn(world, eligibleOf(world.groupId, labelIds));
+      return fn(world, eligibleOnly(world, labelIds));
     });
   }
 
@@ -244,7 +238,7 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
         mode: 'word',
         limit: 10,
         maxState: 1,
-        eligible: eligibleOf(world.groupId, ids),
+        eligible: eligibleOnly(world, ids),
       });
       expect(hits.map((hit) => hit.ref)).toEqual([memoryId('g1f')]);
     });
@@ -286,7 +280,7 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
         mode: 'trigram',
         limit: 10,
         maxState: 1,
-        eligible: eligibleOf(world.groupId, ids),
+        eligible: eligibleOnly(world, ids),
       });
       expect(hits.map((hit) => hit.ref)).toEqual([memoryId('h1f')]);
     });
@@ -355,7 +349,7 @@ describe('memory FTS (02 §3.4)', { tags: ['db'] }, () => {
         );
         return [active.labelId, proposed.labelId];
       });
-      const eligible = eligibleOf(world.groupId, ids);
+      const eligible = eligibleOnly(world, ids);
       const query = {
         groupId: world.groupId,
         query: 'dentist',
