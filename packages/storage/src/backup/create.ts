@@ -269,6 +269,8 @@ export async function createBackup(options: CreateBackupOptions): Promise<Create
 
   const stamp = options.manifest.createdAt.replaceAll(/[-:.]/g, '');
   const snapshot = join(tmpDir, `snap-${stamp}.db`);
+  /** The `.part` this call is writing, so the `finally` can remove exactly it. */
+  let partial: string | undefined;
   try {
     // Step 1. `VACUUM INTO` refuses to overwrite, which is what we want: a name collision means
     // two backups started in the same instant and silently replacing one would be a lie.
@@ -309,8 +311,10 @@ export async function createBackup(options: CreateBackupOptions): Promise<Create
     const name = archiveName(options.manifest.instanceId, options.manifest.createdAt);
     const part = join(tierDir, `${name}${PART_EXTENSION}`);
     const final = join(tierDir, name);
+    partial = part;
     await writeArchive({ ...options, manifest, snapshot, part });
     renameSync(part, final);
+    partial = undefined;
     fsyncDir(tierDir);
 
     // Step 6.
@@ -326,6 +330,12 @@ export async function createBackup(options: CreateBackupOptions): Promise<Create
     // The snapshot goes whatever happened: it is a full copy of the database, and leaving one
     // behind on every failure fills `backups/.tmp` with ciphertext nobody will ever read.
     rmSync(snapshot, { force: true });
+    // And so does **this call's own** `.part`, if the rename never claimed it. `pruneArchives`
+    // filters on `.vbak`, which a `.vbak.part` does not satisfy, and nothing else swept them — so
+    // every failed backup left a partial archive in the tier directory for ever. Only this one:
+    // scanning the directory would delete a concurrent backup's file out from under it. Found by
+    // the M1 exit gate's reviewer.
+    if (partial !== undefined) rmSync(partial, { force: true });
   }
 }
 

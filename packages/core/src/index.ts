@@ -548,6 +548,7 @@ export type {
 } from './ports/storage/store.js';
 export type {
   NotPromise,
+  SyncTxRunner,
   TxClock,
   TxMeta,
   TxToken,

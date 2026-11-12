@@ -93,6 +93,15 @@ export const RUNTIME_PRAGMAS = [
   'wal_autocheckpoint = 1000',
   'journal_size_limit = 67108864',
   'cell_size_check = ON',
+  // **`trusted_schema = ON`, on the production connection.** It was set by every test harness and
+  // by nothing that ships: `migrated-db.ts`, `test-db.ts` and `migrations.int.test.ts` each set it
+  // by hand, so the suites passed whatever the real default was. `02` §3.5 requires it and the
+  // `M1-T2` spike measured why — with it `OFF`, SQLite **refuses** vec0 DML inside a trigger,
+  // which is how every vector index stays in step with `memory_items`. A default that differs
+  // between the build we test and the build we ship is the shape this project keeps finding, and
+  // here it would have surfaced as "search returns nothing" on a host rather than as a failure.
+  // Found by the M1 exit gate's acceptance reviewer.
+  'trusted_schema = ON',
 ] as const;
 
 /** `02` §3.6.2's floors. Asserted on every open, because a mismatch corrupts rather than fails. */

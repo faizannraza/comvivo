@@ -21,8 +21,8 @@
  * hard way and which no in-memory fake would have caught.
  */
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, open, rename, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { mkdir, open, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
 import { DIR_MODE, FILE_MODE } from './layout.js';
 
 /** fsync one file, so its contents are on the device and not only in the page cache. */
@@ -75,13 +75,25 @@ export async function writeFileAtomic(
   contents: string,
   options: AtomicWriteOptions = {},
 ): Promise<void> {
-  // The pid in the default name so two processes writing the same path cannot collide on the temp
-  // file and produce exactly the torn read this function exists to prevent.
-  const temp = options.tempPath ?? join(dirname(path), `.${process.pid.toString(36)}.tmp`);
+  // The pid **and the basename** in the default name. The pid alone made the temp file per
+  // process per *directory*, so two `writeFileAtomic` calls to different files in one directory
+  // from one process would share it and one rename would steal the other's bytes — which is
+  // exactly the torn write this function exists to prevent. Not reachable today (only `lock.ts`
+  // uses the default, and role locks live in the same `run/` directory), which is why it is worth
+  // closing now rather than after it is. Found by the M1 exit gate's reviewer.
+  const temp =
+    options.tempPath ?? join(dirname(path), `.${basename(path)}.${process.pid.toString(36)}.tmp`);
   await mkdir(dirname(temp), { recursive: true, mode: DIR_MODE });
   await mkdir(dirname(path), { recursive: true, mode: DIR_MODE });
-  await writeFile(temp, contents, { mode: FILE_MODE });
-  await syncPath(temp);
-  await rename(temp, path);
+  try {
+    await writeFile(temp, contents, { mode: FILE_MODE });
+    await syncPath(temp);
+    await rename(temp, path);
+  } catch (cause) {
+    // The temp goes with the failure. Without this a failed write left `.<name>.<pid>.tmp` behind
+    // for a reader to wonder about during an emergency, and nothing ever cleaned it up.
+    await rm(temp, { force: true }).catch(() => undefined);
+    throw cause;
+  }
   await syncDirectory(dirname(path));
 }

@@ -756,6 +756,56 @@ describe('confirmation requests — compare-and-swap (02 §3.3.6, the M1-T20 AC)
       expect(world.repos.governance.confirmation(world.groupId, pendingB.id)?.status).toBe(
         'expired',
       );
+
+      // **The version half, on `expireConfirmation`.** Every case above pairs a stale version with
+      // a status that already fails the predicate — approved-and-stale, pending-and-current — so
+      // deleting `eq(confirmationRequests.version, expectVersion)` left the whole suite green.
+      // This is the one shape that separates them: still **pending**, and a version from before
+      // somebody else's write. `STATUS.md` claimed this test existed; it did not. Found by the M1
+      // exit gate's acceptance reviewer.
+      const pendingC = world.store.write((uow) =>
+        expectWritten(
+          world.repos.governance.requestConfirmation(
+            uow,
+            request('c3f', world.groupId, requester, [first]),
+            label,
+            label,
+          ),
+          'a third request',
+        ),
+      );
+      // Somebody else's write moves the version on, leaving the row pending.
+      world.db
+        .prepare('UPDATE confirmation_requests SET version = version + 1 WHERE id = ?')
+        .run(pendingC.id);
+      expect(
+        world.store.write((uow) =>
+          world.repos.governance.expireConfirmation(
+            uow,
+            world.groupId,
+            pendingC.id,
+            pendingC.version,
+            at(2),
+          ),
+        ).kind,
+        'a stale version must conflict even while the row is still pending',
+      ).toBe('conflict');
+      expect(world.repos.governance.confirmation(world.groupId, pendingC.id)?.status).toBe(
+        'pending',
+      );
+      // Non-vacuity: the current version expires it, so the assertion above is about the version
+      // and not about the row being unexpirable.
+      expect(
+        world.store.write((uow) =>
+          world.repos.governance.expireConfirmation(
+            uow,
+            world.groupId,
+            pendingC.id,
+            pendingC.version + 1,
+            at(2),
+          ),
+        ).kind,
+      ).toBe('ok');
     });
   });
 

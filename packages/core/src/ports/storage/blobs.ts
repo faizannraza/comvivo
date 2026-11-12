@@ -13,7 +13,7 @@
  */
 import type { GroupId } from '@comvivo/shared';
 import type { Temporal } from 'temporal-polyfill';
-import type { TxToken } from './uow.js';
+import type { SyncTxRunner } from './uow.js';
 
 /** What `stat` reports about a stored blob. */
 export interface BlobInfo {
@@ -47,8 +47,15 @@ export interface BlobPutArgs {
    *
    * Passed in rather than held, because the store must **not** hold a transaction across the
    * stream — see the module note. Each database step opens its own.
+   *
+   * `NotPromise<T>`, like `Store['write']`. Without it the constraint `C1` rests on was **erased
+   * at this boundary**: an `async` callback compiled here with no error, and `Store['write']` was
+   * not even assignable to the plain signature, so every caller had to launder it through a cast —
+   * which the one existing caller did. An `await` inside a transaction yields the event loop while
+   * holding a write lock, and this is the port the engine will wire the blob store through. Found
+   * by the M1 exit gate's reviewer.
    */
-  readonly write: <T>(fn: (uow: TxToken) => T) => T;
+  readonly write: SyncTxRunner;
   /** What the platform said the size is, for the quota pre-check. Advisory: platforms lie. */
   readonly declaredSize?: number | undefined;
 }

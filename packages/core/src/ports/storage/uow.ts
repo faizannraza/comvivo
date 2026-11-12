@@ -33,6 +33,23 @@ import type { Temporal } from 'temporal-polyfill';
  */
 export type NotPromise<T> = T extends PromiseLike<unknown> ? never : T;
 
+/**
+ * A synchronous transaction runner, handed to something that must not hold a transaction itself.
+ *
+ * A **named** alias rather than the signature written out at each use, and the reason is a
+ * TypeScript limitation worth recording: comparing two structurally identical *generic* signatures
+ * whose return type is a deferred conditional makes the compiler check `T` against
+ * `NotPromise<T>` contravariantly and refuse the assignment (`TS2328`) — even for two declarations
+ * that are character for character the same. Naming the type makes the comparison an identity
+ * check, which succeeds.
+ *
+ * That is not a detail: `BlobPutArgs.write` had the constraint **erased** to
+ * `(fn: (uow: TxToken) => T) => T` precisely because the honest signature would not compose, and
+ * with it went the only thing stopping an `async` callback from holding a write lock across an
+ * `await` at that boundary (`C1`). Found by the M1 exit gate's reviewer.
+ */
+export type SyncTxRunner = <T>(fn: (uow: TxToken) => NotPromise<T>) => T;
+
 /** What a caller is doing, for slow-transaction logs. Never parameters, never content. */
 export interface TxMeta {
   /** A short, stable name — `turn.commit`, `outbox.claim`. Appears in logs and metrics. */

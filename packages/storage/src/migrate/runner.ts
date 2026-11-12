@@ -26,6 +26,7 @@
  */
 import { BRAND, StorageError } from '@comvivo/shared';
 import type Database from 'better-sqlite3-multiple-ciphers';
+import { isThenable } from '../db/tx.js';
 import { preMigrationBackup } from './backup.js';
 import type { DataMigrationCtx } from './data/index.js';
 import type { Migration, MigrationSource } from './source.js';
@@ -239,7 +240,26 @@ function applyOne(
         if (isForeignKeyPragma(statement)) continue;
         db.exec(statement);
       }
-      migration.dataMigration?.run(db, ctx);
+      // The return value is **checked**, not discarded. `run` is declared `(db, ctx) => void`, and
+      // void-return bivariance accepts an `async run()` — which would commit an empty transaction
+      // and record the migration as applied, on a stranger's machine, with no way back but the
+      // pre-migration backup. `02` §3.12.3's rules exist because a migration runs once; this is
+      // the one guard `tx.ts` cannot provide, because the runner is the sanctioned non-`tx.ts`
+      // transaction. Found by the M1 exit gate's reviewer.
+      const outcome: unknown = migration.dataMigration?.run(db, ctx);
+      if (isThenable(outcome)) {
+        throw new StorageError(
+          'MIGRATION_FAILED',
+          `the data migration for ${migration.id} returned a promise`,
+          {
+            hint:
+              'A data migration runs inside the migration transaction, so it must be ' +
+              'synchronous — an `await` would yield the event loop while holding the write lock. ' +
+              'Remove `async` and use the synchronous better-sqlite3 API.',
+            category: 'bug',
+          },
+        );
+      }
 
       const violations = db.pragma('foreign_key_check') as readonly Record<string, unknown>[];
       if (violations.length > 0) {

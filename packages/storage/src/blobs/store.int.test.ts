@@ -13,7 +13,7 @@
  */
 import { readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { expectWritten, type NotPromise } from '@comvivo/core';
+import { expectWritten, type SyncTxRunner, type TxToken } from '@comvivo/core';
 import { BRAND, type GroupId, StorageError } from '@comvivo/shared';
 import { AAD, blobAddress, sha256Hex, wrappersSecretStream } from '@comvivo/shared/crypto';
 import { Temporal } from 'temporal-polyfill';
@@ -40,7 +40,18 @@ interface Fixture {
   readonly world: World;
   readonly store: BlobStore;
   readonly dir: string;
-  readonly write: <T>(fn: (uow: never) => NotPromise<T>) => T;
+  /**
+   * The transaction runner the store is handed.
+   *
+   * `SyncTxRunner`, the same named type `BlobPutArgs.write` asks for — which is what makes this
+   * assignable at all: the constraint is a deferred conditional, and TypeScript compares two
+   * written-out generic signatures by instantiation and refuses even identical ones (`TS2328`).
+   * Naming it once in `core` makes the comparison an identity check.
+   *
+   * The remaining cast is the adaptation from `SqliteStore.write`, whose callback receives a
+   * `UnitOfWork` rather than a bare `TxToken`.
+   */
+  readonly write: SyncTxRunner;
 }
 
 /** A store over a temporary directory, with the keys a test can vary. */
@@ -64,8 +75,14 @@ async function withStore(
       world,
       store,
       dir,
-      write: ((inner: (uow: never) => unknown) =>
-        world.store.write(inner as never)) as Fixture['write'],
+      // **One cast, here, with its reason** — see `Fixture.write`. Comparing two generic
+      // signatures whose return type is a deferred conditional makes the compiler check `T`
+      // against `NotPromise<T>` contravariantly and refuse even two identical declarations
+      // (`TS2328`), so the adaptation cannot be expressed without it. Keeping it at construction
+      // means every call site is plain, and the constraint still holds where it matters: a
+      // literal callback resolves `T` concretely, which `rejects an async transaction callback`
+      // asserts.
+      write: ((fn: (uow: TxToken) => unknown) => world.store.write(fn as never)) as SyncTxRunner,
     });
   });
 }
@@ -141,9 +158,39 @@ async function put(fixture: Fixture, content: Buffer, mime = MIME) {
     groupId: fixture.world.groupId,
     mime,
     source: once(content),
-    write: fixture.write as never,
+    write: fixture.write,
   });
 }
+
+describe('the transaction runner the store is given (C1)', () => {
+  it('rejects an async transaction callback', async () => {
+    await withStore(async (fixture) => {
+      // The protection the port's `NotPromise<T>` exists for, at the shape every real caller uses:
+      // a literal callback, where `T` resolves concretely. An `await` inside a transaction yields
+      // the event loop while holding a write lock, so this has to be a compile error rather than a
+      // review note — and for a while it was not, because the port had widened `write` to
+      // `(fn: (uow: TxToken) => T) => T` and `Store['write']` was no longer even assignable to it.
+      // Found by the M1 exit gate's reviewer.
+      // Both layers in one assertion: the `@ts-expect-error` is satisfied only if the type
+      // refuses it, and the throw is `tx.ts`'s runtime guard catching what a cast could smuggle
+      // past the type. `01` §14's `isThenable` check is what makes the second half possible.
+      // The one place an async transaction callback is written on purpose: it is the subject of
+      // the test. Both the type and the lint rule refuse it, which is the point — so the rule is
+      // disabled for this statement and only this statement. A `-next-line` directive cannot be
+      // used here because the `@ts-expect-error` has to be the line immediately above the call,
+      // and only one directive can hold that place.
+      /* eslint-disable no-restricted-syntax -- this async callback is the subject of the test */
+      expect(() =>
+        // @ts-expect-error -- an async callback returns a promise, which `NotPromise<T>` makes `never`
+        fixture.write(async () => Promise.resolve(1)),
+      ).toThrow(/returned a promise/);
+      /* eslint-enable no-restricted-syntax */
+      // And the synchronous form works, so the directive above is about the `async` and not about
+      // the call being wrong in some other way.
+      expect(fixture.write(() => 1)).toBe(1);
+    });
+  });
+});
 
 describe('sec.crypto.blob-id (02 D14, 08 SD-06)', () => {
   it('gives the same plaintext the same address in one instance', async () => {
@@ -289,7 +336,7 @@ describe('the write path (02 §3.11)', () => {
             groupId: fixture.world.groupId,
             mime: MIME,
             source: once(payload(600, 9)),
-            write: fixture.write as never,
+            write: fixture.write,
             declaredSize: 600,
           }),
         ).rejects.toThrow(StorageError);

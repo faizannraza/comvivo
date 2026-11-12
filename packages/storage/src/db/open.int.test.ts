@@ -120,7 +120,19 @@ describe('every pragma, read back (02 §3.6.2)', { tags: ['db', 'slow'] }, () =>
       'wal_autocheckpoint = 1000',
       'journal_size_limit = 67108864',
       'cell_size_check = ON',
+      // Added at the M1 exit gate. It was set by every harness and by nothing that ships, so the
+      // suites passed whatever the real default was — and `02` §3.5 needs it ON for vec0 DML
+      // inside a trigger, which the `M1-T2` spike measured as **refused** with it OFF.
+      'trusted_schema = ON',
     ]);
+  });
+
+  it('has `trusted_schema` on, because the vec triggers need it (02 §3.5)', async () => {
+    await withDb(({ db }) => {
+      // Asserted on the connection rather than only in the list, which is the half that was
+      // missing: the list is a transcription and this is the database.
+      expect(pragmaValue(db, 'trusted_schema')).toBe(1);
+    });
   });
 });
 

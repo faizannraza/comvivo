@@ -414,6 +414,14 @@ export default defineConfig(
     languageOptions: { globals: { ...globals.node, ...globals.es2024 } },
     rules: {
       ...SECURITY_RULES,
+      // The two transaction bans as well. They are syntactic — `no-restricted-syntax` needs no
+      // type information — and they were absent from every `.mjs` and `.cjs` file: flat config
+      // *replaces* a rule's options rather than merging them, so the last block naming
+      // `no-restricted-syntax` won, and this one did not name it. Measured by the M1 exit gate's
+      // reviewer: identical source yields zero errors as `.mjs` and both bans as `.ts`. It
+      // matters here because `outbox/testing/crash-runner.mjs` opens transactions in exactly such
+      // a file — and that harness is what proves the outbox's exactly-once behaviour.
+      ...restrict([...selectors(RAW_TRANSACTION_BAN), ...selectors(SYNC_TX_BAN)]),
       'no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },

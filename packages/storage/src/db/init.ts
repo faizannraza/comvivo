@@ -99,7 +99,14 @@ export function probeDatabase(options: Omit<OpenOptions, 'role' | 'readonly'>): 
       // key is never generated while a database exists, and this is the storage half of that rule.
       throw error;
     }
-    return 'absent';
+    // **Only "the file is not there" means absent.** This returned `'absent'` for every error but
+    // the key one, so a transient open failure against a populated directory — `EMFILE`, a
+    // momentarily unreadable file, a permission change — would make `initDatabase` report
+    // `created: true`, and "never generate a key while a database exists" hangs off exactly that
+    // flag. Anything else is raised, because refusing to start is a problem a host can fix and a
+    // second database over their data is not. Found by the M1 exit gate's reviewer.
+    if (isMissingFile(error)) return 'absent';
+    throw error;
   }
 
   try {
@@ -208,4 +215,21 @@ export function incrementalVacuum(db: Database.Database, pages = 4096): number {
 export function freePages(db: Database.Database): number {
   const value = pragmaValue(db, 'freelist_count');
   return typeof value === 'number' ? value : 0;
+}
+
+/**
+ * Does this open failure mean there is no file?
+ *
+ * `fileMustExist: true` makes better-sqlite3 raise `SQLITE_CANTOPEN` with an `ENOENT`-shaped
+ * errno, which is the only signal that says "nothing is there" rather than "something is wrong
+ * with what is there". The cause chain is walked because the driver's error arrives wrapped in a
+ * `StorageError` from `openDatabase`.
+ */
+function isMissingFile(error: unknown): boolean {
+  for (let current: unknown = error; current !== undefined && current !== null; ) {
+    const code = (current as { code?: unknown }).code;
+    if (code === 'ENOENT' || code === 'SQLITE_CANTOPEN') return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }

@@ -34,7 +34,7 @@
 import { createReadStream } from 'node:fs';
 import { mkdir, open as openFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { BlobStorePort, TxToken } from '@comvivo/core';
+import type { BlobStorePort, SyncTxRunner, TxToken } from '@comvivo/core';
 import { type GroupId, type Logger, StorageError } from '@comvivo/shared';
 import {
   AAD,
@@ -223,7 +223,12 @@ export class BlobStore implements BlobStorePort {
     readonly mime: string;
     readonly source: AsyncIterable<Uint8Array>;
     /** The caller's transaction runner. Each step that needs one opens its own. */
-    readonly write: <T>(fn: (uow: TxToken) => T) => T;
+    // `SyncTxRunner`, the port's own named type — not a written-out copy. The copy here was the
+    // erasure: `(fn: (uow: TxToken) => T) => T` accepts an `async` callback, so `C1` was gone at
+    // the one boundary that hands a transaction runner to something holding a stream open. Found
+    // by the M1 exit gate's reviewer. The type is named in `core` because two written-out generic
+    // signatures with a deferred conditional return cannot be compared (`TS2328`).
+    readonly write: SyncTxRunner;
     /** What the platform said the size is, for the quota pre-check. */
     readonly declaredSize?: number | undefined;
   }): Promise<PutResult> {
@@ -251,6 +256,7 @@ export class BlobStore implements BlobStorePort {
     let sizeBytes = 0;
     let sha256: string;
     let storageAddr: string;
+    let closed = false;
     const handle = await openFile(tmpPath, 'wx', FILE_MODE);
     try {
       // ── 3–4. Stream, hash, and compute the address at EOF.
@@ -282,13 +288,18 @@ export class BlobStore implements BlobStorePort {
       sha256 = hash.digest().toString('hex');
       storageAddr = this.#addressFor(keys, options.groupId, sha256);
       await handle.sync();
+      // Inside the guard, not after it. A `close()` is where a buffered `ENOSPC` surfaces, and a
+      // throw there used to skip both the `unlink` and `dek.fill(0)` below — leaving a temp file
+      // until the next sweep and a 32-byte data key unzeroed in the heap, against `08`'s memory
+      // hygiene. Found by the M1 exit gate's reviewer.
+      await handle.close();
+      closed = true;
     } catch (error) {
-      await handle.close().catch(() => undefined);
+      if (!closed) await handle.close().catch(() => undefined);
       await unlink(tmpPath).catch(() => undefined);
       dek.fill(0);
       throw error;
     }
-    await handle.close();
 
     return this.#withLock(storageAddr, async () => {
       try {
@@ -406,7 +417,7 @@ export class BlobStore implements BlobStorePort {
    * the next sweep removes; the reverse would leave a `stored` row with no file, which reads as
    * corruption rather than as garbage.
    */
-  async sweep(row: BlobRow, write: <T>(fn: (uow: TxToken) => T) => T): Promise<boolean> {
+  async sweep(row: BlobRow, write: SyncTxRunner): Promise<boolean> {
     return this.#withLock(row.storageAddr, async () => {
       const claimed = write(() =>
         maybeOne(
@@ -457,15 +468,13 @@ export class BlobStore implements BlobStorePort {
       if (info === undefined || info.mtimeMs >= cutoff) continue;
       const name = path.slice(path.lastIndexOf('/') + 1);
       if (name.endsWith(BLOB_TMP_EXTENSION)) {
-        await unlink(path).catch(() => undefined);
-        removed += 1;
+        if (await removeFile(path)) removed += 1;
         continue;
       }
       if (!isBlobFile(name)) continue;
       const addr = name.slice(0, 64);
       if (hasRow(addr)) continue;
-      await unlink(path).catch(() => undefined);
-      removed += 1;
+      if (await removeFile(path)) removed += 1;
     }
     return removed;
   }
@@ -651,4 +660,23 @@ function missingFile(addr: string): StorageError {
     hint: `The row for ${addr.slice(0, 12)}… has no file. Restore from a backup, or delete the attachment so it is re-fetched.`,
     category: 'io.failed',
   });
+}
+
+/**
+ * Remove a file, reporting whether it is gone.
+ *
+ * `sweepOrphans` used to `unlink(path).catch(() => undefined)` and then count the file as removed
+ * either way, so a failure that is not "already gone" — `EACCES`, `EBUSY`, a read-only mount —
+ * was swallowed *and* reported as work done. `blob.gc` claimed a number it had not achieved and
+ * met the same orphan on every sweep with nothing in the log. `deleteOne` always had the right
+ * shape; this gives the sweep the same one. Found by the M1 exit gate's reviewer.
+ */
+async function removeFile(path: string): Promise<boolean> {
+  try {
+    await unlink(path);
+    return true;
+  } catch (cause) {
+    // Already gone is success: a concurrent sweep or a `put` cleaning up after itself.
+    return (cause as NodeJS.ErrnoException).code === 'ENOENT';
+  }
 }
