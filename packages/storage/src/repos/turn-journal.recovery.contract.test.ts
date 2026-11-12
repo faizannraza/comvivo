@@ -579,6 +579,40 @@ describe('I7: acknowledged effects', () => {
         effectId('w1f'),
       ]);
       expect(world.repos.journal.unackedEffects(completed.id)).toEqual([]);
+
+      // **And the two statuses that are not `dead`.** `TERMINAL_OUTBOX_STATUSES` has three
+      // undelivered members, and the audit was written against one. `expired` is the one that
+      // matters: `expiry_class` defaults to `timely`, nothing in the product sets `must_deliver`,
+      // so a reply carrying an acknowledgement reached `expired` by waiting half an hour — and was
+      // then in no audit query at all. Not `failedWithUnackedEffects` (the turn completed and the
+      // effect is acked), not here (the send was not `dead`). Found at the M1 exit gate.
+      for (const status of ['expired', 'cancelled'] as const) {
+        world.db
+          .prepare('UPDATE outbox_messages SET status = ? WHERE id = ?')
+          .run(status, outboxId('w1f'));
+        expect(
+          world.repos.journal.effectsAckedByDeadSends(10).map((row) => row.id),
+          `an effect acked by a ${status} send must be visible to the I7 audit`,
+        ).toEqual([effectId('w1f')]);
+      }
+
+      // Non-vacuity: a send that actually arrived is not a finding.
+      world.db
+        .prepare("UPDATE outbox_messages SET status = 'sent' WHERE id = ?")
+        .run(outboxId('w1f'));
+      expect(world.repos.journal.effectsAckedByDeadSends(10)).toEqual([]);
+
+      // **And the send is not allowed to age out in the first place.** The rule the port's comment
+      // stated and nothing enforced: it was keyed on `expiry_class = must_deliver`, chosen at
+      // enqueue time, while the acknowledgement is attached here by `complete` — and nothing in
+      // the product sets that class. So an ack-bearing reply reached `expired` by waiting thirty
+      // minutes. `expire` now skips any send an effect points at, at any age.
+      world.db
+        .prepare("UPDATE outbox_messages SET status = 'pending' WHERE id = ?")
+        .run(outboxId('w1f'));
+      const far = Temporal.Instant.fromEpochMilliseconds(T0.epochMilliseconds + 99 * 3_600_000);
+      expect(world.store.write((uow) => world.repos.outbox.expire(uow, far))).toBe(0);
+      expect(world.repos.outbox.byId(outboxId('w1f'))?.status).toBe('pending');
     });
   });
 });

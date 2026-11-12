@@ -517,7 +517,10 @@ export type {
   SendFailure,
   SendReceipt,
 } from './ports/storage/repos/outbox.js';
-export { TERMINAL_OUTBOX_STATUSES } from './ports/storage/repos/outbox.js';
+export {
+  TERMINAL_OUTBOX_STATUSES,
+  UNDELIVERED_OUTBOX_STATUSES,
+} from './ports/storage/repos/outbox.js';
 export {
   INSTANCE_SCOPE,
   isPersistableSettingKey,

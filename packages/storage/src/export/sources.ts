@@ -26,7 +26,7 @@
  */
 import type { EligibleLabelSet, Label } from '@comvivo/core';
 import type { GroupId, LabelId, MemberId } from '@comvivo/shared';
-import { and, asc, eq, getTableColumns, gt, inArray, type SQL, sql } from 'drizzle-orm';
+import { and, asc, eq, getTableColumns, gt, inArray, ne, or, type SQL, sql } from 'drizzle-orm';
 import type { SQLiteColumn, SQLiteTable } from 'drizzle-orm/sqlite-core';
 import type { Db } from '../db/drizzle.js';
 import {
@@ -140,6 +140,29 @@ export interface ExportSource {
         readonly columns: Readonly<Record<string, SQLiteColumn>>;
       }
     | undefined;
+  /**
+   * An extra predicate that applies **only to a member's own export**.
+   *
+   * For a table with no `label_id`, `labeled: false` says the rows have no per-row audience — and
+   * for most of them that is the end of it, because the group is the audience (the membership
+   * list, the constitution). For two it is not, and this is how they say so.
+   *
+   * It exists because of what the M1 exit gate's reviewer found: `conversations.jsonl` was
+   * group-scoped in a *member* export, so a member running `export.self` received every other
+   * member's DM row — its `kind`, its `member_id`, its platform and its platform chat id. The
+   * comment above that source claimed "the member scope's filter below narrows" it; no such filter
+   * existed. A claim in a comment that the code does not make is the shape this project keeps
+   * finding, and the answer is a predicate rather than a better sentence.
+   *
+   * Called with the table's columns and the member being exported; return `undefined` for "no
+   * extra restriction".
+   */
+  readonly memberOnly?:
+    | ((
+        columns: Readonly<Record<string, SQLiteColumn | undefined>>,
+        scope: { readonly memberId: MemberId; readonly eligible: EligibleLabelSet },
+      ) => SQL | undefined)
+    | undefined;
 }
 
 /**
@@ -195,9 +218,17 @@ export const GROUP_SOURCES: readonly ExportSource[] = [
     type: 'conversation',
     table: conversations,
     // No label on the row. A conversation is a channel binding — its *messages* carry labels, and
-    // those are filtered. A DM conversation belongs to one member, which the member scope's filter
-    // below narrows; a group export lists them without their contents.
+    // those are filtered. A group export lists them without their contents.
     labeled: false,
+    // **And a member's own export lists only theirs.** `member_id` is non-null exactly when
+    // `kind = 'dm'` (`02` §3.3.1), so this is "every shared conversation, plus my own DM" — the
+    // filter the comment here used to claim without one existing.
+    memberOnly: (columns, scope) => {
+      const kind = columns['kind'];
+      const member = columns['memberId'];
+      if (kind === undefined || member === undefined) return undefined;
+      return or(ne(kind, 'dm'), eq(member, scope.memberId));
+    },
     orderBy: 'id',
     map: mapper(toConversation),
   },
@@ -281,10 +312,18 @@ export const GROUP_SOURCES: readonly ExportSource[] = [
     // day answered with *no such column: label_id* on the first run, and which `readChunk`'s guard
     // now refuses by name. A step's audience is its plan's: `02` §3.3.5
     // nests steps under the plan, so a step a member cannot see is one whose *plan* they cannot
-    // see. `plans.jsonl` above carries that filter, so a step of an invisible plan is exported
-    // with no plan to attach it to — recorded as a known gap rather than papered over, and closed
-    // when `M7` gives plans their own reader (`02` §3.15 nests steps "per 03 visibility").
+    // see. `plans.jsonl` above carries that filter.
     labeled: false,
+    // **Closed at the M1 exit gate**, rather than left to `M7` as the comment here used to say.
+    // "Exported with no plan to attach it to" undersold it: a step carries its own text, so a
+    // member's export contained the steps of plans they cannot read. The step's audience is its
+    // plan's, which is a subquery away — and a documented leak is still a leak.
+    memberOnly: (columns, scope) => {
+      const planId = columns['planId'];
+      if (planId === undefined) return undefined;
+      if (scope.eligible.ids.length === 0) return sql`1 = 0`;
+      return sql`${planId} IN (SELECT id FROM ${plans} WHERE ${plans.labelId} IN ${scope.eligible.ids})`;
+    },
     orderBy: 'id',
     map: mapper(toPlanStep),
   },
@@ -498,6 +537,15 @@ export function readChunk(
         ? (scope.personId ?? '')
         : (scope.memberId ?? '');
   const where = [eq(scoped, value)];
+
+  // A member's own export, where a table with no label may still hold other members' rows.
+  if (source.memberOnly !== undefined && scope.memberId !== undefined) {
+    const extra = source.memberOnly(columns, {
+      memberId: scope.memberId,
+      eligible: scope.eligible,
+    });
+    if (extra !== undefined) where.push(extra);
+  }
 
   if (source.labeled) {
     const label = columns['labelId'];

@@ -80,10 +80,24 @@ export const SECRET_PATTERNS: readonly { readonly name: string; readonly pattern
   },
   // A long base64 blob sitting next to the word key, secret, token or password. Narrow on purpose:
   // an unqualified "long base64" rule would eat legitimate ids and hashes out of every message.
+  //
+  // `-` and `_` are in the character class because **every key this product encodes is
+  // base64url**: `master.key`, `COMVIVO_MASTER_KEY`, the keyring's `wrap.sealed`, the backup
+  // envelope's `sealed`. Base64url substitutes those two characters for `+` and `/`, so a key
+  // containing either was split into runs shorter than 32 and the pattern never fired — measured
+  // at the M1 exit gate against a real 43-character key, with a 44-character standard-base64
+  // control that *was* scrubbed.
   {
     name: 'adjacent-base64',
     pattern:
-      /\b(key|secret|token|password|apiKey|api_key)\b["'\s:=]{1,6}[A-Za-z0-9+/]{32,}={0,2}/gi,
+      /\b(key|secret|token|password|apiKey|api_key)\b["'\s:=]{1,6}[A-Za-z0-9+/_-]{32,}={0,2}/gi,
+  },
+  // `08` §3.7.9's raw SQLCipher key is 64 hex characters, which had no pattern at all. Qualified by
+  // an adjacent key word for the same reason as the rule above: unqualified, it would scrub every
+  // sha256 digest in the log — and those are how a blob, a migration and an audit row are named.
+  {
+    name: 'adjacent-hex-key',
+    pattern: /\b(key|secret|dek|kek|sealed)\b["'\s:=]{1,6}[0-9a-f]{64}\b/gi,
   },
 ];
 
@@ -169,6 +183,7 @@ export function scrubErrorMessage(message: string): string {
 export function scrubDeep(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') return scrubSecretShapes(value);
   if (value === null || typeof value !== 'object') return value;
+  if (isBytes(value)) return describeBytes(value);
   if (seen.has(value)) return '[circular]';
   seen.add(value);
   if (Array.isArray(value)) return value.map((item) => scrubDeep(item, seen));
@@ -178,4 +193,25 @@ export function scrubDeep(value: unknown, seen = new WeakSet<object>()): unknown
       scrubDeep(item, seen),
     ]),
   );
+}
+
+/**
+ * Is this a view over raw bytes?
+ *
+ * Asked **before** either object walker reaches `Object.entries`, and the reason is a measurement:
+ * a `Buffer` is an object and is not an array, so both walkers rebuilt one key by key into
+ * `{"0":48,"1":49,…}` — every byte of a key preserved, in the log line and in the ring buffer that
+ * feeds `doctor --bundle`. `01` §11.7 forbids content above `debug`; a master key is worse than
+ * content. Found by the M1 exit gate's reviewer, who also noted that the tracing path already got
+ * this right by dropping objects outright (`observability/attributes.ts`).
+ */
+export function isBytes(value: object): boolean {
+  return ArrayBuffer.isView(value) || value instanceof ArrayBuffer;
+}
+
+/** What a byte view logs as: its length, and nothing else. */
+export function describeBytes(value: object): string {
+  const length =
+    value instanceof ArrayBuffer ? value.byteLength : (value as ArrayBufferView).byteLength;
+  return `[bytes:${String(length)}]`;
 }

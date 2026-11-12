@@ -38,7 +38,13 @@ import type {
   TxToken,
   WriteResult,
 } from '@comvivo/core';
-import { duplicate, notFound, writeConflict, writeOk } from '@comvivo/core';
+import {
+  duplicate,
+  notFound,
+  UNDELIVERED_OUTBOX_STATUSES,
+  writeConflict,
+  writeOk,
+} from '@comvivo/core';
 import {
   type CanonicalValue,
   type ConversationId,
@@ -184,18 +190,27 @@ export class SqliteTurnJournal implements TurnJournalReader, TurnJournal {
   }
 
   /**
-   * `02` §3.8's I7 audit: effects whose only acknowledgement is a **dead** outbox row.
+   * `02` §3.8's I7 audit: effects whose only acknowledgement is a send that never arrived.
    *
-   * Worse than an unacked effect, because the journal says the group was told and the message never
-   * arrived — so the recovery query would skip it. Read by the chaos tests and `village doctor`,
-   * and expected to be empty on a healthy instance.
+   * Worse than an unacked effect, because the journal says the group was told and the message
+   * never arrived — so the recovery query would skip it. Read by the chaos tests and
+   * `village doctor`, and expected to be empty on a healthy instance.
+   *
+   * **Every terminal status but `sent`**, which it was not: the predicate was `status = 'dead'`
+   * alone, and `TERMINAL_OUTBOX_STATUSES` has three undelivered members. `expired` is the one that
+   * matters, because it is the default path rather than an exotic one — `expiry_class` defaults to
+   * `timely` (30 minutes) in the shipped schema and nothing in the product sets `must_deliver`, so
+   * a reply acked by a send that aged out was **invisible to every audit query**: not in
+   * `failedWithUnackedEffects` (the turn completed and the effect is acked), not here (the send is
+   * not `dead`). Reproduced end to end by the M1 exit gate's reviewer. `cancelled` reaches the
+   * same state through `cancel()`.
    */
   effectsAckedByDeadSends(limit: number): readonly TurnEffect[] {
     return this.#db
       .select({ effect: turnEffects })
       .from(turnEffects)
       .innerJoin(outboxMessages, eq(outboxMessages.id, turnEffects.ackOutboxId))
-      .where(eq(outboxMessages.status, 'dead'))
+      .where(inArray(outboxMessages.status, UNDELIVERED_OUTBOX_STATUSES))
       .orderBy(asc(turnEffects.turnId), asc(turnEffects.seq))
       .limit(limit)
       .all()

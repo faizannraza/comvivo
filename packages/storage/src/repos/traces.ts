@@ -19,6 +19,7 @@
  * choice — `turn_traces` can be shown to a member because the prompt is not in it.
  */
 import type {
+  EligibleLabelSet,
   Label,
   NewTurnTrace,
   TraceReader,
@@ -35,13 +36,7 @@ import {
   traceRowBytes,
   writeOk,
 } from '@comvivo/core';
-import {
-  type GroupId,
-  type LabelId,
-  StorageError,
-  type TurnId,
-  type TurnTraceId,
-} from '@comvivo/shared';
+import { type GroupId, StorageError, type TurnId, type TurnTraceId } from '@comvivo/shared';
 import { and, asc, desc, eq, inArray, lte } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
 import type { Db } from '../db/drizzle.js';
@@ -72,11 +67,23 @@ export class SqliteTraceRepository implements TraceReader, TraceRepository {
     this.#labels = labels;
   }
 
-  trace(
-    groupId: GroupId,
-    turnId: TurnId,
-    eligible: { readonly ids: readonly LabelId[] },
-  ): TurnTrace | undefined {
+  /**
+   * One trace, if this audience may read it.
+   *
+   * `EligibleLabelSet`, not `{ ids: readonly LabelId[] }`. The widened shape was the only one in
+   * this package, and it defeated the brand: `eligible.ts` says why the type is branded — "a
+   * storage read that takes `readonly LabelId[]` can be called with a hand-built list… That is
+   * invariant `I1` deleted in one argument" — and method-parameter bivariance let the class keep
+   * satisfying the port while every holder of the concrete repository saw the structural type. A
+   * forged `{ ids: [1, 2, 3] }` typechecked here and was refused by `messages.hydrate` two lines
+   * away. `turn_traces` holds the context manifest, the policy decisions, the guard results and
+   * the replay, and `09`'s `traces.read.own` reads it through this method. Found at the M1 exit
+   * gate.
+   *
+   * The group now comes from the branded set as well, rather than from a separate argument that
+   * could disagree with it — the shape `messages.hydrate` already uses.
+   */
+  trace(groupId: GroupId, turnId: TurnId, eligible: EligibleLabelSet): TurnTrace | undefined {
     if (eligible.ids.length === 0) return undefined;
     const row = maybeOne(
       this.#db
@@ -93,11 +100,11 @@ export class SqliteTraceRepository implements TraceReader, TraceRepository {
     return row === undefined ? undefined : toTurnTrace(row);
   }
 
-  /** Q-DASH-2, through `turn_traces_group_created_idx`. */
+  /** Q-DASH-2, through `turn_traces_group_created_idx`. Branded `eligible`, as `trace` explains. */
   recentTraces(query: {
     readonly groupId: GroupId;
     readonly limit: number;
-    readonly eligible: { readonly ids: readonly LabelId[] };
+    readonly eligible: EligibleLabelSet;
   }): readonly TurnTrace[] {
     if (query.eligible.ids.length === 0) return [];
     return this.#db

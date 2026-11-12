@@ -32,7 +32,7 @@ import {
 } from './fields.js';
 import { redactOptions } from './redact.js';
 import { type BufferedLine, LogRingBuffer } from './ring-buffer.js';
-import { scrubDeep, scrubErrorMessage } from './scrub.js';
+import { describeBytes, isBytes, scrubDeep, scrubErrorMessage } from './scrub.js';
 
 export type LogLevel = 'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal';
 
@@ -118,6 +118,7 @@ const FORBIDDEN = new Set(FORBIDDEN_FIELD_NAMES.map((name) => name.toLowerCase()
  */
 function stripForbiddenFields(value: unknown, seen = new WeakSet<object>()): unknown {
   if (value === null || typeof value !== 'object') return value;
+  if (isBytes(value)) return describeBytes(value);
   if (seen.has(value)) return '[circular]';
   seen.add(value);
   if (Array.isArray(value)) return value.map((item) => stripForbiddenFields(item, seen));

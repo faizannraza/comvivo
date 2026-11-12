@@ -279,6 +279,65 @@ describe('a me/ source read with no subject (02 §3.15)', () => {
   });
 });
 
+describe('a member’s own export (02 §3.15)', () => {
+  it('lists the member’s own DM and no other member’s', () => {
+    withRepos((world) => {
+      seedSubject(world);
+      const eligible = eligibleFor(world);
+      const mine = memberId(MEMBER_TAG);
+      // A second member with a DM of their own. Before the M1 exit gate, `conversations.jsonl`
+      // was scoped by group id alone in a member export — so this row, with its `kind`, its
+      // `member_id`, its platform and its platform chat id, went into the first member's archive.
+      // The source's own comment claimed "the member scope's filter below narrows" it; there was
+      // no such filter.
+      world.store.write((uow) => {
+        expectWritten(world.repos.persons.create(uow, person('bentag')), 'the second person');
+        expectWritten(
+          world.repos.members.add(uow, {
+            id: memberId('bentag'),
+            groupId: world.groupId,
+            personId: personId('bentag'),
+            role: 'member',
+            status: 'active',
+            joinedAt: T0,
+          }),
+          'the second member',
+        );
+        for (const [tag, owner] of [
+          ['dmmane', mine],
+          ['dmbens', memberId('bentag')],
+        ] as const) {
+          expectWritten(
+            world.repos.conversations.create(uow, {
+              id: conversationId(tag),
+              groupId: world.groupId,
+              channel: 'simulator',
+              platformChatId: `chat-${tag}`,
+              kind: 'dm',
+              memberId: owner,
+              primary: false,
+              boundAt: T0,
+            }),
+            tag,
+          );
+        }
+      });
+
+      const source = sourceFor(GROUP_SOURCES, 'conversations.jsonl');
+      const asMember = { groupId: world.groupId, eligible, memberId: mine };
+      const ids = readChunk(world.drizzle, source, asMember, undefined, 50).map((row) => row['id']);
+      expect(ids).toContain(conversationId('dmmane'));
+      expect(ids).not.toContain(conversationId('dmbens'));
+
+      // Non-vacuity, and the group export's behaviour: a host exporting the whole group sees both.
+      const asGroup = { groupId: world.groupId, eligible };
+      const all = readChunk(world.drizzle, source, asGroup, undefined, 50).map((row) => row['id']);
+      expect(all).toContain(conversationId('dmmane'));
+      expect(all).toContain(conversationId('dmbens'));
+    });
+  });
+});
+
 describe('a misconfigured source (02 §3.15)', () => {
   it('refuses a me/ source that forgot its scope column', () => {
     withRepos((world) => {

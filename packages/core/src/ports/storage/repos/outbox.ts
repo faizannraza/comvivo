@@ -169,5 +169,20 @@ export const TERMINAL_OUTBOX_STATUSES: readonly OutboxStatus[] = [
   'expired',
 ];
 
+/**
+ * Terminal, and the message never arrived — the states an `I7` acknowledgement must not rest on.
+ *
+ * Named because the audit query that looks for them was written against `dead` alone, and the
+ * other two are not exotic: `expiry_class` defaults to `timely`, so an undelivered reply reaches
+ * `expired` by waiting. An effect acked by one of these is a journal entry saying the group was
+ * told something it never heard, and it was invisible to every audit query (found at the M1 exit
+ * gate).
+ */
+export const UNDELIVERED_OUTBOX_STATUSES: readonly OutboxStatus[] = [
+  'dead',
+  'cancelled',
+  'expired',
+];
+
 /** The id a send is minted with, for a caller threading it through a turn. */
 export type OutboxRef = { readonly id: OutboxId; readonly turnId: TurnId | undefined };

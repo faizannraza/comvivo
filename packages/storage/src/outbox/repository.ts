@@ -63,7 +63,7 @@ import { maybeOne, type Patch } from '../db/drizzle.js';
 import type { LabelStore } from '../ifc/label-store.js';
 import type { SqliteMessageRepository } from '../repos/messages.js';
 import { toOutboxMessage } from '../repos/rows.js';
-import { outboxMessages } from '../schema/runtime.js';
+import { outboxMessages, turnEffects } from '../schema/runtime.js';
 import { enqueueOutbox } from './enqueue.js';
 
 /** `02` §3.9: the claim's lease, in milliseconds. */
@@ -432,7 +432,20 @@ export class SqliteOutboxRepository implements OutboxReader, OutboxRepository {
     return rows.length;
   }
 
-  /** `06` §4.3: past the deadline for its class. `must_deliver` has none. */
+  /**
+   * `06` §4.3: past the deadline for its class. `must_deliver` has none.
+   *
+   * **And neither does a send that acknowledges a turn effect.** `expiry_class` is chosen when the
+   * send is enqueued; the acknowledgement is attached later, by `TurnJournal.complete`, so the
+   * class cannot know. Nothing in the product sets `must_deliver` today, which left the invariant
+   * resting on a flag nobody raises: a reply carrying an `I7` acknowledgement simply aged out
+   * after thirty minutes, and the journal went on saying the group had been told. The port's own
+   * comment already states the rule — "a reply carrying an I7 acknowledgement has to arrive or be
+   * visibly dead" — so this is the rule enforced where it can be. Found at the M1 exit gate.
+   *
+   * Deliberate cancellation is left alone: a human cancelling a send is an instruction, not a
+   * timeout, and `effectsAckedByDeadSends` is what surfaces the consequence.
+   */
   expire(_uow: TxToken, now: Temporal.Instant): number {
     let expired = 0;
     for (const [expiryClass, windowMs] of Object.entries(EXPIRY_MS)) {
@@ -447,6 +460,9 @@ export class SqliteOutboxRepository implements OutboxReader, OutboxRepository {
             // under them would race the receipt.
             eq(outboxMessages.status, 'pending'),
             lte(outboxMessages.createdAt, addMs(now, -windowMs)),
+            // Never a send an effect's acknowledgement points at (see the doc comment).
+            sql`NOT EXISTS (SELECT 1 FROM ${turnEffects} WHERE ${turnEffects.ackOutboxId} = ${outboxMessages.id})`,
+            // Never a send an effect's acknowledgement points at (see the doc comment).
           ),
         )
         .returning({ id: outboxMessages.id })

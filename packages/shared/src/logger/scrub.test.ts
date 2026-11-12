@@ -316,6 +316,30 @@ describe('sec.logs.canary', () => {
   });
 });
 
+describe('key material by the shapes this product mints', () => {
+  it('scrubs a base64url key, not only a standard-base64 one', () => {
+    // Every key this product encodes is base64**url** — `master.key`, `COMVIVO_MASTER_KEY`, the
+    // keyring's `wrap.sealed`, the backup envelope's `sealed` — and base64url substitutes `-` and
+    // `_` for `+` and `/`. The pattern's character class had neither, so a key containing one was
+    // split into runs shorter than 32 and never matched. Measured at the M1 exit gate.
+    const base64url = 'aB-dEfGhIjKlMnOpQrStUvWxYz0123456789_bCdEfGh';
+    expect(base64url).toHaveLength(44);
+    expect(scrubSecretShapes(`key: ${base64url}`)).toContain(SCRUBBED);
+    // The control that was already passing, so this test is about the new half.
+    const standard = 'aB+dEfGhIjKlMnOpQrStUvWxYz0123456789/bCdEfGh';
+    expect(scrubSecretShapes(`key: ${standard}`)).toContain(SCRUBBED);
+  });
+
+  it('scrubs a 64-hex SQLCipher key without eating a sha256 id', () => {
+    // `08` §3.7.9's raw key is 64 hex characters and had no pattern at all. Qualified by an
+    // adjacent key word, because a digest is how a blob, a migration and an audit row are named —
+    // scrubbing every 64-hex run would make the log unreadable.
+    const hex = 'a'.repeat(64);
+    expect(scrubSecretShapes(`dek: ${hex}`)).toContain(SCRUBBED);
+    expect(scrubSecretShapes(`blob sha256=${hex}`)).toContain(hex);
+  });
+});
+
 describe('scrubDeep', () => {
   it('keeps the structure and scrubs the strings', () => {
     expect(
@@ -333,6 +357,20 @@ describe('scrubDeep', () => {
 
   it('leaves non-strings alone', () => {
     expect(scrubDeep({ n: 42, b: false, z: null })).toEqual({ n: 42, b: false, z: null });
+  });
+
+  it('reduces a byte view to its length instead of expanding it key by key', () => {
+    // The measurement that prompted this: a `Buffer` is an object and is not an array, so the
+    // walker rebuilt it as `{"0":48,"1":49,…}` — **every byte of a key preserved**, in the line and
+    // in the ring buffer `doctor --bundle` reads. Found by the M1 exit gate's reviewer.
+    const key = Buffer.from([0x01, 0x02, 0x03, 0xfa]);
+    expect(scrubDeep({ k: key })).toEqual({ k: '[bytes:4]' });
+    expect(scrubDeep(new Uint8Array([9, 9, 9]))).toBe('[bytes:3]');
+    expect(scrubDeep({ deep: { deeper: { dek: new Uint8Array(32) } } })).toEqual({
+      deep: { deeper: { dek: '[bytes:32]' } },
+    });
+    // The bytes themselves must not appear anywhere in the serialised form.
+    expect(JSON.stringify(scrubDeep({ k: key }))).not.toContain('250');
   });
 
   it('survives a cycle, which an error cause chain can contain', () => {

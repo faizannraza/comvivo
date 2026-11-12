@@ -48,6 +48,7 @@ import {
   withReposAsync,
 } from '../repos/testing/harness.js';
 import { exportGroup, exportMember } from './export.js';
+import { AUDIT_SOURCE, GROUP_SOURCES, ME_SOURCES } from './sources.js';
 
 const temporaries: string[] = [];
 afterEach(() => {
@@ -183,7 +184,48 @@ function optionsFor(world: World, members: readonly ReturnType<typeof memberId>[
 
 const LABELED_FILES = ['messages.jsonl', 'memories.jsonl'];
 
+/**
+ * Files a member's own export may legitimately carry in full.
+ *
+ * Every other source must be label-filtered or carry a `memberOnly` predicate — asserted
+ * structurally below, because that is the gap this suite had: it checked two of fifteen files, and
+ * `conversations.jsonl` was exporting every other member's DM row the whole time. A list of what
+ * is deliberately group-wide, with the reason, is the only honest way to make "every other file is
+ * filtered" an assertion instead of a hope.
+ */
+const GROUP_WIDE_FILES: Readonly<Record<string, string>> = {
+  'members.jsonl': 'the membership list, which every member can see in any channel',
+  'constitution_versions.jsonl': 'the constitution is the group’s shared agreement (`03` §3.2)',
+  'audit_events.jsonl': 'host-only, and only with `--include-audit`',
+  'me/identities.jsonl': 'scoped to the exporting person by `subjectScope`',
+  'me/consent_events.jsonl': 'scoped to the exporting member by `subjectScope`',
+};
+
 describe('export.member-scope.property (02 §9.3)', () => {
+  it('filters every file in a member export, or says why it does not', () => {
+    // Structural, and exhaustive over the sources rather than over the data: a source added
+    // without a label and without a `memberOnly` predicate fails here on the day it is added,
+    // which is what would have caught the `conversations.jsonl` leak at `M1-T28` instead of at the
+    // milestone gate.
+    // Every source a member export writes: the group ones, their own `me/` ones, and the audit
+    // file when the host asks for it.
+    const inMemberExport = [...GROUP_SOURCES, ...ME_SOURCES, AUDIT_SOURCE];
+    const unprotected = inMemberExport
+      .filter(
+        (source) =>
+          !source.labeled && source.memberOnly === undefined && source.subjectScope === undefined,
+      )
+      .map((source) => source.file)
+      .filter((file) => !(file in GROUP_WIDE_FILES));
+    expect(
+      unprotected,
+      'each of these needs a label, a `memberOnly`, or an entry with a reason',
+    ).toEqual([]);
+    // And the allowlist does not name files that no longer exist, which is how such a list rots.
+    const exported = new Set(inMemberExport.map((source) => source.file));
+    expect(Object.keys(GROUP_WIDE_FILES).filter((file) => !exported.has(file))).toEqual([]);
+  });
+
   it('exports exactly the records the member may read', async () => {
     await fc.assert(
       fc.asyncProperty(
