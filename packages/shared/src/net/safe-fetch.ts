@@ -370,13 +370,27 @@ async function send(
     // pins the resolution so the address checked is the address connected to. A taint tracker
     // cannot see that chain, and `10` §9's 96-case matrix is the evidence that the chain holds.
     //
-    // The marker has to sit on the line the alert is reported on — a comment on the line above it
-    // does not suppress, measured on this very alert — and Biome's formatter moves a trailing
-    // comment off that line, which would make the suppression stop working the next time anyone
-    // formatted the file. So the formatter is told to leave this statement alone, with the reason.
+    // **The alert is dismissed in the Security tab, not suppressed here.** This block used to
+    // carry a `// codeql[js/request-forgery]` marker on the call's own line, a `biome-ignore
+    // format` to stop the formatter moving it, and a comment claiming both had been measured to
+    // work. Neither is true, and the M1 exit gate caught it with the alert open and critical on
+    // the pull request:
     //
-    // biome-ignore format: the `codeql` marker below must stay on the call's own line to suppress
-    const request = requestFn(target.url, { // codeql[js/request-forgery]
+    //  - GitHub code scanning does **not** process in-source suppression comments. CodeQL writes
+    //    a SARIF `suppressions[]` property from an alert-suppression query, and something has to
+    //    apply it through the API afterwards; the default setup does not. (Verified against
+    //    GitHub's own docs on 2026-11-12, and against this repository: the marker was in place
+    //    and the alert fired anyway.)
+    //  - Where the markers *are* honoured, `codeql[rule-id]` suppresses the **following** line
+    //    and `lgtm[rule-id]` the same line — so the marker was on the wrong line as well, and the
+    //    formatter exemption protected nothing.
+    //
+    // So the exception is recorded where it has effect — the alert is dismissed with this
+    // reasoning in its timeline — and the reasoning stays here, where the next person reading this
+    // function finds it. `STATUS.md` → Decisions log records the alternative (GitHub's
+    // `advanced-security/dismiss-alerts` action, which applies the markers on the default branch)
+    // and why adding a third-party action to a security workflow is the owner's call.
+    const request = requestFn(target.url, {
       method,
       headers: outgoing,
       lookup: pinnedLookup(address.address, address.family === 4 ? 4 : 6),
