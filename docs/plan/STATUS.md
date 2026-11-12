@@ -52,6 +52,7 @@ Batched per `CLAUDE.md` §5. Everything else proceeds without waiting, using the
 | H-10 | **A Raspberry Pi 5 (8 GB, 64-bit OS) for one afternoon**, to run three recorded benchmarks: the SQLite/SQLCipher/sqlite-vec matrix (**SP-1**), libsodium secretstream throughput (**SP-2**), and the `02` §3.16.4 storage budgets (`M1-T33`). I will write a single script that prints a pasteable report; the whole session is `git clone && ./scripts/bench/pi.sh`. See the steps below | hardware | **nothing** — `M1-T2`, `M1-T4` and `M1-T33` all proceed on x64/arm64-macOS with the substitution stated. It gates only the *arm64-Linux* row of each | **open** (asked 2026-11-03) |
 | H-12 | **Two consequences of the organisation move (`H-6`) worth naming separately, so they are not forgotten once the org exists:** create the `@comvivo/quality` team and point the quality-path CODEOWNERS entries at it, and set `required_approving_review_count: 2` with `require_code_owner_review: true` on the `08` §3.15 paths. Both are `M0-T17` acceptance criteria that cannot be met on a user-owned repository | account action | `M0-T17` AC; `08` §3.15 | **open** (asked 2026-11-07, after `H-6`) |
 | H-11 | **Install the DCO app** on the repository (<https://github.com/apps/dco>): one click, free, no token. It adds a `dco` check that fails a pull request without a `Signed-off-by:` line | account action | `CONTRIBUTING.md`'s sign-off claim; `M15` first external contribution | **open** (asked 2026-11-07) |
+| H-13 | **One critical CodeQL alert, two one-click ways to clear it.** `js/request-forgery` on `safeFetch` (alert #26 on PR #5): the function fetches a caller-supplied URL, which is its purpose, and what makes it safe is `classifyUrl` refusing every private, link-local, loopback, metadata, NAT64, 6to4 and mapped address and every literal spelling of each, `refuseByName`, the per-purpose allowlist, and `pinnedLookup` pinning the resolution so the address checked is the address connected to. `10` §9's 96-case matrix is the evidence, and `packages/shared/src/net/safe-fetch.ts` carries the reasoning above the call. In-source suppression markers do nothing (DL-14), so clearing it is an owner action: **(a)** dismiss the alert as a false positive with that reasoning in the comment box, or **(b)** approve adding GitHub's `advanced-security/dismiss-alerts` action (SHA-pinned) to `codeql.yml`, which applies the in-source markers on the default branch and makes every future deliberate exception self-documenting. (a) takes a minute; (b) is the durable one | account action | the `CodeQL` check on every milestone PR (it is **not** one of the eight required checks, so it does not block a merge) | **open** (asked 2026-11-12) |
 | H-8 | Later, announced at their milestone: Discord + Slack apps (M10), `npm login` / trusted publishing (M12), Cloudflare Pages token for docs (M0-T18/M15), optional paid security + child-safety review (M13/M15), community-chat space + bot spend cap (M8, D-7) | mixed | their milestones | **not yet due** |
 
 ### H-1 — proposed API budget
@@ -244,6 +245,9 @@ Every significant delegated decision, with its rationale. Architectural decision
 | DL-5 | 2026-11-01 | **pnpm 12.16.1, not pnpm 11.** | `08` §3.15 and `01` §14 A1 require "pnpm ≥ 11, pinned by `packageManager`, installed explicitly, never Corepack". pnpm 12 is the current major, satisfies "≥ 11", and the supply-chain settings the plan depends on (`minimumReleaseAge`, `trustPolicy`, build allowlisting) are present and better documented there. Logged as a Plan change rather than a spine change because the spec states a floor, not a pin. | — |
 | DL-6 | 2026-11-01 | **Node pins: 26.13.0 primary, 24.22.2 matrix leg.** | `01` §14 A1 names "Node 26 primary, Node 24 ≥ 24.11 supported". 26.13.0 is the Active LTS ("Lithium", since 2026-10-28) and 24.22.2 is the newest 24.x, so these are the concrete versions behind A1. `.node-version` holds `26` so minor bumps need no commit. | — |
 | DL-7 | 2026-11-01 | **Homebrew is not used for the toolchain.** | Homebrew 6.0.12 reports this macOS/CLT combination as a Tier-3 (unsupported) configuration and therefore builds every formula from source, which failed for both `pnpm` and `fnm`. Official Node tarballs plus an explicit global `pnpm` install are reproducible and match what CI does. Recorded so a future session does not retry brew. | — |
+| DL-12 | 2026-11-12 | **Shrinking stays on for every property suite** (`fcConfig`'s `endOnFailure` defaults to `false`). | `fcConfig` had set `endOnFailure: true` since `M0`, which fast-check documents as "stop at the first encountered failure **without shrinking**" — so every failure arrived as a raw random counterexample and `FC_PATH`, whose whole purpose is replaying the *shrunk* path, had nothing to replay. Shrinking costs time only when a property has already failed, which is the moment to spend it. `FC_END_ON_FAILURE=1` turns it off for a local bisect. `11` §3.1.6 amended | — |
+| DL-13 | 2026-11-12 | **`@napi-rs/keyring` stays declared in no manifest**, rather than becoming an `optionalDependency` or an optional peer. | Measured on pnpm 12.16.1: **both** forms install it in this workspace (an optional peer is auto-installed like any other). That would put a host's real OS keyring behind `unlock-sources.int.test.ts`, and on a headless runner with no D-Bus the answer is a native error instead of this product's advice. An undeclared lazy import is the only form that keeps the test suite off a real keyring; the version range lives in the fix-it hint, and `keychain.test.ts` fails if the package ever appears. `08` SD-03 and §3.7.3 amended | — |
+| DL-14 | 2026-11-12 | **A justified CodeQL alert is dismissed in the Security tab, not suppressed in the source.** | Verified against GitHub's documentation and against this repository: code scanning does **not** process in-source `codeql[…]`/`lgtm[…]` comments. CodeQL writes a SARIF `suppressions[]` property and something must apply it afterwards; the default setup does not. `safe-fetch.ts` carried such a marker — on the wrong line, protected by a `biome-ignore format` that existed only to keep it there, with a comment claiming both were measured to work — while the alert sat open and critical on PR #5. The reasoning stays in the source, where the next reader of `safeFetch` finds it; the dismissal is the mechanism that has effect. Wiring GitHub's `advanced-security/dismiss-alerts` action would make the markers real on the default branch and is the owner's call (**H-13**): a third-party action in a security workflow | — |
 
 ## Plan changes
 
@@ -1020,7 +1024,7 @@ automated substitute ready if hardware is unavailable.
 
 ### M1 — Storage & domain core
 
-Status: **in progress** (started 2026-11-03) · Tasks: 35/35 · Gate: running
+Status: **complete** (2026-11-03 → 2026-11-12) · Tasks: 35/35 · Gate: **green** (every clause measured; see the report)
 
 - [x] M1-T1 `@comvivo/storage` scaffold & pins — seven versions **re-verified against the registry** before pinning (`CLAUDE.md` §6): six are the current `latest`, and `temporal-polyfill` stays at 1.0.6 because 1.0.7 was published hours ago and `minimumReleaseAge` refuses it — the policy working as designed rather than as a theory. Exact pins in the catalog with `packages/storage/src/pins.test.ts` asserting each one has **no range operator at all**, because a caret here is what `pnpm up` produces and a SQLite build, a loadable extension and a crypto library are where a silent patch bump changes the bytes in a host's database. `drizzle.config.ts` per `02` §3.1, typechecked and type-aware-linted (proven by planting a floating promise in it). Two new guards for the `…Unfiltered` reads — an import rule and a call-shape rule, each proven to bite in the real tree through the real command. **Two defects found:** every package's `test` script bypassed the harness, and the plan's `…Unfiltered` rule could not be written as specified. 20 tests here, **1147 total**, 97.24% statements
 - [x] M1-T2 Storage/encryption/index spike (SP-1, SP-3) — **ship D8**: every criterion in `02` §3.6.3's decision matrix passes, so the §3.6.5 plaintext fallback is unused and `VACUUM INTO` snapshots are encrypted (SP-3), which also retires `01` §14 A8's online-backup-API alternative. **U2 is the one that mattered**: 10,000 canaries across a table, both FTS tokenizers and vec0 appear in no file in three encodings — including in the `-wal` *while the connection is still open*, which the first version of that test missed because closing checkpoints the WAL. `04:M1-T61` (a)–(d) all pass, each asserted in the direction that matters (an empty eligible set returns nothing; every constraint drops exactly the row it should). Twenty `SIGKILL`s mid-write: `integrity_check` ok, **no committed row lost**, verified against the child's own record of commits rather than a count. A worker read connection reads successive snapshots while the main thread writes. **Five defects and one changed default** — the 100× page-cache cliff, the Drizzle dependency alias, `trusted_schema`, the vec0 rowid binding, and hidden type declarations — all in Plan changes. Kept as a **68-test** regression suite in `pnpm verify`, **green on darwin-arm64 and linux-x64 × Node 26.13.0 and 24.22.2**, because every fact here is a fact about somebody else's native module. Report: [`storage-spike.md`](../architecture/storage-spike.md), numbers: [`storage-benchmarks.md`](../architecture/storage-benchmarks.md), ADR-005 addendum landed. **U7 and SP-2's gate need a Pi (H-10)**; `scripts/bench/pi.sh` is the one-command session, and the darwin-arm64 numbers are labelled a ceiling rather than evidence. **1220 tests total**, 97.11% statements
@@ -1145,7 +1149,86 @@ before anything uses it.
 
 #### Milestone report
 
-_Not written yet._
+**M1 closes with 35/35 tasks, `pnpm verify` exit 0 and every gate clause measured.** The headline is
+not the task count: it is that **six** independent reviewers with fresh context, in three rounds,
+found defects that two thousand green tests did not — and that the last round found one of my own
+fixes had made a test weaker.
+
+##### The exit gate, clause by clause
+
+| Clause (`14` M1; `11` §3.12) | Result |
+|---|---|
+| `pnpm verify` green | **exit 0** on Node v26.13.0 — 205 test files, **4,449 tests**, 96.70% statements / 90.26% branches / 98.17% functions / 98.07% lines, 0 dependency violations over 514 modules and 2,314 dependencies |
+| `FC_NUM_RUNS=20000 pnpm test:prop --project integration -t "queue"` | **green**, 330.9 s for 20,000 model-based runs against a real database |
+| `pnpm test --project integration -t "migrations\|backup\|retention\|erasure\|outbox\|turn-journal"` | **green**, 67 tests across 13 files |
+| Template DB helper | `testing/test-db.ts` (`M1-T15`): 17 ms to build the template, **~1.3 ms median** per clone against `11` §3.1.8's 5 ms target |
+| Migration tests fresh + idempotent | `migrations.fresh-equals-migrated` compares **471 schema objects**; the idempotent rerun applies nothing the second time |
+| Storage coverage ≥ 85 lines / 75 branches | met in every directory; the thinnest are `blobs` (98.75 lines / 83.60 branches) and `backup` (96.69 / 84.74) |
+| Encryption spike on the chosen path | 68 tests across 8 files, kept in `pnpm verify` |
+| Queue micro-bench baseline recorded | `micro:queue.roundtrip` **2,260 ops/s** (median of four runs, 2,187–2,329) against `B4`'s ≥ 500 floor |
+| Stryker weekly on core | `mutation.yml`, Mondays 04:12 UTC; IFC at 100.00%, the rest of core at 70.62% |
+| SP-1, SP-2, SP-3 recorded with the chosen branch | SP-1 **D8**, SP-3 **passed**, SP-2 **open → H-10** (375 MB/s here, median of five, 369–381 — a laptop, not the Pi the gate names) |
+| ADR-005 addendum merged | yes, with the magnitude claim corrected from "three orders" to the measured 9.4× |
+| Backup restore with the recovery key alone, fresh data dir | `backup.roundtrip` → *restores with the printed recovery key and nothing else (01 §14 A10)* |
+| Planted `await` inside `db.tx` fails lint | nine cases in `lint-bans.int.test.ts`, each proven against the real linter |
+| `02` §3.16.4 budgets | `pnpm bench --gate` **11/11 within budget** on `stress-50k-1m` *and* on `knn-50k` |
+
+##### The demo, run rather than described
+
+1. `pnpm -F @comvivo/storage test -t roundtrip` — 14 tests, encrypted database, group, members, messages, `VBK1` archive. **Green.**
+2. Restore into a fresh directory with **only** the printed recovery key: the logical dump matches (`exportDomainState`). **Green.**
+3. Open the database with plain `sqlite3` 3.43.2: `Error: in prepare, file is not a database (26)`, and `strings` finds zero occurrences of the plaintext. **Run by hand on a file written by `initDatabase`.**
+4. The queue property suite at 20,000 runs. **Green**, above.
+5. `docs/architecture/storage-spike.md` with the Pi 5 numbers — **not possible**: there is no Pi (H-10). The substitution is darwin-arm64 plus linux-x64 in CI, labelled a ceiling rather than evidence everywhere it appears.
+
+##### What the independent reviewers found
+
+`CLAUDE.md` §1.4.3's reviewer step is the part of this milestone that paid for itself. Six
+fresh-context reviewers in three rounds audited M1 against the specs — the last two auditing the
+fixes the first four produced — and found what no test had:
+
+- **Two reproduced single-writer failures** (112/200 and 5/5 attempts), a label-cache poisoning that
+  reported itself as an I4 violation, **22 proven cross-group writes**, an invisible I7 state, a
+  brand bypass, an export leak, and key material surviving every redaction layer. Each is fixed with
+  the reviewer's reproduction kept as a test, several confirmed to fail without the fix.
+- **66 group-agreement guards** (132 triggers) were generated in response to the cross-group writes,
+  taking `0001_search_and_guards.sql` from 91 triggers to **248**.
+- A second round, on the fixes themselves, found a class of defect worth naming: **code that reports
+  a clean result for a question it did not ask.** The erasure canary answered "no canary" for a
+  column it could not read; three scanners counted files they had failed to open; `migrations.lock.json`
+  was parsed with a cast, so a bad merge silently disabled the released-migration guard; a worker
+  could ask for a writable connection in a module whose own comment forbids it; two tests asserted
+  over values nothing produced; and `FC_NUM_RUNS` was ignored at five call sites, so the nightly
+  20,000-run property sweep had never actually run at 20,000 anywhere.
+- **The nightly sweep did not exist at all.** `11` §3.8.1 names `nightly-deterministic.yml`; it was a
+  sentence in a spec. It exists now, sharded one job per `.prop.` file, and running it found a real
+  defect on the first pass: at 20,000 runs `member-scope.prop` fails in its *teardown*, because
+  twenty thousand archives accumulate and are deleted at once.
+- **Then a third and fourth reviewer audited the fixes**, and the most useful finding of the
+  milestone came out of it: one of my fixes had made a test **weaker**. Replacing nine forged
+  `EligibleLabelSet` values with real ones turned four cross-group tests vacuous, because
+  "every label in this group" is the *empty* set when the fixture interned labels only in the other
+  group — and an empty eligible set short-circuits a labeled read to `1 = 0`. The reviewer found
+  one; making the helper refuse to build such a set found the other three. They also measured that
+  `FC_END_ON_FAILURE` does the opposite of what three of my comments claimed, that
+  `STORAGE_TX_FOREIGN` guards an `I6`/`I7` breach rather than the ugly error message I had
+  described (better-sqlite3 nests silently as a savepoint, so the hooks ran after a `RELEASE`),
+  and that the complexity budget the refactor commit was named after was still a warning that
+  `pnpm lint` ignored.
+- **Fourteen documented numbers did not reproduce**, including several of my own in this file. Each
+  is re-measured and corrected, with the stale figure kept where it was true and labelled.
+
+##### Still open
+
+- **H-10 (a Raspberry Pi 5 for one afternoon)** gates the arm64-Linux rows of SP-1, SP-2 and
+  `02` §3.16.4. Everything else about those tasks is measured and merged.
+- **H-13 (one critical CodeQL alert)**, new at this gate: `js/request-forgery` on `safeFetch`, which
+  is the function's own purpose and is defended by `classifyUrl`, `refuseByName`, the per-purpose
+  allowlist and `pinnedLookup`, with `10` §9's 96-case matrix as the evidence. The in-source
+  `codeql[…]` marker that was supposed to suppress it has never worked — code scanning does not
+  process suppression comments — and both ways to clear it are owner actions.
+- `pnpm evals:smoke`, the last step of `pnpm verify`, is still `M3-T48`'s stub, so a green `verify`
+  carries no eval evidence. Stated per `M0-T1`'s amendment.
 
 ### M2 — Model gateway
 
