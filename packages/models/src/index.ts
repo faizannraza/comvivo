@@ -8,6 +8,27 @@
  * `@comvivo/core` owns the port (`ports/model.ts`); this package owns every answer to it. Nothing
  * here is importable from `core`, and `01` §4's dependency rules prove it.
  */
+
+export {
+  batchMultiplierFor,
+  costIteration,
+  costTurn,
+  formatMicros,
+  type IterationCost,
+  lookupPrice,
+  type ModelPrice,
+  ModelPriceSchema,
+  PRICES,
+  type PriceTable,
+  PriceTableSchema,
+  type PriceTier,
+  PriceTierSchema,
+  pickTable,
+  promptTokensOf,
+  ratesFor,
+  type TurnCost,
+  UNKNOWN_MODEL_FALLBACK,
+} from './pricing/index.js';
 export {
   BUILT_IN_PRESETS,
   type BuiltInPreset,

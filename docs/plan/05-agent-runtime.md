@@ -1427,7 +1427,7 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
   "sources": { "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing" },
   "models": {
     "anthropic/claude-opus-5-5":   { "in": 4.00, "out": 20.00, "cacheWrite5m": 5.00,  "cacheWrite1h": 8.00, "cacheRead": 0.20, "batchMultiplier": 0.5 },
-    "anthropic/claude-sonnet-5-5": { "in": 2.00, "out": 10.00, "cacheWrite5m": 2.50,  "cacheWrite1h": 4.00, "cacheRead": 0.20, "batchMultiplier": 0.5 },
+    "anthropic/claude-sonnet-5-5": { "in": 2.00, "out": 10.00, "cacheWrite5m": 2.50,  "cacheWrite1h": 4.00, "cacheRead": 0.10, "batchMultiplier": 0.5 },
     "anthropic/claude-haiku-5-5":  { "tiers": [
         { "maxPromptTokens": 100000, "in": 0.10, "out": 0.50, "cacheWrite5m": 0.125, "cacheWrite1h": 0.20, "cacheRead": 0.01 },
         { "in": 0.50, "out": 2.50, "cacheWrite5m": 0.625, "cacheWrite1h": 1.00, "cacheRead": 0.05 } ], "batchMultiplier": 0.5 },
@@ -1437,6 +1437,7 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
   }
 }
 ```
+- **Corrected at `M2-T3`** against the published table (2026-11-12): Sonnet 5.5's cache read is **$0.10**, not the $0.20 this row carried. Cache hits on Opus 5.5 and Sonnet 5.5 are 0.05× base input, and 0.05 × $2 is $0.10. The error was in the quiet direction: cache reads are most of a warm conversation, so a doubled rate inflates the cheapest part of a family's traffic and would have had the budget guard degrade a group that had not spent its budget. The shipped table is `pricing/prices.2026-11-12.json` and `cost.test.ts` pins every rate.
 - **Units.** Prices are USD per million tokens [R1]. `costMicros = Σ round(tokens × pricePerMTok)`: dollars per MTok × tokens equals micro-USD exactly. `batchMultiplier` is applied for Batches.
 - **Haiku tier.** Chosen by total prompt tokens (input + cache read + cache write) [R1].
 - **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates, so it is conservative) and `doctor` warns.

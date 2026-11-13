@@ -1,0 +1,62 @@
+{
+  "$comment": "USD per million tokens (`05` §3.9.2). Every Anthropic row was read off platform.claude.com/docs/en/about-claude/pricing on 2026-11-12, and one correction came out of it: Sonnet 5.5's cache read is $0.10, not the $0.20 the plan's table carried — cache hits on Opus 5.5 and Sonnet 5.5 are 0.05x base input, and 0.05 × $2 is $0.10. A doubled cache-read price would have overstated the cost of the route a family uses most, in the direction that makes the budget guard degrade a group that had not spent its budget. `null` means unknown, and the guard falls back to Opus rates so the error is in the safe direction.",
+  "version": "2026-11-12",
+  "currency": "USD",
+  "sources": {
+    "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing"
+  },
+  "models": {
+    "anthropic/claude-opus-5-5": {
+      "in": 4.0,
+      "out": 20.0,
+      "cacheWrite5m": 5.0,
+      "cacheWrite1h": 8.0,
+      "cacheRead": 0.2,
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "in": 2.0,
+      "out": 10.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4.0,
+      "cacheRead": 0.1,
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-haiku-5-5": {
+      "tiers": [
+        {
+          "maxPromptTokens": 100000,
+          "in": 0.1,
+          "out": 0.5,
+          "cacheWrite5m": 0.125,
+          "cacheWrite1h": 0.2,
+          "cacheRead": 0.01
+        },
+        {
+          "in": 0.5,
+          "out": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1.0,
+          "cacheRead": 0.05
+        }
+      ],
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-fable-5-2": {
+      "in": 8.0,
+      "out": 40.0,
+      "cacheWrite5m": 10.0,
+      "cacheWrite1h": 16.0,
+      "cacheRead": 0.2,
+      "batchMultiplier": 0.5
+    },
+    "local/*": {
+      "in": 0,
+      "out": 0,
+      "cacheWrite5m": 0,
+      "cacheWrite1h": 0,
+      "cacheRead": 0,
+      "batchMultiplier": 1
+    }
+  }
+}
