@@ -88,9 +88,22 @@ const PURE_PACKAGES =
  * Where network calls may be made (`08` PSC-8 → A11). Everything else must route through
  * `shared/net`'s `safeFetch`, which is what makes invariant **I5 (guarded egress)** structural
  * rather than a convention — and `--allow-net` cannot do it, being all-or-nothing (`01` §14 A31).
+ *
+ * `^packages/evals/src/chaos/` is the last entry and is **not** a widening of I5. The rule's
+ * purpose is that no module opens an unguarded path *out*; `FakeProviderServer` (`M2-T10`) opens
+ * one *in*, binding a loopback server so an adapter's real SDK retry paths can be exercised against
+ * 429s, overloads and streams cut mid-response (`11` Q21: "Kill -9 requires the platform and the
+ * model to live outside the process"). dependency-cruiser cannot tell `createServer` from
+ * `connect`, so direction has to be expressed as a path. Two things keep it honest: the directory
+ * imports `node:http` and nothing else — no `net`, `tls` or `dns` — and the server binds
+ * `127.0.0.1` with a test asserting the bound address is loopback. The `fetch` global stays banned
+ * there by `comvivo/guarded-egress`, which does not exempt this path.
+ *
+ * `channels/simulator` is already covered by the same reasoning through
+ * `^packages/channels/[^/]+/src/`: it is a fake platform, not an egress path.
  */
 const NET_ALLOWED =
-  '(^packages/shared/src/net/|^packages/models/src/providers/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/)';
+  '(^packages/shared/src/net/|^packages/models/src/providers/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/|^packages/evals/src/chaos/)';
 
 /** Where cryptography may be implemented (`08` PSC-8 → A11). */
 const CRYPTO_ALLOWED = '(^packages/shared/src/crypto/|^packages/storage/src/crypto/)';
