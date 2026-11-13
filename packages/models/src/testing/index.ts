@@ -94,6 +94,7 @@ export {
   type FakeProviderServer,
   type FakeProviderServerOptions,
   type FakeTurn,
+  type LocalServerFacade,
   OVERLOADED_STATUS,
   PROVIDER_KINDS,
   type ProviderKind,

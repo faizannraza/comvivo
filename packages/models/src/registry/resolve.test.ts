@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { REGISTRY, withOverrides } from './capabilities.js';
-import { PRESETS } from './presets.js';
+import { localDefaultsFor, PRESETS } from './presets.js';
 import { bindingKey, resolveRoutes, resolveRoutesOrThrow } from './resolve.js';
 
 const HAIKU = 'anthropic/claude-haiku-5-5';
@@ -396,5 +396,50 @@ describe('the shipped data files', () => {
       expect(model?.sampling).toBe('forbidden');
       expect(model?.prefill).toBe(false);
     }
+  });
+});
+
+describe('the interim Local defaults (05 §3.5.6; M2-T12)', () => {
+  it('ships a tier for every memory size 05 §3.5.6 names', () => {
+    expect(PRESETS.localDefaults?.tiers.map((tier) => tier.minHostMemoryGb)).toEqual([
+      32, 16, 12, 8,
+    ]);
+  });
+
+  it('picks the highest tier a machine qualifies for', () => {
+    expect(localDefaultsFor(64)?.model).toBe('qwen3.8:27b');
+    expect(localDefaultsFor(32)?.model).toBe('qwen3.8:27b');
+    expect(localDefaultsFor(24)?.model).toBe('gpt-oss:20b');
+    expect(localDefaultsFor(16)?.model).toBe('gpt-oss:20b');
+    expect(localDefaultsFor(12)?.model).toBe('gemma4:12b');
+    expect(localDefaultsFor(8)?.model).toBe('gemma4:e4b');
+  });
+
+  it('gives a 4 GB host the smallest tier rather than nothing', () => {
+    // The wizard's job on a machine too small for any of these is to say so with a concrete model
+    // name and a size, which needs the comparison to be visible — `05` §3.5.6's own advice there is
+    // a cloud preset or a separate GPU host.
+    const tiny = localDefaultsFor(4);
+    expect(tiny?.model).toBe('gemma4:e4b');
+    expect(tiny?.note).toContain('Raspberry Pi');
+  });
+
+  it('names a download size for every tier, so the wizard can warn before an 18 GB pull', () => {
+    for (const tier of PRESETS.localDefaults?.tiers ?? []) {
+      expect(tier.approxDownloadGb, tier.model).toBeGreaterThan(0);
+      expect(tier.note, tier.model).not.toBe('');
+    }
+  });
+
+  it('keeps one small model across the tiers', () => {
+    // The small routes are short, frequent and latency-sensitive, so the cheapest capable model
+    // wins at every size — and a host who upgrades their chat model should not have their guard
+    // route change underneath them.
+    const small = new Set((PRESETS.localDefaults?.tiers ?? []).map((tier) => tier.smallModel));
+    expect(small.size).toBeLessThanOrEqual(2);
+  });
+
+  it('returns nothing for a table that ships no defaults', () => {
+    expect(localDefaultsFor(32, { version: 'x', presets: PRESETS.presets })).toBeUndefined();
   });
 });

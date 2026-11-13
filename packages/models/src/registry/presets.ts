@@ -54,10 +54,39 @@ const presetRowSchema = z
   )
   .readonly();
 
+/**
+ * One Local-preset default, by host memory (`05` §3.5.6's recommended-model table).
+ *
+ * **Interim.** `M8-T15`'s eval picks the final defaults by measuring tool success, extraction F1,
+ * the discretion red-team subset and latency. These exist so the wizard can pre-fill something a
+ * host could not otherwise choose between — "type a model name" is not a question anybody can
+ * answer on first install — and so `doctor` can say which tier a machine falls in.
+ */
+export const LocalDefaultTierSchema = z
+  .strictObject({
+    /** Inclusive floor, in GB of host memory. Tiers are matched highest-first. */
+    minHostMemoryGb: z.number().int().positive(),
+    model: z.string().min(1),
+    smallModel: z.string().min(1),
+    /** Roughly what the host will download, so the wizard can warn before a 18 GB pull. */
+    approxDownloadGb: z.number().positive(),
+    note: z.string().min(1),
+  })
+  .readonly();
+export type LocalDefaultTier = z.infer<typeof LocalDefaultTierSchema>;
+
 export const PresetTableSchema = z
   .strictObject({
     $comment: z.string().optional(),
     version: z.string().min(1),
+    /** `05` §3.5.6's interim Local defaults. Absent is valid: a table may ship without them. */
+    localDefaults: z
+      .strictObject({
+        $comment: z.string().optional(),
+        tiers: z.array(LocalDefaultTierSchema).min(1),
+      })
+      .readonly()
+      .optional(),
     presets: z.strictObject(
       Object.fromEntries(BUILT_IN_PRESETS.map((name) => [name, presetRowSchema])) as Record<
         BuiltInPreset,
@@ -68,6 +97,7 @@ export const PresetTableSchema = z
   .readonly();
 
 export type PresetTable = z.infer<typeof PresetTableSchema>;
+
 export type PresetRow = PresetTable['presets'][BuiltInPreset];
 
 /** Validated at module load, for the reason `capabilities.ts` gives. */
@@ -125,4 +155,22 @@ export function substituteLocal(value: string, local: LocalModels): string | und
 export function slotFor(route: string, variant: 'default' | 'economy' = 'default'): RouteSlot {
   if (route === 'chat' && variant === 'economy') return 'chatEconomy';
   return route as RouteSlot;
+}
+
+/**
+ * The Local defaults for a host with this much memory.
+ *
+ * Highest matching tier wins, and a machine below every floor gets the **smallest** tier rather
+ * than `undefined`: a 4 GB host cannot run any of these well, and the wizard's job there is to say
+ * so with a concrete model name and a size — `05` §3.5.6's own advice is to recommend a cloud
+ * preset or a separate GPU host, which needs the comparison to be visible.
+ */
+export function localDefaultsFor(
+  memoryGb: number,
+  table: PresetTable = PRESETS,
+): LocalDefaultTier | undefined {
+  const tiers = table.localDefaults?.tiers;
+  if (tiers === undefined || tiers.length === 0) return undefined;
+  const sorted = [...tiers].toSorted((a, b) => b.minHostMemoryGb - a.minHostMemoryGb);
+  return sorted.find((tier) => memoryGb >= tier.minHostMemoryGb) ?? sorted.at(-1);
 }

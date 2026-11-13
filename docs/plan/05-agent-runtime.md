@@ -1150,24 +1150,36 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 - `messages = [{role:'system', content: charter + group layer}, {role:'user', content: <village_operator>turn notes</village_operator> + context + trigger}, …]`. The stable system message comes first, so server-side KV prefix caching works.
 - No mid-conversation system messages, because many chat templates reject them.
 - `tool_choice` is **omitted**, since Ollama doesn't support it [R18].
-- `max_tokens` is set.
+- `max_tokens` is set — and **not** `max_completion_tokens`, which OpenAI now prefers and has deprecated the older name for. Verified at `M2-T12`: `max_tokens` is the field all four servers implement, and sending the newer name would leave the output limit silently unenforced on the servers that ignore an unknown field and 400 on the ones that do not. The deprecation is on OpenAI's own surface, where this adapter never points; the lint suppression carries that reason.
 - `reasoning_effort` is sent only if the probe says it is accepted.
 - `temperature` is omitted unless set by a registry override.
 
-**Capability detection** (`probe.ts`). The result is cached in DB runtime settings for `models.local.probeTtlHours` (168), keyed by `(baseURL, model, serverVersion)`.
+> **Re-measured at `M2-T12` (2026-11-13).** All four identification endpoints verified. Three of
+> them report **more** than this section says, and the probes reach the network through
+> `safeFetch` with a new `local-model` egress purpose rather than a raw socket — the base URL is
+> host-supplied, which makes it the one destination in the model layer that is not a pinned vendor
+> endpoint, and a typo in it must not become an SSRF probe of the host's LAN (`08` §3.9).
+
+**Capability detection** (`probe.ts`). The result is cached in DB runtime settings for `models.local.probeTtlHours` (168), keyed by `(baseURL, model, serverVersion)`. **The version in that key is load-bearing** (noted at `M2-T12`): without it, the 168-hour TTL would be the only thing between a host who upgraded Ollama to a build that fixed tool calling and a week of degraded behaviour. A cached result dated in the **future** is treated as stale, because a host whose clock was wrong when the probe ran would otherwise hold an entry that never expires.
 1. **Identify the server.**
-   - `GET {root}/api/version` → Ollama.
-   - `GET {root}/props` → llama.cpp.
+   - `GET {root}/api/version` → Ollama (`{ version }`).
+   - `GET {root}/props` → llama.cpp. **Also reports** `default_generation_settings.n_ctx`, `model_alias`, `build_info` and `modalities.vision`.
+   - `GET {root}/api/v0/models` → LM Studio's own REST surface, which is versioned separately from its OpenAI-compatible one. **Also reports** per-model `type` (`llm`/`vlm`/`embeddings`), `arch`, `quantization`, `state` and `max_context_length`.
    - `GET /v1/models` with `owned_by` values `vllm` → vLLM.
-   - An LM Studio REST probe.
-   - Otherwise `generic`.
+   - Otherwise `generic` — a valid, fully usable answer, not a failure.
+   - **Three of the four volunteer a context window** (added at `M2-T12`), which this list did not say. That matters twice: where a hint reports the window the 16K needle can be skipped, and a host who is about to be truncated is told **before** a turn runs rather than after one is silently cut.
+   - Probed **sequentially**, not in parallel: four concurrent requests to a server that is down produce four connection errors and four log lines for one fact, and a cold Ollama answering its first request slowly would have the other three time out beside it.
 2. **Static hints.**
-   - Ollama: `POST {root}/api/show {model}` → `capabilities[]` (`tools`, `thinking`, `vision`) and `model_info.*.context_length`. Treat the field names as hints and verify them in M2-T10 [R18][R19].
-   - LM Studio: native vs default tool-use support [R20].
+   - Ollama: `POST {root}/api/show {model}` → `capabilities[]` (`completion`, `tools`, `thinking`, `vision`) and `model_info.<architecture>.context_length`. **Verified at `M2-T12`.** The `model_info` key is architecture-prefixed and the prefix is whatever the GGUF says, so the lookup is by **suffix** rather than against a list of architecture names that would need updating with every model release — and the value varies by **quantisation**, so a Q4_0 and a Q5_K_M of one base model can report different numbers. That is the second reason this is a hint.
+   - LM Studio and llama.cpp need **no second request**: both already reported their window and vision support during identification, so re-asking would be a round trip for data we hold.
+   - **A hint can lower the probes' work and can never raise the answer** (`M2-T12`). Tool calling depends on the server's **chat template**, not only on the weights: the same GGUF with and without llama.cpp's `--jinja` differs on whether tool calls come out at all, and nothing in the model's metadata knows how the server was started. So a model whose metadata claims `tools` can still fail the tool probe, which is the common case and the confusing one — the host can see their model supports tools and cannot see why the bot will not use them. `doctor` pairs that with the named flag (`--jinja`, or vLLM's `--enable-auto-tool-choice --tool-call-parser`).
 3. **Active probes.** These are authoritative, with two tiny requests each capped at 20 s:
    - **Tool probe:** a single tool `probe_echo{value:string}` and the instruction "Call probe_echo with value 'v1'". Pass if `tool_calls[0].function.name === 'probe_echo'` and the arguments parse. The probe also checks parallel calls.
    - **Schema probe:** `response_format:{type:'json_schema', json_schema:{name:'probe', schema, strict:true}}` and a parse check. If that fails, retry with `{type:'json_object'}`.
-4. **Context probe.** A needle at ~16K tokens. A failure means the server truncates, for example Ollama's default context. `doctor` then advises the host to raise the server context (e.g. `OLLAMA_CONTEXT_LENGTH`) or use the compact profile.
+4. **Context probe.** A needle at ~16K tokens, planted near the **start** of the prompt. The position is the whole design (`M2-T12`): a server that truncates drops the *front* of the context, so a needle at the end would come back correctly from a server that had silently discarded the charter. A failure means the server truncates — Ollama's default context is the common case — and this is the probe that earns its cost, because silent truncation produces **no error at all**: the server accepts a 16K prompt, drops the front, and answers confidently from what is left. A group would experience that as a bot that ignores its own instructions and nobody would suspect the context window.
+   - `doctor` names the **actual knob per server** (`M2-T12`), because "raise the server context" is not actionable: a host running llama.cpp cannot set `OLLAMA_CONTEXT_LENGTH`, and telling them to is worse than saying nothing. The four sentences live in `hints.ts`'s `contextAdviceFor`.
+   - The needle is **skipped** when a static hint already reports a window below 16K: spending 16K tokens to prove a server cannot hold 16K tokens costs a cold model load for an answer we hold.
+5. **Effort probe** (added at `M2-T12`). Whether `reasoning_effort` is accepted or rejected outright. `05` §3.5.6's request shape already says the field is sent "only if the probe says it is accepted"; this is the probe that says so, and it decides a request field rather than a feature.
 
 **Degradation ladder** (the selected level is recorded in the registry override and the trace):
 
@@ -1178,7 +1190,19 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 | L3 | none | `json_object` only | Envelope prompt, zod validation, one repair retry |
 | L4 | none | none | **Chat-only.** No tools; write intents get `err.local_no_tools`. Structured routes are disabled: extraction off, declassify off (no constraints), guard deterministic-only with fail-closed (doc 03), interjections off. `doctor` and the init wizard refuse L4 for `chat` unless `--force`. |
 
-**Recommended local models.** These are verified on the Ollama library on 2026-11-01. The final defaults are chosen by the M2-T14 eval (tool success, extraction F1, discretion red-team subset, latency):
+**How the level is chosen** (`M2-T12`). It is the **worse of the two axes**, not a lookup over two booleans: native tools with no schema support would leave the structured routes on `json_object`, which is L3's behaviour, and that is what makes this a ladder rather than a matrix. `LEVEL_BEHAVIOUR` records what each level permits as a total mapping, so adding a level is a compile error at every reader.
+
+**Why L4 refuses rather than degrades** (`M2-T12`). A `structured()` call at L4 throws instead of returning an empty value, and the reason is the direction of the failure: every caller of `structured()` drives a decision, so an empty extraction reads as "nothing happened today" and an empty declassification as "no constraints". Both are the unsafe direction. The engine falls back to its deterministic path, which is a decision it can make and the adapter cannot.
+
+**The envelope's three safety rules** (`M2-T12`). A text protocol that decides which tool runs is the one place in this product where prose reaches the policy engine, so:
+
+1. **`name` is a JSON-Schema `enum` of the actual tool names**, not a free string. A model that invents `delete_everything` fails the schema instead of arriving at the policy engine with a name it has to decide about. This is the difference between a text protocol and a text injection.
+2. **Per-tool zod validation is not optional.** The envelope schema can only say "`input` is an object"; it cannot carry forty input schemas as a union every local server would handle correctly. The envelope gets the model to the right *shape*, zod to the right *value*, and a failure returns an `is_error` envelope carrying the tool name and the issue — **never the input**, which is still member data and is going back into a prompt.
+3. **Call ids are generated, not asked for.** A model that invents ids eventually reuses one, and a tool result then attaches to the wrong call. They are positional (`env_<step>_<index>`), unique within a turn and reproducible in a replay.
+
+With no tools the envelope's array is constrained to `maxItems: 0` rather than left unconstrained, because a local server handed an unconstrained array will eventually fill it. The parser tolerates a code fence and surrounding prose — many chat templates add both whatever the instruction said — and refuses to guess at a missing `name` or a non-array `tool_calls`, which are the cases where guessing would mean executing something the model did not ask for.
+
+**Recommended local models.** Re-verified on the Ollama library on **2026-11-13** (`M2-T12`): all four families still exist at the stated sizes. They are written into `presets.json` as `localDefaults.tiers`, so the wizard can pre-fill something — "type a model name" is not a question anybody can answer on first install — and `doctor` can say which tier a machine falls in. **Interim**: the final defaults are chosen by the `M8-T15` eval (tool success, extraction F1, discretion red-team subset, latency). A machine below every floor gets the **smallest** tier rather than nothing, because the wizard's job there is to say so with a concrete model name and a download size next to the advice below.
 
 | Host memory | Chat model | Small routes | Notes |
 |---|---|---|---|

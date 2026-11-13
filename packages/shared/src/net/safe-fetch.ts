@@ -65,7 +65,21 @@ export type EgressPurpose =
   | 'plugin'
   | 'web-search'
   | 'oauth-discovery'
-  | 'update-check';
+  | 'update-check'
+  /**
+   * A local model server's own HTTP surface (`05` §3.5.6; added at `M2-T12`).
+   *
+   * The identification and capability probes talk to a **host-supplied** URL, which is the one
+   * place in the model layer where the destination is not a pinned vendor endpoint. That is
+   * exactly the case `safeFetch` exists for: a typo in `models.local.baseUrl` must not become an
+   * SSRF probe of the host's LAN, and DNS rebinding against a long-lived local base URL is a real
+   * attack rather than a theoretical one.
+   *
+   * It is a separate purpose rather than reusing `plugin` because its limits differ in both
+   * directions: a local server on loopback should answer in well under a second, and a probe's
+   * body is a few hundred bytes.
+   */
+  | 'local-model';
 
 export interface EgressLimits {
   /** `08` §3.9 rule 5: connect 5 s. */
@@ -127,6 +141,26 @@ export const PURPOSE_LIMITS: Readonly<Record<EgressPurpose, EgressLimits>> = Obj
   'web-search': { ...COMMON, contentTypes: ['application/json'] },
   'oauth-discovery': { ...COMMON, contentTypes: ['application/json'] },
   'update-check': { ...COMMON, contentTypes: ['application/json'] },
+  'local-model': {
+    ...COMMON,
+    // A loopback server answers in milliseconds when it is up. The short connect timeout is the
+    // point: `doctor` and the wizard probe a URL that is usually wrong on the first try, and a
+    // five-second hang per attempt makes a four-server identification sweep feel broken.
+    connectTimeoutMs: 1_500,
+    headersTimeoutMs: 20_000,
+    bodyIdleTimeoutMs: 20_000,
+    // `05` §3.5.6 caps an active probe at 20 s, which is the figure that matters here: a cold
+    // model load on a Pi 5 genuinely takes that long, and a probe that gave up at 10 s would
+    // report "no tools" for a server that simply had not finished loading.
+    bodyTotalTimeoutMs: 20_000,
+    // A probe response is a few hundred bytes; a model list is a few kilobytes. 1 MiB is already
+    // generous and keeps a misconfigured URL pointing at a file server from streaming a disk image.
+    maxBytes: 1024 * 1024,
+    contentTypes: ['application/json'],
+    // A local server has no reason to redirect, and following one is how a loopback allowlist
+    // entry becomes permission to reach somewhere else.
+    maxRedirects: 0,
+  },
 });
 
 /** What `08` §3.9 rule 7 records: no full URL, no path, no query. */

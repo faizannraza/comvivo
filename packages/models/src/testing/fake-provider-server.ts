@@ -151,6 +151,31 @@ export interface FakeProviderServerOptions {
   /** The `model` echoed back when a reply does not name one. */
   readonly defaultModel?: string;
   readonly created?: number;
+  /**
+   * Which local server to impersonate on the identification endpoints (`05` §3.5.6; `M2-T12`).
+   *
+   * `undefined` means serve **none** of them, which is what makes the `generic` case testable: a
+   * server that answers only `/v1/chat/completions` is a real and supported configuration, and a
+   * fake that always answered `/api/version` could not produce it.
+   */
+  readonly localServer?: LocalServerFacade;
+}
+
+/**
+ * What a local server says about itself.
+ *
+ * One value rather than four flags, because the four servers are mutually exclusive — a host runs
+ * Ollama **or** llama.cpp — and a fake that could be two at once would let a test pass against a
+ * configuration that cannot exist.
+ */
+export interface LocalServerFacade {
+  readonly kind: 'ollama' | 'lmstudio' | 'llama_cpp' | 'vllm';
+  readonly version?: string;
+  readonly models?: readonly string[];
+  readonly contextWindow?: number;
+  readonly vision?: boolean;
+  /** Ollama's `/api/show` capability list. Absent means the endpoint reports none. */
+  readonly capabilities?: readonly string[];
 }
 
 export interface FakeProviderServer {
@@ -170,6 +195,100 @@ export interface FakeProviderServer {
   /** Clear the script and the captures. The port stays the same. */
   reset(): void;
   close(): Promise<void>;
+}
+
+/**
+ * One local server's metadata document for a path, or `undefined` when it does not serve it.
+ *
+ * A module-level pure function rather than four branches inside the request handler: each server
+ * returns a differently shaped document, and `noExcessiveCognitiveComplexity` was right that four
+ * of them inlined beside the routing is more than a reader can hold.
+ */
+function localMetadataBody(
+  local: LocalServerFacade,
+  path: string,
+  created: number,
+): Record<string, unknown> | undefined {
+  // `/v1/models` last, because every facade serves it: the server-specific probes are tried first
+  // and the generic list is the fallthrough, which mirrors the adapter's own probe order.
+  const readers: Readonly<
+    Record<LocalServerFacade['kind'], (p: string) => Record<string, unknown> | undefined>
+  > = {
+    ollama: ollamaMetadata(local),
+    llama_cpp: llamaCppMetadata(local),
+    lmstudio: lmStudioMetadata(local),
+    vllm: () => undefined,
+  };
+  return readers[local.kind](path) ?? openAiModelsMetadata(local, created)(path);
+}
+
+function ollamaMetadata(local: LocalServerFacade) {
+  return (path: string): Record<string, unknown> | undefined => {
+    if (path.endsWith('/api/version')) return { version: local.version ?? '0.0.0-fake' };
+    if (!path.endsWith('/api/show')) return undefined;
+    return {
+      ...(local.capabilities === undefined ? {} : { capabilities: [...local.capabilities] }),
+      model_info: {
+        'general.architecture': 'fakearch',
+        // Architecture-prefixed, as Ollama reports it — the shape the hint reader has to find by
+        // suffix because the prefix is whatever the GGUF says.
+        ...(local.contextWindow === undefined
+          ? {}
+          : { 'fakearch.context_length': local.contextWindow }),
+      },
+    };
+  };
+}
+
+function llamaCppMetadata(local: LocalServerFacade) {
+  return (path: string): Record<string, unknown> | undefined =>
+    path.endsWith('/props')
+      ? {
+          build_info: local.version ?? 'b0000',
+          model_alias: local.models?.[0] ?? 'fake.gguf',
+          default_generation_settings: {
+            ...(local.contextWindow === undefined ? {} : { n_ctx: local.contextWindow }),
+          },
+          ...(local.vision === undefined ? {} : { modalities: { vision: local.vision } }),
+        }
+      : undefined;
+}
+
+function lmStudioMetadata(local: LocalServerFacade) {
+  return (path: string): Record<string, unknown> | undefined =>
+    path.endsWith('/api/v0/models')
+      ? {
+          object: 'list',
+          data: (local.models ?? ['fake-local']).map((id) => ({
+            id,
+            object: 'model',
+            type: local.vision === true ? 'vlm' : 'llm',
+            publisher: 'fake',
+            arch: 'fakearch',
+            quantization: 'Q4_K_M',
+            state: 'loaded',
+            ...(local.contextWindow === undefined
+              ? {}
+              : { max_context_length: local.contextWindow }),
+          })),
+        }
+      : undefined;
+}
+
+/** `owned_by` is what distinguishes vLLM; every facade serves this list. */
+function openAiModelsMetadata(local: LocalServerFacade, created: number) {
+  return (path: string): Record<string, unknown> | undefined =>
+    path.endsWith('/v1/models')
+      ? {
+          object: 'list',
+          data: (local.models ?? ['fake-local']).map((id) => ({
+            id,
+            object: 'model',
+            created,
+            owned_by: local.kind === 'vllm' ? 'vllm' : local.kind,
+          })),
+        }
+      : undefined;
 }
 
 /** Route by path **suffix**, so `/anthropic/v1/messages` and `/v1/messages` both work. */
@@ -198,7 +317,12 @@ export function anthropicEndpointFor(path: string): AnthropicEndpoint {
 
 /** The task that owns an endpoint this fake deliberately does not serve. */
 function unservedBy(path: string): string | undefined {
-  if (path.includes('/v1/models')) return 'M2-T12 (the OpenAI-compatible local adapter)';
+  // `M2-T12` serves this now, but only when the server was started with a `localServer` facade —
+  // a fake with no facade is impersonating a plain Chat Completions endpoint, and 404ing the model
+  // list is the right answer there. The pointer stays so the message names the option.
+  if (path.includes('/v1/models')) {
+    return 'M2-T12 (start the fake with a `localServer` facade to serve the model list)';
+  }
   return undefined;
 }
 
@@ -409,6 +533,23 @@ export async function startFakeProviderServer(
     });
   }
 
+  /**
+   * The local-server identification and hint endpoints (`05` §3.5.6; `M2-T12`).
+   *
+   * Returns `true` when it answered. These are **not** scripted turns: they are a server's own
+   * metadata, which is the same on every request, so consuming a queue entry for one would make a
+   * probe sweep eat the replies the test queued for the probes themselves.
+   */
+  function serveLocalMetadata(path: string, response: ServerResponse): boolean {
+    const local = options.localServer;
+    if (local === undefined) return false;
+    const withoutQuery = path.split('?')[0] ?? path;
+    const body = localMetadataBody(local, withoutQuery, created);
+    if (body === undefined) return false;
+    sendJson(response, 200, body);
+    return true;
+  }
+
   async function dispatch(
     turn: FakeTurn,
     response: ServerResponse,
@@ -501,6 +642,10 @@ export async function startFakeProviderServer(
         offsetMs: Date.now() - startedAt,
       };
       captured.push(entry);
+
+      // Local-server metadata first: `/v1/models` is both an identification probe and a path the
+      // `unknown` branch below would 404 with a message about `M2-T12`.
+      if (serveLocalMetadata(path, response)) return;
 
       if (provider === 'unknown') {
         const owner = unservedBy(path);

@@ -1,5 +1,5 @@
 {
-  "$comment": "The four built-in presets (`05` §3.5.2, `01` §14 A3). `custom` is not here: it means 'read every route from `models.routes`', so a preset entry for it would be a default that silently filled a gap the host meant to fill themselves. Model ids verified against platform.claude.com/docs on 2026-11-12 — `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` are the current lineup.",
+  "$comment": "The four built-in presets (`05` \u00a73.5.2, `01` \u00a714 A3). `custom` is not here: it means 'read every route from `models.routes`', so a preset entry for it would be a default that silently filled a gap the host meant to fill themselves. Model ids verified against platform.claude.com/docs on 2026-11-12 \u2014 `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` are the current lineup.",
   "version": "2026-11-12",
   "presets": {
     "best": {
@@ -38,5 +38,38 @@
       "guard": "local/${models.local.smallModel}",
       "consolidate": "local/${models.local.model}"
     }
+  },
+  "localDefaults": {
+    "$comment": "Interim Local defaults by host memory (`05` \u00a73.5.6's table; written at `M2-T12`). **Interim**: the final choice is `M8-T15`'s eval, which scores candidates on tool success, an extraction F1 subset, the discretion red-team subset and latency. These are what the wizard pre-fills until that measurement exists, so a host is never asked to type a model name they have no way to choose between. Model ids and download sizes re-verified against the Ollama library on 2026-11-13. `smallModel` is the same across every tier on purpose: the small routes (route, extract, declassify, guard) are short, frequent and latency-sensitive, so the cheapest capable model wins at every memory size \u2014 and a host who upgrades their chat model should not have their guard route change underneath them.",
+    "tiers": [
+      {
+        "minHostMemoryGb": 32,
+        "model": "qwen3.8:27b",
+        "smallModel": "gemma4:e4b",
+        "approxDownloadGb": 18,
+        "note": "Best quality locally: tools, thinking and vision at 256K context."
+      },
+      {
+        "minHostMemoryGb": 16,
+        "model": "gpt-oss:20b",
+        "smallModel": "gemma4:e4b",
+        "approxDownloadGb": 14,
+        "note": "Strong tool use. Text only \u2014 no vision \u2014 at 128K context."
+      },
+      {
+        "minHostMemoryGb": 12,
+        "model": "gemma4:12b",
+        "smallModel": "gemma4:e4b",
+        "approxDownloadGb": 8,
+        "note": "Balanced: tools, thinking and vision at 256K context."
+      },
+      {
+        "minHostMemoryGb": 8,
+        "model": "gemma4:e4b",
+        "smallModel": "gemma4:e2b",
+        "approxDownloadGb": 9,
+        "note": "Slow and limited. The docs recommend a cloud preset or a separate GPU host for a Raspberry Pi install rather than this tier."
+      }
+    ]
   }
 }

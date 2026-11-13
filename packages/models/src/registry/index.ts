@@ -28,7 +28,10 @@ export {
 export {
   BUILT_IN_PRESETS,
   type BuiltInPreset,
+  type LocalDefaultTier,
+  LocalDefaultTierSchema,
   type LocalModels,
+  localDefaultsFor,
   PRESET_NAMES,
   PRESETS,
   type PresetName,

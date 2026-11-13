@@ -195,7 +195,12 @@ export const SDK_PURITY_RULES: Linter.RulesRecord = {
  */
 export const FETCH_ALLOWED_GLOBS: readonly string[] = [
   'packages/shared/src/net/**',
-  'packages/models/src/providers/**',
+  // `packages/models/src/providers/**` was here until `M2-T12`. It never matched anything: the
+  // adapters live at `packages/models/src/<provider>/` (amended at `M2-T6`, as `05` §3.5.3 names
+  // them), so the entry was a licence nobody could use pointing at a directory that does not
+  // exist. Removed rather than repointed — `@comvivo/models` reaches the network through the
+  // provider SDKs and, for the one host-supplied URL in the layer, through `safeFetch` with the
+  // `local-model` purpose. Neither needs a raw socket, so the narrower allowlist is the true one.
   'packages/channels/*/src/**',
   'packages/mcp/src/client/**',
   'packages/mcp-bridge/src/**',

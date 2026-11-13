@@ -160,6 +160,16 @@ export const LOG_EVENTS = {
   'usage.record_failed': 'a usage record could not be written',
   /** The circuit breaker for a provider changed state (`05` §3.5.1). */
   'model.breaker_changed': 'a provider circuit breaker changed state',
+  /**
+   * One local-server capability probe finished (`05` §3.5.6; `M2-T12`).
+   *
+   * At `debug` because a failed probe is the **expected** case on three of the four servers — a
+   * server that refuses `tools` is answering the question, not erring — and an `info` line per
+   * probe would make a normal boot look like it was going wrong.
+   */
+  'model.local_probe': 'a local model capability probe finished',
+  /** The degradation ladder level a local server was placed at (`05` §3.5.6). */
+  'model.local_level': 'a local model server was placed on the degradation ladder',
 
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
