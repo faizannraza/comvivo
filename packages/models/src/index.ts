@@ -91,6 +91,7 @@ export {
   LIMITER_DEFAULTS,
   type LimiterOptions,
   type ModelCallTrace,
+  type ModelTelemetryOptions,
   PriorityLimiter,
   priorityOf,
   ROUTE_PRIORITY,
@@ -175,3 +176,24 @@ export {
   hashStructuredRequest,
   hashTurnRequest,
 } from './request-hash.js';
+// --- Model spans and metrics (11 §3.10.2-§3.10.3; M2-T15) -------------------------------------
+export {
+  costUsd,
+  type EmbeddingsSpanContext,
+  endpointAttributes,
+  errorAttributes,
+  MODEL_TRACER_NAME,
+  type ModelSpanContext,
+  type ModelTelemetryDeps,
+  outcomeOf,
+  providerSpanName,
+  recordModelMetrics,
+  requestAttributes,
+  resultAttributes,
+  structuredAttributes,
+  type UsageTotals,
+  usageTotals,
+  withEmbeddingsSpan,
+  withModelSpan,
+  withStructuredSpan,
+} from './telemetry.js';

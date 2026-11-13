@@ -18,7 +18,7 @@ export {
   CircuitOpenError,
   COUNTS_TOWARD_BREAKER,
 } from './breaker.js';
-export { type ChainDeps, withMiddleware } from './chain.js';
+export { type ChainDeps, type ModelTelemetryOptions, withMiddleware } from './chain.js';
 export {
   INTERACTIVE_ROUTES,
   LIMITER_DEFAULTS,

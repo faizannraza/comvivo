@@ -93,7 +93,24 @@ function deepFreeze<T>(value: T): T {
   return Object.freeze(value);
 }
 
-export const BRAND: Brand = deepFreeze({
+/**
+ * The brand.
+ *
+ * `as const` + `satisfies` rather than `: Brand`, and the difference is load-bearing rather than
+ * stylistic. Under an annotation every string here widens to `string`, which makes
+ * `` SPAN_NS = `${BRAND.slug}.` `` a `` `${string}.` `` and every attribute key derived from it a
+ * **computed key of non-literal type** — so an object carrying one gains a `string` index
+ * signature, and an index signature of `AttributeValue` can never satisfy
+ * `Partial<Record<ForbiddenAttributeName, never>>`. The practical consequence, found at `M2-T15`:
+ * the whole `ATTR` table in `observability/semconv-genai.ts` was **unemittable**, because
+ * `span.setAttributes({ [ATTR.MODEL_ROUTE]: route })` did not typecheck. A table of attribute names
+ * nothing can emit is worse than no table.
+ *
+ * `satisfies` keeps the conformance check — a missing or mistyped field is still an error here —
+ * and lets the literals stay literal. The rename codemod (`13` §3.A.6) rewrites these literals, so
+ * the types follow a rename exactly as the values do.
+ */
+export const BRAND = deepFreeze({
   codename: 'comvivo',
   displayName: 'Comvivo',
   slug: 'comvivo',
@@ -117,7 +134,7 @@ export const BRAND: Brand = deepFreeze({
   },
   emails: { security: 'faizanraza766@gmail.com', conduct: 'faizanraza766@gmail.com' },
   legacy: { envPrefixes: ['VILLAGE_'], configFileNames: ['village.yaml'] },
-});
+} as const) satisfies Brand;
 
 /**
  * Build one of the project's own environment-variable names.

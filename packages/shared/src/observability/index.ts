@@ -13,6 +13,7 @@ export {
   type ForbiddenAttributeName,
   isForbiddenAttribute,
   MAX_ATTRIBUTE_LENGTH,
+  mergeAttributes,
   sanitizeAttributes,
 } from './attributes.js';
 export {
