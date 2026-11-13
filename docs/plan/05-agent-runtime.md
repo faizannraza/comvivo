@@ -834,7 +834,7 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
 
 | Route | Requirement |
 |---|---|
-| `chat` | `tools ∈ {native_strict, native, envelope}` |
+| `chat` | `tools ∈ {native_strict, native, envelope, probe}` — **`probe` added at `M2-T2`**: the `local/*` family reports `probe` because what a local server supports is unknowable until §3.5.6's ladder asks it, so reading this row literally made the `local` preset fail boot on every machine. `probe` means *deferred*, and the requirement is enforced after the probe, where "your server supports no tool mode we can use" is actionable |
 | `route`, `extract`, `declassify`, `guard` | `structured ≠ none` |
 | `consolidate` | prefers `batches`, else synchronous |
 

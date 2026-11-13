@@ -1,0 +1,42 @@
+{
+  "$comment": "The four built-in presets (`05` §3.5.2, `01` §14 A3). `custom` is not here: it means 'read every route from `models.routes`', so a preset entry for it would be a default that silently filled a gap the host meant to fill themselves. Model ids verified against platform.claude.com/docs on 2026-11-12 — `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5` are the current lineup.",
+  "version": "2026-11-12",
+  "presets": {
+    "best": {
+      "chat": "anthropic/claude-opus-5-5",
+      "chatEconomy": "anthropic/claude-haiku-5-5",
+      "route": "anthropic/claude-haiku-5-5",
+      "extract": "anthropic/claude-haiku-5-5",
+      "declassify": "anthropic/claude-haiku-5-5",
+      "guard": "anthropic/claude-haiku-5-5",
+      "consolidate": "anthropic/claude-sonnet-5-5"
+    },
+    "balanced": {
+      "chat": "anthropic/claude-sonnet-5-5",
+      "chatEconomy": "anthropic/claude-haiku-5-5",
+      "route": "anthropic/claude-haiku-5-5",
+      "extract": "anthropic/claude-haiku-5-5",
+      "declassify": "anthropic/claude-haiku-5-5",
+      "guard": "anthropic/claude-haiku-5-5",
+      "consolidate": "anthropic/claude-sonnet-5-5"
+    },
+    "economy": {
+      "chat": "anthropic/claude-haiku-5-5",
+      "chatEconomy": "anthropic/claude-haiku-5-5",
+      "route": "anthropic/claude-haiku-5-5",
+      "extract": "anthropic/claude-haiku-5-5",
+      "declassify": "anthropic/claude-haiku-5-5",
+      "guard": "anthropic/claude-haiku-5-5",
+      "consolidate": "anthropic/claude-haiku-5-5"
+    },
+    "local": {
+      "chat": "local/${models.local.model}",
+      "chatEconomy": "local/${models.local.model}",
+      "route": "local/${models.local.smallModel}",
+      "extract": "local/${models.local.smallModel}",
+      "declassify": "local/${models.local.smallModel}",
+      "guard": "local/${models.local.smallModel}",
+      "consolidate": "local/${models.local.model}"
+    }
+  }
+}

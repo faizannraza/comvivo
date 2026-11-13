@@ -21,11 +21,11 @@ There is also a trust asymmetry that a naive precedence rule would break: an adm
 
 | Source | Holds |
 |---|---|
-| `village.yaml` | Non-secret, versioned configuration (`01` §10) |
+| `comvivo.yaml` | Non-secret, versioned configuration (`01` §10) |
 | Environment / `.env` (and generic `<SECRET>_FILE`) | **Secrets only** |
 | DB-persisted runtime settings | Everything an admin may edit from the dashboard |
 
-**Precedence:** `env > DB settings > village.yaml > defaults`. Secrets are **env or keyfile only** — never in the DB and never in YAML. Everything is validated with zod (ADR-010), and the full configuration reference is **generated from the zod schemas** rather than hand-written.
+**Precedence:** `env > DB settings > comvivo.yaml > defaults`. Secrets are **env or keyfile only** — never in the DB and never in YAML. Everything is validated with zod (ADR-010), and the full configuration reference is **generated from the zod schemas** rather than hand-written.
 
 **A14 — host-only keys.** These are read from env or YAML only and **ignore DB settings entirely**:
 
@@ -62,7 +62,7 @@ In the dashboard, secrets are otherwise read-only: masked to the last 4 characte
 
 **Bad / accepted costs**
 - Three sources plus one exception class is more to explain than one source; the docs must make the precedence rule and the host-only list very plain, or hosts will edit YAML and wonder why nothing changed.
-- Some settings legitimately live in two places during a migration, and `village doctor` has to report which source won.
+- Some settings legitimately live in two places during a migration, and `comvivo doctor` has to report which source won.
 - The A29 appliance path is a real write path for secrets from a web page; it is token-gated and step-up protected, and it is the one place where a session can touch a host-only key.
 
 **Follow-ups**
