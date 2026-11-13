@@ -27,6 +27,12 @@ function structuredRequest(overrides: Record<string, unknown> = {}) {
     system: [{ id: 'router', text: 'classify' }],
     input: [{ type: 'text' as const, text: 'hola' }],
     schema: SCHEMA,
+    jsonSchema: {
+      type: 'object' as const,
+      properties: { dominantLanguage: { type: 'string' as const } },
+      required: ['dominantLanguage'],
+      additionalProperties: false as const,
+    },
     schemaName: 'route_v1',
     effort: 'low' as const,
     maxOutputTokens: 512,

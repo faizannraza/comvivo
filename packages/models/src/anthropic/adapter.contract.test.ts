@@ -450,15 +450,19 @@ describe('resuming a paused turn', () => {
   });
 });
 
-describe('the gateway’s unimplemented members', () => {
-  it('fail loudly and name the task that implements them', async () => {
+describe('the gateway’s members', () => {
+  it('implements structured, countTokens and the Batches trio as of M2-T8', async () => {
     const { deps } = await harness();
     const gateway = createAnthropicGateway(deps);
-    expect(() => gateway.structured({} as never, AbortSignal.timeout(1))).toThrow(ModelCallError);
-    try {
-      void gateway.structured({} as never, AbortSignal.timeout(1));
-    } catch (error) {
-      expect((error as ModelCallError).detail.type).toContain('M2-T8');
+    for (const member of [
+      'run',
+      'structured',
+      'countTokens',
+      'submitBatch',
+      'pollBatch',
+      'batchResults',
+    ] as const) {
+      expect(typeof gateway[member], member).toBe('function');
     }
   });
 

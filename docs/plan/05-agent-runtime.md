@@ -950,7 +950,7 @@ for (const it of iters) record({
 - **Submit.** `client.messages.batches.create({ requests: [{ custom_id, params }] })`, where `custom_id = <jobId>:<n>` (≤ 64 chars, `[A-Za-z0-9_-]`). `params` are structured-route params with no `fallbacks` (rejected on Batches [R1]).
 - **Handle.** `BatchHandle {provider:'anthropic', batchId, customIds, submittedAt}` is persisted in the job payload.
 - **Poll.** A `consolidate.poll` job runs every 5 min: `batches.retrieve(id)` until `processing_status === 'ended'`.
-- **Results.** Then `for await (const r of await client.messages.batches.results(id))`, keyed by `custom_id`, because results arrive in any order [R4].
+- **Results.** Then `for await (const r of await client.messages.batches.results(id))`, keyed by `custom_id`, because results arrive in any order [R4]. The SDK makes **two** requests here: it retrieves the batch to learn `results_url`, then fetches that URL as JSONL — so reading results before a batch has ended fails with "No batch `results_url`" rather than returning nothing (measured at `M2-T8`). `batchResults` takes a `schemaFor` resolver, because producing a `StructuredResult` needs the zod type the request was made with: the handle is persisted in a job payload and survives a restart, the schema lives in code and does not.
   - `succeeded` → validate with zod.
   - `errored` with `invalid_request` → drop and trace.
   - Other `errored`, or `expired` → resubmit once in the next nightly window.

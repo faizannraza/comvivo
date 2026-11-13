@@ -31,6 +31,9 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type {
+  BatchHandle,
+  BatchResultItem,
+  BatchStatus,
   ModelGateway,
   ModelRoute,
   ModelTurnRequest,
@@ -43,8 +46,16 @@ import type {
 import { ModelCallError } from '@comvivo/core';
 import type { Clock, Logger, SecretString } from '@comvivo/shared';
 import type { RouteBinding } from '../registry/resolve.js';
+import {
+  cancelBatch,
+  deleteBatch,
+  pollBatch,
+  batchResults as streamBatchResults,
+  submitBatch,
+} from './batches.js';
+import { countTokens as countRequestTokens } from './count.js';
 import { toModelCallError } from './errors.js';
-import { buildChatRequest } from './request.js';
+import { type AnthropicChatParams, buildChatRequest } from './request.js';
 import {
   ANTHROPIC_PROVIDER,
   assistantMessageOf,
@@ -53,12 +64,27 @@ import {
   usageIterations,
   visibleTextAfterLastFallback,
 } from './response.js';
+import {
+  buildStructuredRequest,
+  readStructured,
+  structuredResultOf,
+  withRepairTurn,
+} from './structured.js';
 
 /** `05` §3.5.3.1's client defaults. The TS SDK's `timeout` is in **milliseconds**. */
 export const CLIENT_DEFAULTS = {
   maxRetries: 2,
   timeoutMs: 120_000,
 } as const;
+
+/** `countTokens` is a `doctor` and nightly-CI call, not a turn-path one. */
+export const COUNT_TOKENS_TIMEOUT_MS = 30_000;
+
+/** Submitting or polling a batch is a small control-plane call. */
+export const BATCH_CALL_TIMEOUT_MS = 60_000;
+
+/** Reading a finished batch is a download, so the ceiling is the transfer rather than a deadline. */
+export const BATCH_RESULTS_TIMEOUT_MS = 10 * 60_000;
 
 export interface AnthropicAdapterDeps {
   /** Resolve a route to its binding. `M2-T2`'s resolver, curried by the composition root. */
@@ -194,13 +220,82 @@ export async function runChat(
 }
 
 /**
- * The gateway, with `M2-T8`'s members still to come.
+ * One structured call, with `05` §3.5.3.3's single repair attempt.
  *
- * `structured`, `embed`, `countTokens` and the Batches trio throw a `ModelCallError` naming the
- * task that implements them rather than returning a plausible-looking empty result. `CLAUDE.md` §8
- * forbids a stub in a production path, and the distinction that makes this not one is that it
- * **fails loudly and names its owner**: nothing can call it and believe it worked. `embed` belongs
- * to `04` §3.2's embedding model and is wired at `M4`.
+ * The repair is the part worth reading. A schema failure is usually a prompt problem rather than a
+ * transient one, so retrying the *same* request is a second bill for the same answer. Re-asking
+ * with the issues attached is different: the model is told what was wrong. One attempt, because a
+ * second has a vanishing success rate and a turn has a deadline.
+ *
+ * **Both attempts' usage is reported**, because a failed call is a billed call (`02` §3.3.7) and a
+ * ledger that lost the first attempt would under-report every repaired extraction.
+ *
+ * Only the network calls sit inside the `try`, for the same reason as `runChat`: a bug in our own
+ * parsing must not be reported as a provider failure.
+ */
+export async function runStructured<T>(
+  deps: AnthropicAdapterDeps,
+  req: StructuredRequest<T>,
+  signal: AbortSignal,
+): Promise<StructuredResult<T>> {
+  const binding = deps.bindingFor(req.route, req.variant);
+  const built = buildStructuredRequest(req, {
+    binding,
+    availableBetas: deps.availableBetas,
+  });
+  const client = createAnthropicClient(deps);
+  const attempts: Anthropic.Beta.Messages.BetaMessage[] = [];
+
+  const ask = async (params: AnthropicChatParams): Promise<Anthropic.Beta.Messages.BetaMessage> => {
+    try {
+      // `create`, not `stream`: a structured route's output is one bounded JSON value, so there is
+      // nothing to stream and the non-streaming path is one fewer moving part.
+      return await client.beta.messages.create(params, {
+        signal,
+        timeout: binding.attemptTimeoutMs,
+        maxRetries: binding.maxRetries,
+      });
+    } catch (error) {
+      const mapped = toModelCallError(error, deps.clock.now().epochMilliseconds);
+      deps.logger.warn('model.call_failed', {
+        provider: ANTHROPIC_PROVIDER,
+        route: req.route,
+        outcome: mapped.kind,
+        detail: {
+          ...(mapped.detail.status === undefined ? {} : { status: mapped.detail.status }),
+          ...(mapped.detail.requestId === undefined ? {} : { requestId: mapped.detail.requestId }),
+        },
+      });
+      throw mapped;
+    }
+  };
+
+  const first = await ask(built.params);
+  attempts.push(first);
+  let attempt = readStructured(first, req.schema);
+
+  if (attempt.kind === 'invalid') {
+    const repaired = await ask(withRepairTurn(built.params, first, attempt.issues));
+    attempts.push(repaired);
+    attempt = readStructured(repaired, req.schema);
+  }
+
+  const usage = attempts.flatMap((message) => usageIterations(message, binding.model));
+  const last = attempts.at(-1) ?? first;
+  return structuredResultOf(attempt, usage, last);
+}
+
+/**
+ * The gateway.
+ *
+ * `embed` is the one member still unimplemented: `04` §3.2 owns the embedding model, and it is a
+ * different provider (a local ONNX model) rather than a different method on this one. It throws a
+ * `ModelCallError` naming the task instead of returning a plausible empty vector — `CLAUDE.md` §8
+ * forbids a stub in a production path, and what makes this not one is that it **fails loudly and
+ * names its owner**: nothing can call it and believe it worked.
+ *
+ * The optional members are all present for Anthropic, which is why they are optional on the port:
+ * `countTokens` needs a provider endpoint and Batches is Anthropic-only in 1.0.
  */
 export function createAnthropicGateway(deps: AnthropicAdapterDeps): ModelGateway {
   const notYet = (member: string, task: string): never => {
@@ -210,16 +305,79 @@ export function createAnthropicGateway(deps: AnthropicAdapterDeps): ModelGateway
       type: `anthropic_adapter.${member}_lands_at_${task}`,
     });
   };
+  const batchDeps = (): Parameters<typeof submitBatch>[0] => ({
+    client: createAnthropicClient(deps),
+    bindingFor: (route) => deps.bindingFor(route),
+    availableBetas: deps.availableBetas,
+  });
+
   return {
     run: (req, signal) => runChat(deps, req, signal),
-    structured: <T>(
-      _req: StructuredRequest<T>,
-      _signal: AbortSignal,
-    ): Promise<StructuredResult<T>> => notYet('structured', 'M2-T8'),
+    structured: (req, signal) => runStructured(deps, req, signal),
     embed: (_texts, _purpose) => notYet('embed', 'M4-T20'),
+    countTokens: (req) =>
+      countRequestTokens(
+        {
+          client: createAnthropicClient(deps),
+          bindingFor: (route) => deps.bindingFor(route),
+          availableBetas: deps.availableBetas,
+        },
+        req,
+        // No caller-supplied signal on this port member, and that is right: `countTokens` is used
+        // by `doctor` and by a nightly budget test, neither of which is inside a turn. A generous
+        // own timeout keeps a hung probe from hanging a boot.
+        AbortSignal.timeout(COUNT_TOKENS_TIMEOUT_MS),
+      ),
+    submitBatch: (reqs) =>
+      submitBatch(batchDeps(), reqs, AbortSignal.timeout(BATCH_CALL_TIMEOUT_MS)),
+    pollBatch: (handle: BatchHandle): Promise<BatchStatus> =>
+      pollBatch(batchDeps(), handle, AbortSignal.timeout(BATCH_CALL_TIMEOUT_MS)),
+    batchResults: (handle, schemaFor): AsyncIterable<BatchResultItem> =>
+      streamBatchResults(
+        batchDeps(),
+        handle,
+        schemaFor,
+        // The results of a night's consolidation can be large; this is a read of a finished batch,
+        // not a model call, so the ceiling is the download rather than a turn's deadline.
+        AbortSignal.timeout(BATCH_RESULTS_TIMEOUT_MS),
+      ),
     routeInfo: (route: ModelRoute, variant?: RouteVariant): RouteInfo => {
       const binding = deps.bindingFor(route, variant);
       return { provider: binding.provider, model: binding.model, supports: binding.features };
     },
   };
+}
+
+/** Cancel a batch that has outrun `05` §3.5.3.7's 20-hour window. Not a port member: `06`'s job calls it. */
+export function cancelAnthropicBatch(
+  deps: AnthropicAdapterDeps,
+  handle: BatchHandle,
+  signal: AbortSignal,
+): Promise<BatchStatus> {
+  return cancelBatch(
+    {
+      client: createAnthropicClient(deps),
+      bindingFor: (route) => deps.bindingFor(route),
+      availableBetas: deps.availableBetas,
+    },
+    handle,
+    signal,
+  );
+}
+
+/** Delete a batch's stored results, for a host who batches but will not leave them behind. */
+export function deleteAnthropicBatch(
+  deps: AnthropicAdapterDeps,
+  handle: BatchHandle,
+  signal: AbortSignal,
+): Promise<void> {
+  return deleteBatch(
+    {
+      client: createAnthropicClient(deps),
+      bindingFor: (route) => deps.bindingFor(route),
+      availableBetas: deps.availableBetas,
+    },
+    handle,
+    signal,
+  );
 }

@@ -417,6 +417,19 @@ export interface StructuredRequest<T> {
   readonly system: readonly SystemBlock[];
   readonly input: readonly UserPart[];
   readonly schema: SchemaLike<T>;
+  /**
+   * The same schema, already converted for the wire (`M2-T4`'s `toStrictJsonSchema`).
+   *
+   * Added at `M2-T8`. `05` §3.5.3.3 writes `toStrictJsonSchema(req.schema, 'output')` inside the
+   * adapter, which cannot work: `schema` is a `SchemaLike<T>` — deliberately structural, so
+   * `@comvivo/core` does not depend on zod's type surface — and the converter needs a `z.ZodType`.
+   *
+   * So the **caller** converts, exactly as `ToolSpec.inputSchema` already does. That is better than
+   * a cast in two ways: the conversion is done once per schema instead of once per call (it is part
+   * of the cache prefix, and `M2-T17` hashes it), and a schema that cannot be made strict fails
+   * where it is declared rather than on the first request.
+   */
+  readonly jsonSchema: StrictJsonSchema;
   /** Names the schema on the wire; part of the cache prefix, so it must be stable. */
   readonly schemaName: string;
   readonly effort: Effort;
@@ -508,6 +521,32 @@ export interface BatchHandle {
 export interface BatchStatus {
   readonly state: 'in_progress' | 'canceling' | 'ended';
   readonly counts: Readonly<Record<string, number>>;
+}
+
+/**
+ * Why one batch item produced no value (`05` §3.5.3.7).
+ *
+ * Three kinds because the dispositions differ and the caller is the one that acts on them: an
+ * `invalid_request` will never succeed, so it is dropped and traced; anything else errored or
+ * expired, so it is resubmitted once in the next window; a `canceled` item belongs to a batch
+ * somebody stopped. Collapsing these into `StructuredResult`'s `invalid` would lose the difference
+ * between "re-ask tonight" and "never ask again".
+ */
+export type BatchItemFailure =
+  | { readonly kind: 'invalid_request'; readonly detail: string }
+  | { readonly kind: 'retryable'; readonly detail: string }
+  | { readonly kind: 'canceled' };
+
+/**
+ * One item of a batch's results. Exactly one of `result` and `failure` is present.
+ *
+ * Added at `M2-T8`. The port previously returned `{ customId, result }`, which cannot express a
+ * batch item that errored — and a nightly consolidation of a thousand items has some.
+ */
+export interface BatchResultItem {
+  readonly customId: string;
+  readonly result?: StructuredResult<unknown>;
+  readonly failure?: BatchItemFailure;
 }
 
 /**
@@ -644,8 +683,20 @@ export interface ModelGateway {
     reqs: readonly (StructuredRequest<unknown> & { readonly customId: string })[],
   ): Promise<BatchHandle>;
   pollBatch?(handle: BatchHandle): Promise<BatchStatus>;
+  /**
+   * Stream a batch's results, keyed by `custom_id`.
+   *
+   * `schemaFor` is a parameter because a batch result **is** a `StructuredResult`, and producing
+   * one needs the zod type the request was made with. The handle is persisted in a job payload and
+   * survives a restart; the schema lives in code and does not. Only the caller still holds both,
+   * which is why it supplies the resolver rather than the adapter remembering (added at `M2-T8`).
+   *
+   * An id that was submitted and never comes back is not reported here — the caller compares
+   * against `handle.customIds`, because only it knows what the job still needs.
+   */
   batchResults?(
     handle: BatchHandle,
-  ): AsyncIterable<{ readonly customId: string; readonly result: StructuredResult<unknown> }>;
+    schemaFor: (customId: string) => StructuredRequest<unknown> | undefined,
+  ): AsyncIterable<BatchResultItem>;
   routeInfo(route: ModelRoute, variant?: RouteVariant): RouteInfo;
 }

@@ -205,6 +205,12 @@ describe('structured calls', () => {
     system: [{ id: 'router', text: 'classify' }],
     input: [{ type: 'text' as const, text: 'hola' }],
     schema,
+    jsonSchema: {
+      type: 'object' as const,
+      properties: { dominantLanguage: { type: 'string' as const } },
+      required: ['dominantLanguage'],
+      additionalProperties: false as const,
+    },
     schemaName: 'route_v1',
     effort: 'low' as const,
     maxOutputTokens: 512,

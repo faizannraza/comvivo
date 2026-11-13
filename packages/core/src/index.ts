@@ -462,6 +462,8 @@ export {
   type AssistantMessage,
   type AssistantPart,
   type BatchHandle,
+  type BatchItemFailure,
+  type BatchResultItem,
   type BatchStatus,
   type CacheHint,
   continuesToolLoop,

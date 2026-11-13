@@ -22,18 +22,22 @@
  *
  * ## What it serves, and what it does not
  *
- * Two endpoints, matched by path **suffix** so any base path works:
+ * Endpoints, matched by path **suffix** so any base path works:
  *
  *  - `POST …/v1/messages` — Anthropic Messages, JSON and SSE
  *  - `POST …/v1/chat/completions` — the OpenAI-compatible subset Ollama, LM Studio, llama.cpp and
  *    vLLM all implement (`05` §3.5.6), JSON and SSE
+ *  - `POST …/v1/messages/count_tokens` — a token count (added at `M2-T8`)
+ *  - `POST|GET …/v1/messages/batches…` — submit, poll, results, cancel, delete (added at `M2-T8`)
  *
- * Everything else answers **404 with a message naming the task that will add it**:
- * `/v1/messages/count_tokens` and `/v1/messages/batches` belong to `M2-T8`, `/v1/responses` to
- * `M2-T11` (whose adapter defines that shape and whose fixtures will verify it against the live
- * API), and `/v1/models` to `M2-T12`, where server identification differs per local runtime and
- * guessing now would be worse than a clear 404. A mystery 404 in a future task is a bad use of
- * somebody's afternoon; a 404 that says "`M2-T8` adds this" is not.
+ * Everything else answers **404 with a message naming the task that will add it**: `/v1/responses`
+ * belongs to `M2-T11` (whose adapter defines that shape and whose fixtures will verify it against
+ * the live API) and `/v1/models` to `M2-T12`, where server identification differs per local runtime
+ * and guessing now would be worse than a clear 404.
+ *
+ * The count-tokens and batches rows above *were* two of those 404s until `M2-T8` arrived, and the
+ * pointer worked exactly as intended: the task that owned them added them. A mystery 404 in a
+ * future task is a bad use of somebody's afternoon; a 404 that says "`M2-T8` adds this" is not.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import {
@@ -94,6 +98,13 @@ export type FakeTurn =
       readonly body: unknown;
       readonly headers?: Readonly<Record<string, string>>;
     })
+  /**
+   * Newline-delimited JSON, which is how the Batches API streams results.
+   *
+   * Added at `M2-T8`: `client.beta.messages.batches.results()` returns a `JSONLDecoder`, so a
+   * `raw` JSON body cannot drive it. One line per object, `application/x-ndjson`.
+   */
+  | (FakeTurnBase & { readonly kind: 'jsonl'; readonly lines: readonly unknown[] })
   | (FakeTurnBase & { readonly kind: 'rate_limited'; readonly retryAfterSeconds?: number })
   | (FakeTurnBase & { readonly kind: 'overloaded' })
   | (FakeTurnBase & { readonly kind: 'server_error'; readonly status?: number })
@@ -102,6 +113,8 @@ export type FakeTurn =
   | (FakeTurnBase & { readonly kind: 'socket_reset' });
 
 export interface CapturedRequest {
+  /** Which Anthropic endpoint this was, for a test that asserts on the count or the batch path. */
+  readonly endpoint: AnthropicEndpoint;
   /** 1-based, across every endpoint, so a test can assert what arrived in which order. */
   readonly ordinal: number;
   readonly method: string;
@@ -152,14 +165,23 @@ function providerFor(path: string): ProviderKind | 'unknown' {
   const withoutQuery = path.split('?')[0] ?? path;
   if (withoutQuery.endsWith('/v1/messages')) return 'anthropic';
   if (withoutQuery.endsWith('/v1/chat/completions')) return 'openai';
+  if (withoutQuery.endsWith('/v1/messages/count_tokens')) return 'anthropic';
+  if (withoutQuery.includes('/v1/messages/batches')) return 'anthropic';
   return 'unknown';
 }
 
-/** The task that owns an endpoint this task deliberately does not serve. */
+/** Which Anthropic endpoint a path names, for the capture and for the scripted reply's shape. */
+export type AnthropicEndpoint = 'messages' | 'count_tokens' | 'batches';
+
+export function anthropicEndpointFor(path: string): AnthropicEndpoint {
+  const withoutQuery = path.split('?')[0] ?? path;
+  if (withoutQuery.endsWith('/v1/messages/count_tokens')) return 'count_tokens';
+  if (withoutQuery.includes('/v1/messages/batches')) return 'batches';
+  return 'messages';
+}
+
+/** The task that owns an endpoint this fake deliberately does not serve. */
 function unservedBy(path: string): string | undefined {
-  if (path.includes('/v1/messages/count_tokens') || path.includes('/v1/messages/batches')) {
-    return 'M2-T8 (Anthropic structured(), countTokens(), Batches)';
-  }
   if (path.includes('/v1/responses')) return 'M2-T11 (the OpenAI Responses adapter)';
   if (path.includes('/v1/models')) return 'M2-T12 (the OpenAI-compatible local adapter)';
   return undefined;
@@ -384,6 +406,13 @@ export async function startFakeProviderServer(
       case 'raw':
         sendJson(response, turn.status ?? 200, turn.body, turn.headers ?? {});
         return;
+      case 'jsonl':
+        response.writeHead(200, {
+          'content-type': 'application/x-ndjson',
+          'request-id': `req_fake_${String(captured.length)}`,
+        });
+        response.end(turn.lines.map((line) => JSON.stringify(line)).join('\n'));
+        return;
       case 'rate_limited': {
         const seconds = turn.retryAfterSeconds ?? 1;
         // `retry-after` in seconds, which both SDKs honour. Asserting that they do is `M2-T9`'s
@@ -439,6 +468,7 @@ export async function startFakeProviderServer(
       const body = parseJson(raw);
       sequence += 1;
       const entry: CapturedRequest = {
+        endpoint: anthropicEndpointFor(path),
         ordinal: sequence,
         method: request.method ?? 'GET',
         path,

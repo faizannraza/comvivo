@@ -76,6 +76,8 @@ export {
   type RuleMatcher,
 } from './fake-gateway.js';
 export {
+  type AnthropicEndpoint,
+  anthropicEndpointFor,
   CAPTURED_SECRET,
   type CapturedRequest,
   DEFAULT_SERVER_ERROR_STATUS,

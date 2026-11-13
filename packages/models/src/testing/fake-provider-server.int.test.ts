@@ -161,6 +161,48 @@ describe('Anthropic Messages, SSE', () => {
   });
 });
 
+describe('the endpoints M2-T8 added', () => {
+  it('serves a token count from a raw turn', async () => {
+    const server = await freshServer();
+    server.script({ kind: 'raw', body: { input_tokens: 1234, context_management: null } });
+    const response = await post(`${server.anthropicBaseUrl}/v1/messages/count_tokens`, {
+      model: 'claude-opus-5-5',
+      messages: [],
+    });
+    expect(await response.json()).toMatchObject({ input_tokens: 1234 });
+    expect(server.requests()[0]?.endpoint).toBe('count_tokens');
+  });
+
+  it('serves a batch submission and labels the capture', async () => {
+    const server = await freshServer();
+    server.script({
+      kind: 'raw',
+      body: {
+        id: 'msgbatch_1',
+        type: 'message_batch',
+        processing_status: 'in_progress',
+        created_at: '2026-11-13T00:00:00Z',
+        expires_at: '2026-11-14T00:00:00Z',
+        ended_at: null,
+        cancel_initiated_at: null,
+        archived_at: null,
+        results_url: null,
+        request_counts: { succeeded: 0, errored: 0, canceled: 0, expired: 0, processing: 1 },
+      },
+    });
+    const response = await post(`${server.anthropicBaseUrl}/v1/messages/batches`, { requests: [] });
+    expect(await response.json()).toMatchObject({ id: 'msgbatch_1' });
+    expect(server.requests()[0]?.endpoint).toBe('batches');
+  });
+
+  it('labels an ordinary message capture as the messages endpoint', async () => {
+    const server = await freshServer();
+    server.script({ kind: 'reply', text: 'ok' });
+    await post(messagesUrl(server), {});
+    expect(server.requests()[0]?.endpoint).toBe('messages');
+  });
+});
+
 describe('the OpenAI-compatible endpoint', () => {
   it('serves a chat completion', async () => {
     const server = await freshServer();
@@ -315,9 +357,9 @@ describe('failing loudly', () => {
 
   it('names the task that owns an endpoint it does not serve', async () => {
     const server = await freshServer();
+    // `count_tokens` and `batches` were on this list until `M2-T8` added them, which is the
+    // pointer working as intended: the task that owned them served them.
     const cases: readonly [string, string][] = [
-      ['/v1/messages/count_tokens', 'M2-T8'],
-      ['/v1/messages/batches', 'M2-T8'],
       ['/v1/responses', 'M2-T11'],
       ['/v1/models', 'M2-T12'],
     ];
