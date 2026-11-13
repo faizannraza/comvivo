@@ -145,7 +145,16 @@ describe('the protocol (11 §3.9.2)', () => {
       },
       OPTIONS,
     );
-    expect(heavier.value).toBeGreaterThan(latency.value * 2);
+    // **A difference, not a ratio.** The ratio form (`> latency.value * 2`) failed at `M2-T4`:
+    // 8.03 ms for the 8 ms spin against 5.71 ms for the 2 ms one, under a full `pnpm verify`. Both
+    // measurements carry the same fixed per-measurement overhead, and when that overhead is large
+    // relative to the *smaller* benchmark the ratio collapses while the instrument is working
+    // perfectly. Subtracting cancels the overhead: the work differs by 6 ms, so the measurements
+    // must differ by a healthy fraction of that whatever the machine is doing. Third
+    // load-sensitive assertion in this repository, and the first where the fix was arithmetic
+    // rather than patience.
+    expect(heavier.value).toBeGreaterThan(latency.value);
+    expect(heavier.value - latency.value).toBeGreaterThan(1.5);
 
     const throughput = await measure(
       {

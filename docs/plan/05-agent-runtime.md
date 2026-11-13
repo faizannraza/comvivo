@@ -1123,7 +1123,7 @@ A deterministic implementation of the full `ModelGateway` port, used by every en
 - **Extra fields beyond spine §7.4:** `activityKey` (presence copy), `effectTemplates` (keys it may emit), `compensate?` (undo), `timeoutMs?` (built-ins default 10 s; extension tools per 10 §3.2.3, default 15 s, max 60 s, always clamped to the turn deadline), `resultMaxTokens?` (default 2 000), and `parallelSafe` (reads default `true`). The shared `ToolDefinition` also carries the 01 §14 A23 fields `uses`, `confirm` and `grantsDelegation`, plus 10's extension-only fields (`outputSensitivity`, `untrustedOutput`, `effectSummary`, `exposeViaMcp`, `examples`; 10 §3.2.3).
 - **Catalog freeze.** At boot the registry builds the built-in `catalog: ToolSpec[]` in `catalog.ts` order plus its hash; per group, the built-ins plus that group's enabled extension tools form the BP1 catalog and its `catalogHash` (10 §3.5.1 step 4). CI fails if the built-in catalog exceeds 7 000 estimated tokens or any single tool (description plus schema) exceeds 300. **If** M7-T1 measures the complete §3.6.7 catalog above 7 000 tokens, the ceiling is set to the measured size + 10 % in ADR-023 (§3.4.9), and the §8.2 cost table and the Economy target are recomputed in M13-T3; the ceiling is never silently raised.
 
-#### 3.6.2 zod → strict JSON Schema (`schema/to-strict-json-schema.ts`)
+#### 3.6.2 zod → strict JSON Schema (`@comvivo/shared`'s `zod/to-strict.ts`, re-exported by `models` and `plugin-sdk`)
 1. `z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input', unrepresentable: 'throw', cycles: 'throw', reused: 'inline' })` [R26]. A recursive schema throws at registration.
 2. Walk the result:
    - every `object` gets `additionalProperties: false`;
@@ -1134,6 +1134,7 @@ A deterministic implementation of the full `ModelGateway` port, used by every en
 4. Emit **canonical JSON** (sorted keys inside schema objects, `properties` in declaration order) and freeze it. The bytes are identical on every boot.
 5. Input path: `denull(input, nullablePaths)` (null → undefined), then `def.input.safeParse`.
 6. The same converter serves structured outputs (profile `'output'`, with the same rules) for every provider.
+7. **One implementation, in `@comvivo/shared`** (plan change at `M2-T4`). This section named `models/src/schema/to-strict-json-schema.ts` and `10` §3.5.2 named `plugin-sdk/src/schema/strict.ts`; two converters producing "the same" schema is two sets of edge cases, and this schema is what a provider's `strict: true` validation is checked against — a disagreement would mean a tool whose arguments validate for the host and not for the provider. `10` §3.5.2's **linter** (for a schema we did *not* generate, arriving as JSON over RPC) is a second function beside it, `zod/strict-lint.ts`, and the test asserts that everything the converter emits passes the linter.
 
 #### 3.6.3 Execution pipeline (`tools-executor/executor.ts`)
 `executeAll(turn, calls)` handles one assistant message's calls. Calls run **in emitted order with barrier semantics**: consecutive `parallelSafe` reads run concurrently; a write waits for every earlier call; calls after a write wait for it. At most 10 calls per step; extra calls get `too_many_calls`. The results are returned as **one** user message in the same order as the `tool_use` blocks [R2].

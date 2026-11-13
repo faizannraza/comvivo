@@ -638,7 +638,7 @@ SafeFetch lives in `@comvivo/shared/net`. It is used by `ctx.http`, the MCP clie
 - no `$ref` cycles, no `patternProperties`, no `if/then/else`;
 - serialized schema ≤ 8 KiB.
 
-`village-plugin check` and the host both run the same linter (`plugin-sdk/src/schema/strict.ts`). MCP tools that fail strictness are imported with `strict: false` (§3.9.3). The host validates every input with Ajv 2020 (`strict: true`, `allErrors: false`) before dispatch, whatever the provider.
+`comvivo-plugin check` and the host both run the same linter, which lives in `@comvivo/shared` as `zod/strict-lint.ts` and is re-exported by `plugin-sdk` (plan change at `M2-T4`: one implementation, beside the converter `05` §3.6.2 also duplicated). MCP tools that fail strictness are imported with `strict: false` (§3.9.3). The host validates every input with Ajv 2020 (`strict: true`, `allErrors: false`) before dispatch, whatever the provider.
 
 ### 3.6 Authority, IFC and effects for extension calls
 
