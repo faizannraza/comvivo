@@ -1,6 +1,6 @@
 /**
- * The two provider wire formats `FakeProviderServer` speaks, as pure functions (`11` §3.1.9, §3.2.4;
- * `M2-T10`).
+ * The provider wire formats `FakeProviderServer` speaks, as pure functions (`11` §3.1.9, §3.2.4;
+ * `M2-T10`, Responses added at `M2-T11`).
  *
  * Separate from the server because **this is the part that has to be exactly right**. If an SSE
  * event is named `content_block_started` instead of `content_block_start`, every adapter written
@@ -37,6 +37,13 @@ export interface FakeUsage {
   readonly cacheReadInputTokens?: number;
   readonly cacheWrite5mInputTokens?: number;
   readonly cacheWrite1hInputTokens?: number;
+  /**
+   * Reasoning tokens, reported **within** `outputTokens` (`M2-T11`).
+   *
+   * Every provider bills reasoning as output and reports it as a sub-count, so this is a
+   * breakdown rather than an addition. Adding it to the total would double-bill thinking.
+   */
+  readonly reasoningTokens?: number;
 }
 
 export interface FakeToolCall {
@@ -447,6 +454,119 @@ export function openaiStream(
 }
 
 /** The OpenAI-compatible error envelope: one `error` object, no `type` sibling. */
+/**
+ * The **Responses API** body (`05` §3.5.4; `M2-T11`).
+ *
+ * A different shape from `openaiCompletion` above, not a variant of it, and the differences are
+ * the ones an adapter written from memory gets wrong:
+ *
+ *  - `output` is a **flat array of items**, not `choices[0].message`. A reasoning item, a message
+ *    item and a function_call item sit side by side at the top level.
+ *  - A function call's id for matching an output is `call_id`, and it carries its own `id` too.
+ *  - There is no `finish_reason`. A finished response is `status: 'completed'`; a truncated or
+ *    filtered one is `status: 'incomplete'` with `incomplete_details.reason`.
+ *  - A refusal is **content inside the message**, not a status.
+ *  - `usage` uses `input_tokens`/`output_tokens` with an `input_tokens_details` that carries
+ *    `cached_tokens`, `cache_write_tokens` and a `cache_write_tokens_details` TTL split — measured
+ *    against openai 7.55.0 on 2026-11-13, and newer than what `05` §3.5.4 describes.
+ */
+export function openaiResponsesUsage(usage: FakeUsage): Record<string, unknown> {
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
+  const write30m = usage.cacheWrite5mInputTokens ?? 0;
+  const write12h = usage.cacheWrite1hInputTokens ?? 0;
+  // `input_tokens` **includes** the cached tokens, which is the opposite of Anthropic's split and
+  // the reason the adapter subtracts rather than adds.
+  const input = usage.inputTokens + cacheRead + write30m + write12h;
+  return {
+    input_tokens: input,
+    input_tokens_details: {
+      cached_tokens: cacheRead,
+      cache_write_tokens: write30m + write12h,
+      cache_write_tokens_details: { ttl_30m_tokens: write30m, ttl_12h_tokens: write12h },
+    },
+    output_tokens: usage.outputTokens,
+    output_tokens_details: { reasoning_tokens: usage.reasoningTokens ?? 0 },
+    total_tokens: input + usage.outputTokens,
+  };
+}
+
+/** `status` and `incomplete_details`, from a canonical stop reason. */
+function responsesStatus(reply: FakeReply): Record<string, unknown> {
+  const reason = stopReasonOf(reply);
+  if (reason === 'max_tokens') {
+    return { status: 'incomplete', incomplete_details: { reason: 'max_output_tokens' } };
+  }
+  return { status: 'completed', incomplete_details: null };
+}
+
+export function openaiResponse(
+  reply: FakeReply,
+  ids: WireIds,
+  defaultModel: string,
+): Record<string, unknown> {
+  const model = reply.model ?? defaultModel;
+  const output: Record<string, unknown>[] = [];
+
+  if (reply.thinking !== undefined) {
+    // With `store: false` the reasoning item carries `encrypted_content`, which the adapter must
+    // replay verbatim. The plaintext `summary` is what a UI would show; neither is readable by us.
+    output.push({
+      type: 'reasoning',
+      id: `rs_${ids.messageId}`,
+      summary: [{ type: 'summary_text', text: reply.thinking }],
+      encrypted_content: `gAAAAA_fake_${ids.messageId}`,
+    });
+  }
+
+  const refusal = stopReasonOf(reply) === 'refusal' ? reply.refusal : undefined;
+  if (refusal !== undefined) {
+    output.push({
+      type: 'message',
+      id: `msg_${ids.messageId}`,
+      role: 'assistant',
+      status: 'completed',
+      content: [{ type: 'refusal', refusal: refusal.explanation ?? 'I cannot help with that.' }],
+    });
+  } else if (reply.text !== undefined) {
+    output.push({
+      type: 'message',
+      id: `msg_${ids.messageId}`,
+      role: 'assistant',
+      status: 'completed',
+      content: [{ type: 'output_text', text: reply.text, annotations: [] }],
+    });
+  }
+
+  for (const [index, call] of (reply.toolCalls ?? []).entries()) {
+    output.push({
+      type: 'function_call',
+      // Both ids, and they differ: `call_id` is what a `function_call_output` matches on.
+      id: `fc_${ids.messageId}_${String(index)}`,
+      call_id: call.id,
+      name: call.name,
+      arguments: JSON.stringify(call.input),
+      status: 'completed',
+    });
+  }
+
+  return {
+    id: `resp_${ids.messageId}`,
+    object: 'response',
+    created_at: ids.created,
+    model,
+    output,
+    parallel_tool_calls: true,
+    store: false,
+    ...responsesStatus(reply),
+    usage: openaiResponsesUsage(reply.usage ?? DEFAULT_USAGE),
+  };
+}
+
+/** The Responses API error envelope. Same shape as Chat Completions', different endpoint. */
+export function openaiResponsesError(status: number): Record<string, unknown> {
+  return openaiError(status);
+}
+
 export function openaiError(status: number): Record<string, unknown> {
   return {
     error: {

@@ -357,18 +357,31 @@ describe('failing loudly', () => {
 
   it('names the task that owns an endpoint it does not serve', async () => {
     const server = await freshServer();
-    // `count_tokens` and `batches` were on this list until `M2-T8` added them, which is the
-    // pointer working as intended: the task that owned them served them.
-    const cases: readonly [string, string][] = [
-      ['/v1/responses', 'M2-T11'],
-      ['/v1/models', 'M2-T12'],
-    ];
+    // `count_tokens` and `batches` were on this list until `M2-T8` added them, and `/v1/responses`
+    // until `M2-T11` did — which is the pointer working as intended: the task that owned an
+    // endpoint served it, and removing its row here is part of landing that task.
+    const cases: readonly [string, string][] = [['/v1/models', 'M2-T12']];
     for (const [path, owner] of cases) {
       const response = await post(`${server.url}${path}`, {});
       expect(response.status).toBe(404);
       const body = (await response.json()) as { error: { message: string } };
       expect(body.error.message).toContain(owner);
     }
+  });
+
+  it('serves /v1/responses in the Responses shape, not the Chat Completions one', async () => {
+    // The positive half of the row removed above. The two OpenAI endpoints are different shapes,
+    // not variants, so a fake that answered `/v1/responses` with `choices` would make the adapter
+    // agree with a server that does not exist.
+    const server = await freshServer();
+    server.script({ kind: 'reply', text: 'hello' });
+    const response = await post(`${server.url}/v1/responses`, { model: 'x' });
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body['object']).toBe('response');
+    expect(body['status']).toBe('completed');
+    expect('choices' in body).toBe(false);
+    expect(server.requests()[0]?.provider).toBe('openai_responses');
   });
 
   it('explains what it does serve for an unrecognised path', async () => {

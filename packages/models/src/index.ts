@@ -106,6 +106,16 @@ export {
   withMiddleware,
   withTrace,
 } from './middleware/index.js';
+// --- The OpenAI adapter (05 §3.5.4; M2-T11) ---------------------------------------------------
+export {
+  createOpenAiClient,
+  createOpenAiGateway,
+  type OpenAiAdapterDeps,
+  type ParsedToolCall,
+  promptCacheKey,
+  runChat as runOpenAiChat,
+  runStructured as runOpenAiStructured,
+} from './openai/index.js';
 export {
   batchMultiplierFor,
   costIteration,

@@ -1052,6 +1052,13 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 #### 3.5.4 OpenAI adapter (Responses API)
 **Why Responses.** OpenAI recommends Responses for all new projects. Chat Completions remains supported, but new capabilities land on Responses [R10]. Reasoning models require reasoning items to be passed back with tool outputs [R11][R12].
 
+> **Re-measured at `M2-T11` (2026-11-13) against the installed `openai` 7.55.0 and the official
+> pricing page.** Eleven facts below were verified; six had moved since this section was written on
+> 2026-11-01 and are corrected in place. The SDK is pinned to an exact minor in the catalog for the
+> same reason as `@anthropic-ai/sdk`, plus one of its own: reasoning items are **opaque** and
+> replayed verbatim, so a minor that changed an item's shape would break replay without touching a
+> type we read.
+
 - **Client.** `new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL?, maxRetries: 2, timeout })`. Calls are `client.responses.create(params, { signal, timeout })`.
 - **Request mapping:**
 
@@ -1065,18 +1072,28 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
   | effort | `reasoning: { effort }` (values per model, from the registry [R12][R13]) |
   | `maxOutputTokens` | `max_output_tokens` (reasoning counts toward it [R12]) |
   | structured | `text: { format: { type:'json_schema', name, strict:true, schema } }` [R10] |
-  | state | `store: false`. Every `output` item (reasoning items carrying `encrypted_content`, `function_call`, `message`) is kept **verbatim** as the opaque assistant `raw` and replayed in `input` [R12]. |
+  | state | `store: false`, unconditionally — there is no config key that turns it on (`08` §3.11). Every `output` item is kept **verbatim** as the opaque assistant `raw` and replayed in `input` [R12]. |
+  | reasoning replay | `include: ['reasoning.encrypted_content']` (**added at `M2-T11`**). Without it a stateless reasoning turn gets no `encrypted_content` back and loses its chain of thought between tool steps — `store: false` and the `include` are a pair, and this section named only the first. Omitted on structured calls, which are a single round trip nobody replays. |
   | tool results | `{type:'function_call_output', call_id, output: string}`. There is no `is_error` flag; errors use the same JSON error envelope (§3.6.4). |
-  | caching | Automatic prefix caching. `prompt_cache_key: "village:<instanceId>:<route>"` (verify the parameter at implementation time). |
+  | caching | Automatic prefix caching. `prompt_cache_key: "village:<instanceId>:<route>"` — **parameter verified at `M2-T11`**; it is real, and the older `user` field is deprecated in its favour. Instance and route only: a per-group key would tell OpenAI how many groups a host runs *and* stop two groups with the same catalogue from sharing a prefix, which is the point of `01` §14 A13. |
+  | sampling | `temperature`, `top_p` and `top_logprobs` **exist** on `ResponseCreateParams`, unlike Anthropic's beta params type where they are absent entirely. So `01` §2.1's ban is enforced by a runtime assertion over the **built** request (`assertWireInvariants`), not by the type system. `tool_choice` is checked against an **allowlist** of `auto`/`none` rather than a denylist: `ToolChoice` already has six members and gains more. |
 
 - **Response mapping:**
-  - `function_call` items → `toolCalls` (`JSON.parse(arguments)`).
+  - `function_call` items → `toolCalls`, keyed on **`call_id`** and not `id` (they are different fields; `function_call_output` matches on `call_id`). `JSON.parse(arguments)`; a call whose arguments do not parse is **dropped**, because the tools are strict and a tool executed with a malformed input is worse than one that did not run.
   - `message` output text → `text`.
-  - Refusal content → `refusal`.
-  - `status:'incomplete'` with `incomplete_details.reason:'max_output_tokens'` → `max_tokens`. Other incomplete reasons (content filter) → `refusal{category:'provider_filter'}` [R12].
-- **Usage.** `input_tokens` includes cached tokens; `input_tokens_details.cached_tokens`; `output_tokens` includes `output_tokens_details.reasoning_tokens` [R12]. Cost = (input − cached) × in + cached × cachedIn + output × out.
-- **Errors.** The `openai` SDK uses the same class family (`OpenAI.RateLimitError`, `APIConnectionTimeoutError`, `APIUserAbortError`, …) and maps to the same kinds.
-- **Models.** As of 2026-11 OpenAI lists `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna` [R13]. The registry ships verified entries only for models covered by contract tests. Prices must be filled from the official pricing page in M2-T9; until then `null` means unknown (§3.9.2).
+  - Refusal content → `refusal`. On this provider a refusal is **content inside the message**, not a status.
+  - **`incomplete_details.reason` has four members, not two** (corrected at `M2-T11`): `max_output_tokens` → `max_tokens`; `max_messages` → `context_overflow`; `content_filter` → `refusal{category:'provider_filter'}`; **`steered`** → `pause_turn`. `steered` is new and is *not* a failure — the server stopped at a safe output boundary after a WebSocket `response.steer` and will continue with the queued input, which is the same control flow as Anthropic's `pause_turn`. Reading it as a finished turn would silently drop the rest of the answer.
+  - `failed` and `cancelled` map to `other`, never to `end_turn`.
+  - **`ResponseOutputItem` is a 28-member union** at 7.55.0 and grows with each release (programs, shell calls, apply-patch calls, compaction items, MCP calls). We read three kinds and keep every item whole: `ResponseOutputItem.Program` documents its own field as "opaque program replay fingerprint that must be round-tripped", which is what "verbatim" means here.
+- **Usage.** `input_tokens` includes cached tokens; `output_tokens` includes `output_tokens_details.reasoning_tokens` [R12].
+  - **Corrected at `M2-T11`.** `input_tokens_details` now carries **`cache_write_tokens`** as well as `cached_tokens`, with a `cache_write_tokens_details` split into `ttl_30m_tokens` and `ttl_12h_tokens`. The formula this section carried — `(input − cached) × in + cached × cachedIn + output × out` — predates those fields existing and charges cache writes at **zero**, under-reporting every cold prefix. Cost is computed through the shared `costIteration`, with 30m/12h mapped onto the `cacheWrite5m`/`cacheWrite1h` columns **by slot** (short and long priced slots), not by equal duration.
+- **Errors.** The `openai` SDK uses the same class family (`OpenAI.RateLimitError`, `APIConnectionTimeoutError`, `APIUserAbortError`, …) and maps to the same kinds — **with four differences measured at `M2-T11`**:
+  - There is **no `RequestTimeoutError`**; a client-side timeout is `APIConnectionTimeoutError`, which extends `APIConnectionError`, so the `instanceof` order matters as it does on Anthropic.
+  - There is **no overload class**. Anthropic has `OverloadedError` (529); OpenAI returns 503 through the generic `InternalServerError`. So `overloaded` is a **status check**, and getting it wrong matters — the circuit breaker treats a server fault and back-pressure differently.
+  - No 413 class either, so `request_too_large` is a status check too, as is 402 → `billing`.
+  - `LengthFinishReasonError` and `ContentFilterFinishReasonError` extend `OpenAIError`, **not** `APIError`, and are not exported from the package root (use `openai/error`). They are mapped explicitly: falling through to `unknown` would make a truncated structured output look like a provider outage and trip the breaker on a healthy provider.
+- **Effort.** `ReasoningEffort` is `'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null` at 7.55.0. The adapter maps our five-level `Effort` through a **total** `Record`, so adding a level to the canonical union is a compile error here rather than a 400 at run time. The `openai/*` registry row stays conservative at `low|medium|high` because a wildcard family row has to hold for every model behind it.
+- **Models.** As of 2026-11 OpenAI lists `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna` [R13]. The registry ships verified entries only for models covered by contract tests. **Prices filled at `M2-T11`** from developers.openai.com/api/docs/pricing on 2026-11-13 — all four, standard speed, with the 30m/12h cache-write columns and a 0.5 batch multiplier (the Batch column is exactly half the standard one on every one of the four). `service_tier` is never sent, so the standard column is the one that applies.
 
 #### 3.5.5 Google adapter (`@google/genai`, `models.generateContent`)
 **Decision (D19).** Use `generateContent`, not the Interactions API.

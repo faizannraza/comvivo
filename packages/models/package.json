@@ -31,7 +31,8 @@
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",
     "@comvivo/core": "workspace:*",
-    "@comvivo/shared": "workspace:*"
+    "@comvivo/shared": "workspace:*",
+    "openai": "catalog:"
   },
   "devDependencies": {
     "fast-check": "catalog:",

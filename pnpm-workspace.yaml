@@ -158,6 +158,14 @@ catalog:
   # 1.8.0 went out 2026-11-10 and the cutoff that day was 2026-11-10T06:16Z. The guardrail is
   # working as `08` §3.15 intends; the version moves up when Renovate's PR matures.
   "@anthropic-ai/sdk": 1.7.0
+  # Exact minor for the same reason as the Anthropic pin, plus one of its own: the Responses API's
+  # reasoning items are **opaque** (`05` §3.5.4 — every `output` item is replayed verbatim), so a
+  # minor that changed an item's shape would break replay without touching a type we read.
+  #
+  # 7.55.0 chosen at `M2-T11` over the newest published 7.56.0, which `minimumReleaseAge` refuses:
+  # 7.56.0 went out 2026-11-12T19:37Z, under the 3-day cutoff. Same guardrail, same resolution as
+  # `@anthropic-ai/sdk` — the version moves up when Renovate's PR matures.
+  openai: 7.55.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2

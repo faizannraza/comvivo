@@ -48,12 +48,22 @@ import {
   frameSse,
   openaiCompletion,
   openaiError,
+  openaiResponse,
   openaiStream,
   type SseEvent,
   type WireIds,
 } from './provider-wire.js';
 
-export const PROVIDER_KINDS = ['anthropic', 'openai'] as const;
+/**
+ * `openai_responses` is its own kind, not a flavour of `openai` (`M2-T11`).
+ *
+ * The Responses API's body is a different shape, not a variant: `output` is a flat item array
+ * rather than `choices[0].message`, there is no `finish_reason`, and a refusal is content inside a
+ * message. Folding the two together would make the fake agree with whichever adapter was written
+ * last. `openai` stays the Chat Completions shape the OpenAI-compatible local servers speak
+ * (`M2-T12`).
+ */
+export const PROVIDER_KINDS = ['anthropic', 'openai', 'openai_responses'] as const;
 
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
@@ -165,6 +175,7 @@ function providerFor(path: string): ProviderKind | 'unknown' {
   const withoutQuery = path.split('?')[0] ?? path;
   if (withoutQuery.endsWith('/v1/messages')) return 'anthropic';
   if (withoutQuery.endsWith('/v1/chat/completions')) return 'openai';
+  if (withoutQuery.endsWith('/v1/responses')) return 'openai_responses';
   if (withoutQuery.endsWith('/v1/messages/count_tokens')) return 'anthropic';
   if (withoutQuery.includes('/v1/messages/batches')) return 'anthropic';
   return 'unknown';
@@ -182,7 +193,6 @@ export function anthropicEndpointFor(path: string): AnthropicEndpoint {
 
 /** The task that owns an endpoint this fake deliberately does not serve. */
 function unservedBy(path: string): string | undefined {
-  if (path.includes('/v1/responses')) return 'M2-T11 (the OpenAI Responses adapter)';
   if (path.includes('/v1/models')) return 'M2-T12 (the OpenAI-compatible local adapter)';
   return undefined;
 }
@@ -265,7 +275,11 @@ export async function startFakeProviderServer(
 
   const idsFor = (provider: ProviderKind | 'unknown', ordinal: number): WireIds => ({
     messageId:
-      provider === 'openai' ? `chatcmpl_fake_${String(ordinal)}` : `msg_fake_${String(ordinal)}`,
+      provider === 'openai'
+        ? `chatcmpl_fake_${String(ordinal)}`
+        : provider === 'openai_responses'
+          ? `fake_${String(ordinal)}`
+          : `msg_fake_${String(ordinal)}`,
     created,
   });
 
@@ -305,9 +319,8 @@ export async function startFakeProviderServer(
   }
 
   function errorBody(provider: ProviderKind | 'unknown', status: number): unknown {
-    return provider === 'openai'
-      ? openaiError(status)
-      : anthropicError(status, `req_fake_${String(captured.length)}`);
+    if (provider === 'openai' || provider === 'openai_responses') return openaiError(status);
+    return anthropicError(status, `req_fake_${String(captured.length)}`);
   }
 
   function eventsFor(
@@ -326,9 +339,9 @@ export async function startFakeProviderServer(
     reply: FakeReply,
     ids: WireIds,
   ): Record<string, unknown> {
-    return provider === 'openai'
-      ? openaiCompletion(reply, ids, defaultModel)
-      : anthropicMessage(reply, ids, defaultModel);
+    if (provider === 'openai') return openaiCompletion(reply, ids, defaultModel);
+    if (provider === 'openai_responses') return openaiResponse(reply, ids, defaultModel);
+    return anthropicMessage(reply, ids, defaultModel);
   }
 
   /** The whole scripted reply, streamed or not. */
