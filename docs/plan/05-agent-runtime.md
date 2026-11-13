@@ -1124,19 +1124,31 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 | 12–16 GB | `gemma4:12b` (≈ 8 GB; tools, thinking, vision; 256K) [R23] | same | Balanced |
 | 8 GB (Pi 5 8 GB) | `gemma4:e2b` / `gemma4:e4b` (4.6–9.5 GB) [R23] | same | Slow and limited. Docs recommend a cloud preset or a separate GPU host for Pi installs. |
 
-#### 3.5.7 FakeModelGateway (`packages/models/src/fake`)
+#### 3.5.7 FakeModelGateway (`packages/models/src/testing`)
 A deterministic implementation of the full `ModelGateway` port, used by every engine test, every simulator scenario and the CI evals.
+
+> **`src/testing/`, not `src/fake/`** (amended at `M2-T7`). `11` §3.2.4 places every model double in
+> `@comvivo/models/testing`, and the subpath is what `testing-subpath-only-from-tests` guards: a
+> fake under `src/fake/` would be importable from production code, which is the one property a test
+> double must not have. `FakeProviderServer` moved to the same directory at `M2-T6` for the
+> dependency reason. The modules are `fake-gateway.ts` (the DSL), `cache-sim.ts`, `assertions.ts`,
+> `canonical-hash.ts`, `scripted-model.ts`, `cassette-model.ts` and `recorder.ts`.
+>
+> **`.andThen(…)`, not `.then(…)`** (amended at `M2-T7`). A class with a `then` member is a
+> **thenable**: `await fake.when({…}).respond(…)` would try to resolve the rule and hang or return
+> something surprising. `noThenProperty` catches it, and the hazard is not theoretical in a file
+> every test author copies from.
 
 - **Script DSL.**
   ```ts
   fake.when({ route: 'chat', purpose: 'turn.step', match: req => lastUserText(req).includes('recital') })
       .respond(r => r.thinking().toolCall('calendar_search_events', { query: 'recital', from: null, to: null }))
-      .then(r => r.text('Fri 14 Nov, 6 pm at Teatro Real.'));
+      .andThen(r => r.text('Fri 14 Nov, 6 pm at Teatro Real.'));
   fake.when({ route: 'chat' }).refuse('cyber');            // stop.reason = 'refusal'
   fake.when({ route: 'route' }).structured({ candidates: [], dominantLanguage: 'es' });
   fake.when({ route: 'chat' }).error('overloaded').times(2);
   fake.when({ route: 'chat' }).delay(70_000);               // with an injected clock: deadline tests
-  fake.when({ route: 'chat' }).pauseTurn().then(…);        // pause_turn handling
+  fake.when({ route: 'chat' }).pauseTurn().andThen(…);     // pause_turn handling
   fake.when({ route: 'chat' }).fallbackMidStream('claude-opus-5', /*partial*/ …);  // fallback-echo tests
   ```
   Tool-call ids are deterministic (`toolu_fake_0001…`). An unmatched call throws `FakeScriptExhausted`, so tests fail loudly.

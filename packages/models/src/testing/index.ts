@@ -6,7 +6,13 @@
  * | `provider-wire` | The Anthropic Messages and OpenAI-compatible wire formats, as pure functions |
  * | `fake-provider-server` | A loopback HTTP server that speaks them, with `11` §3.6 S10's fault plans and request capture |
  *
- * `M2-T7` adds `FakeModelGateway`, `ScriptedModel` and `CassetteModel` beside them.
+ * | `canonical-hash` | A stable hash of a request, which is `CassetteModel`'s key |
+ * | `cache-sim` | The prompt cache, rendered through the real `buildChatRequest` |
+ * | `fake-gateway` | `FakeModelGateway` and the script DSL |
+ * | `assertions` | Prompt assertions over the captured calls, including I1's `expectNoReadUp` |
+ * | `scripted-model` | Responses keyed by position, for golden journeys |
+ * | `cassette-model` | Recorded responses keyed by the request hash, strict by default |
+ * | `recorder` | `RecordingGateway`, which writes scrubbed fixtures |
  *
  * ## Why this is not in `@comvivo/evals`
  *
@@ -27,6 +33,48 @@
  * `testing-subpath-only-from-tests` requires, and `apps/server/src/test-mode/` is the one
  * exception `11` §1332 already carves out.
  */
+
+export {
+  effortsRequested,
+  expectNoReadUp,
+  expectNoSamplingParams,
+  expectSystemBytesStable,
+  expectToolResultsInSingleMessage,
+  expectTurnNotesContain,
+  type ReadUpCheck,
+} from './assertions.js';
+export {
+  CACHE_SIM_DEFAULTS,
+  type CacheSimOptions,
+  type CacheSimUsage,
+  CacheSimulator,
+  type EffortStrategy,
+  renderBlocks,
+} from './cache-sim.js';
+export {
+  canonicalStructuredRequest,
+  canonicalTurnRequest,
+  hashStructuredRequest,
+  hashTurnRequest,
+} from './canonical-hash.js';
+export {
+  type CassetteEntry,
+  CassetteMiss,
+  CassetteModel,
+  type CassetteModelOptions,
+  replyText,
+} from './cassette-model.js';
+export {
+  FAKE_EFFORTS,
+  FakeModelGateway,
+  type FakeModelGatewayOptions,
+  FakeRule,
+  FakeScriptExhausted,
+  fakeToolCallId,
+  ReplyBuilder,
+  type ReplyScript,
+  type RuleMatcher,
+} from './fake-gateway.js';
 export {
   CAPTURED_SECRET,
   type CapturedRequest,
@@ -60,3 +108,17 @@ export {
   type SseEvent,
   type WireIds,
 } from './provider-wire.js';
+export {
+  type FixtureWriter,
+  type RecordedExchange,
+  RecordingGateway,
+  type RecordingGatewayOptions,
+  scrubDeep,
+  scrubText,
+} from './recorder.js';
+export {
+  type ScriptedEntry,
+  ScriptedModel,
+  type ScriptedModelOptions,
+  type ScriptPosition,
+} from './scripted-model.js';
