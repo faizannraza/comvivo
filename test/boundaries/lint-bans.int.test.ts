@@ -24,6 +24,7 @@ import {
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   RAW_TRANSACTION_BAN,
+  SDK_PURITY_RULES,
   SECURITY_RULES,
   SYNC_TX_BAN,
   UNFILTERED_ALLOWED_GLOBS,
@@ -316,6 +317,56 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
       ).toContain('no-restricted-globals');
     },
   );
+
+  it('bans every impure global inside the plugin SDK — the options, not just the rule', async () => {
+    // Added at `M2-T5`, when `packages/plugin-sdk/tsconfig.json` gained `"types": ["node"]` so
+    // `ToolContext` could name an `AbortSignal` and `EgressHttp` a `Response` (`10` §3.2.4). The
+    // same trade core made at `M2-T1`: Node's types make these compile, so they have to be a rule.
+    expect(await restrictedGlobalsFor('packages/plugin-sdk/src/tool.ts')).toEqual([
+      'Buffer',
+      'Date',
+      'fetch',
+      'process',
+      'setImmediate',
+      'setInterval',
+      'setTimeout',
+    ]);
+  });
+
+  it.each(['Date', 'process', 'setTimeout', 'setInterval', 'setImmediate', 'Buffer', 'fetch'])(
+    'refuses %s in the plugin SDK, where ToolContext supplies the replacement',
+    async (name) => {
+      const code =
+        name === 'Buffer'
+          ? 'export const f = () => Buffer.alloc(1);'
+          : name === 'Date'
+            ? 'export const f = () => Date.now();'
+            : name === 'process'
+              ? 'export const f = () => process.argv;'
+              : name === 'fetch'
+                ? 'export const f = () => fetch("https://example.com");'
+                : `export const f = () => ${name}(() => undefined, 1);`;
+      expect(
+        await rulesFiredFor(SDK_PURITY_RULES, code, 'packages/plugin-sdk/src/tool.ts'),
+      ).toContain('no-restricted-globals');
+    },
+  );
+
+  it('refuses Math.random in the plugin SDK, so an invocation can be replayed', async () => {
+    expect(
+      await rulesFiredFor(
+        SDK_PURITY_RULES,
+        'export const f = () => Math.random();',
+        'packages/plugin-sdk/src/tool.ts',
+      ),
+    ).toContain('no-restricted-properties');
+  });
+
+  it('applies both purity rules inside the plugin SDK', async () => {
+    const rules = await configuredRulesFor('packages/plugin-sdk/src/tool.ts');
+    expect(Object.keys(rules)).toContain('no-restricted-globals');
+    expect(Object.keys(rules)).toContain('no-restricted-properties');
+  });
 
   it('bans only fetch outside core, where a clock is legitimate', async () => {
     // `storage` must be able to call `Date.now()`. If this ever returns `Date`, a block has

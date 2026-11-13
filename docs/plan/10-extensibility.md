@@ -91,14 +91,35 @@ Re-verify all of these at implementation start (M12-T0). The SDK moves quickly.
 packages/plugin-sdk/
   src/index.ts            # PUBLIC root: definePlugin, defineTool, defineChannel, defineSkill,
                           #   defineDigestSection, defineJob, types (ToolContext, ToolOutcome, Label…), errors
-  src/schema/             # zod→JSON Schema (z.toJSONSchema, draft 2020-12, io:'input'), strictness linter
-  src/manifest/           # manifest zod schema (shared with host), permission algebra
+  src/tool.ts             # defineTool, ToolDefinition, the host rules (M2-T5)
+  src/outcome.ts          # ToolOutcome's three arms and their constructors (M2-T5)
+  src/context.ts          # ToolContext and its members (M2-T5)
+  src/permissions.ts      # PluginPermissions and the type-level narrowing it drives (M2-T5)
+  src/repos.ts            # ScopedRepositories, the *View/*Draft projections, WriteResult (M2-T5)
+  src/manifest/           # manifest zod schema (shared with host), permission algebra (M12-T3)
   src/rpc/                # village-plugin-rpc/1 types + NDJSON framing (shared with host; exported as ./rpc, @internal)
   src/runtime/child.ts    # plugin-process bootstrap (entry point the host spawns; exported as ./runtime, @internal)
   src/testing/            # PUBLIC ./testing: fake ToolContext, fake policy, http mocks, assertions (§3.12)
   src/cli/                # `village-plugin` bin: create | check | manifest | pack
   api-extractor.json      # public API report → etc/plugin-sdk.api.md (CI-checked)
 ```
+
+> **No `src/schema/`** (amended at `M2-T5`; the converter moved at `M2-T4`). zod → strict JSON
+> Schema and the strictness linter live in `@comvivo/shared` (`zod/to-strict.ts`,
+> `zod/strict-lint.ts`) and are re-exported from this package's root, so a plugin author still
+> needs one import. `05` §3.6.2 named a second copy in `@comvivo/models`; one implementation is
+> what makes "the host and the provider validate against the same schema" a fact. See §3.5.2.
+>
+> **`src/permissions.ts` and `src/repos.ts`** are additions to this layout, not subdivisions of
+> `src/index.ts`: `ToolContext` cannot be typed without `PluginPermissions` and
+> `ScopedRepositories`, and `14`'s `M2-T5` row named only `{index,tool,outcome,context}.ts`. The
+> **manifest zod schema and the permission algebra functions** stay with `M12-T3`; `M2-T5` landed
+> the permission *types* only.
+>
+> **`pnpm api:check`** (root) runs API Extractor against the built `.d.ts` and fails when
+> `etc/plugin-sdk.api.md` disagrees with it. It runs in `pnpm verify` after `build`, and in CI's
+> `build` job, because the report must describe what is shipped rather than what `src/index.ts`
+> looks like.
 
 Dependencies are `zod@^4` (peer), `@comvivo/core` (types only), `@comvivo/shared` and `@comvivo/channel-sdk` (types only; see §12). There is **no runtime dependency on the engine**. Because `@comvivo/tools` imports the root export (built-ins use `defineTool`), the root and `./testing` entry points must not import `node:*` (01 §14 A11); only `./runtime` and `src/cli/` may.
 
@@ -181,6 +202,35 @@ Rules the host enforces regardless of what the plugin code says:
 
 `ToolOutcome` and `ToolErrorCode` are **public SDK types**; built-ins use the same ones. `05` owns how outcomes map to `tool_result` blocks.
 
+Six refinements from `M2-T5`, each because the shape above would not compile or would not be usable:
+
+1. **`ToolDefinition<I, O, P, S>` takes a fourth type parameter** for the settings shape, and so
+   does `ToolContext<P, S>`. §3.2.4 writes `settings: { instance: InferInstance<P>; group:
+   InferGroup<P> }`, which cannot work: the schemas live on `definePlugin`'s `settingsSchema`, and
+   `P` is the *permissions* type, which carries no schema. `S` defaults to
+   `PluginSettingsShape` (two unknown-valued records); `M12-T3`'s `definePlugin` threads the
+   inferred shape through.
+2. **`ToolOutcome`'s three arms are named interfaces** — `ToolOk<O>`, `ToolFailure`,
+   `ToolNeedsInput` — and the constructors return the arm they build. `toolError(…).retryable` has
+   to be readable: a tool that wraps another's failure needs to see the code it is passing on, and
+   a bare union would make it narrow something it just constructed.
+3. **The constructors are `toolOk` / `toolError` / `toolNeedsInput`**, not `ok` / `error` / `ask`.
+   `@comvivo/shared` exports an `ok` for `Result`, and the built-in tool modules import both
+   packages; one `ok` winning an import collision would be the wrong constructor, silently.
+4. **`retryable` has a default per code** (`RETRYABLE_BY_DEFAULT`): `unavailable`, `rate_limited`,
+   `timeout` and `upstream_error` are retryable, the other five are not. A tool may override it.
+   Without a default, every author decides it again and some decide it wrong in the direction that
+   loops.
+5. **Output schemas are held to the same object-root rule as inputs.** A tool whose result is a
+   bare list returns `{ items: [...] }`, which the model also reads better because a named field
+   says what the list is. §3.2.3 said outputs are *validated*, not that they must be strict; one
+   rule for both is one set of edge cases.
+6. **`defineTool` validates eagerly and throws.** Name, description length, timeout bounds, the
+   delegation grant and the MCP alias are checked, every problem at once, and both schemas are
+   converted to prove they can be. The alternative is discovering it during `comvivo plugin add`,
+   after a stranger has published the package. `toolSchemas(definition)` caches the conversion in a
+   `WeakMap`, so `M2-T17`'s catalog hashes the bytes `defineTool` already proved.
+
 #### 3.2.4 `ToolContext`
 
 ```ts
@@ -241,6 +291,44 @@ export type WriteResult<T> =
 ```
 
 Every `*View` includes `label` (with `untrusted`) and `provenance`, so plugins can propagate them. `memory.search` delegates to `04`'s IFC-filtered query service (via `engine/context`). Spine §4 as amended (01 §14 A11) allows `MemoryRepository.search*` only from `engine/context` and `engine/readmodels`, both with the eligible-label filter, and this keeps that rule.
+
+Nine refinements from `M2-T5`, where the shapes above were typed for the first time:
+
+1. **The `*View` types are projections with their field types spelled out**, not `Pick`s of
+   `@comvivo/core`'s aggregates and not indexed accesses into them. An aggregate carries `labelId`,
+   `rid`, `version`, `tzdataVersion`, `occurrenceKey` and `contentHash` — storage mechanics a
+   plugin would come to depend on — and an indexed access puts `Event`, a type this package
+   deliberately does not export, into the published `.d.ts`.
+2. **`provenance` is `ViewProvenance { origin, providerId, createdByMemberId, createdAt }`.**
+   Trust is **not** on it: that is `label.untrusted`, and two answers to one question is worse than
+   one. `origin` is what an importer needs in order to leave rows a member typed by hand alone.
+3. **`SourceRef` is `{ uid, recurrenceId? }`** — the external identity only. The host scopes every
+   `*BySource` call to the calling provider, so a `SourceRef` carrying its own provider or feed id
+   would let one plugin upsert over another's rows and would have to be refused anyway. §3.11's ICS
+   mapping keeps its richer internal shape; the two are not the same type.
+4. **`ReminderDraft.to` is `'requester' | 'group' | readonly MemberId[]`**, not core's
+   `ReminderRecipients`. That union's `group` arm needs a `conversationId`, and `ctx` deliberately
+   gives a plugin an audience size and no roster — so the published shape would have required an id
+   a plugin has no way to obtain. The host resolves the role names.
+5. **`repos.reminders` is write-only and `repos.memory` / `repos.members` are read-only**, enforced
+   in `RepoAccessFor<E>` rather than at runtime. Reminders have one method and nothing to read, so
+   `reminders: 'read'` would be a permission that reads as a grant and grants nothing; a plugin
+   writing memory would bypass `04`'s extraction, consolidation and consent machinery entirely.
+6. **`MemoryView.text` is the rendered content**, not `04`'s discriminated `MemoryContent`. A
+   plugin switching on the content kind would be coupled to an extraction schema `04` changes as
+   the extractor improves. The rendering is the host's, under the same IFC filter as the row.
+7. **`secrets.reveal` takes `RevealableSecretKeyOf<P>`**, which is `never` unless the manifest
+   declared `reveal: true` for that key — the permission denial moved to compile time. `ref` takes
+   `SecretKeyOf<P>`, so an undeclared key does not typecheck either.
+8. **A request body may be a `SecretTemplate { template, secrets }`** rather than a string scanned
+   for `{secret}` placeholders. An implicit scan would rewrite a literal `{apiKey}` that happened
+   to appear in somebody's JSON, and the host's redactor would have to guess which braces it had
+   replaced when scrubbing the log. Header values may be a `SecretRef` directly.
+9. **`clock.zonedNow(timeZone?: TimeZoneId)` and `group.timeZone`** use the branded
+   `TimeZoneId`, so `ctx.group.timeZone` needs no parsing and an invalid literal fails loudly.
+   `parseTimeZoneId` is re-exported for the plugin that has a string. `store` also exposes a
+   readonly `scope: 'instance' | 'group'`, because §3.2.4 says the store is scoped without saying
+   how a plugin can tell which scope it got.
 
 #### 3.2.5 `defineChannel`, `defineSkill`, `defineDigestSection`, `defineJob`
 

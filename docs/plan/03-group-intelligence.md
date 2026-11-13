@@ -218,6 +218,17 @@ Each capability gates a *kind of action*. Ownership and contest rules (§3.3) ga
 
 The closed catalog in code is `CAPABILITY_CATALOG: readonly { id: Capability; summary: string; defaultRisk: 'low' | 'medium' | 'high'; floor: boolean }[]` in `core/policy/capabilities.ts` (consumed by `09` and `13` for generated docs). A capability string used anywhere else in the plan that is not in this table is a bug in that document.
 
+> **The `Capability` union itself landed early, at `M2-T5`** (`core/policy/capability.ts`), because
+> `ToolDefinition.capability` (`01` §7.4, `10` §3.2.3) cannot be typed without it and `10` §3.2.3's
+> rule 3 — a plugin tool's capability is always `plugin:<id>:<name>` — is a pure function over it.
+> That module holds the closed id union transcribed from the table above, the plugin-capability
+> syntax (`pluginCapability`, `parsePluginCapability`, the provider-id and tool-name patterns from
+> §3.1) and a `capabilitySchema`. `M4-T1` keeps **`CAPABILITY_CATALOG`** (the summary and
+> `defaultRisk` per id), `FLOOR_CAPABILITIES` and the CI check that no capability string exists
+> outside the catalog: `defaultRisk` is a decision `M4-T2` makes together with the action registry,
+> and duplicating the ids in two tables is how the two would come to disagree. `Risk` and `maxRisk`
+> moved with it, into `core/policy/risk.ts`.
+
 #### 3.1.3 Grant bundles (v1)
 
 A role's `grants` may contain `*` (all non-plugin capabilities), `plugin:*`, `<prefix>.*`, exact capabilities, and bundles prefixed with `@`. The compiler expands every token to an explicit set (§3.2.4).

@@ -35,6 +35,7 @@ import {
   RAW_TRANSACTION_ALLOWED_GLOBS,
   RAW_TRANSACTION_BAN,
   RAW_TX_AND_UNFILTERED_EXEMPT_GLOBS,
+  SDK_PURITY_RULES,
   SECURITY_RULES,
   SYNC_TX_BAN,
   UNFILTERED_ALLOWED_GLOBS,
@@ -264,13 +265,30 @@ export default defineConfig(
     // the `fetch` global, which dependency-cruiser cannot see.
     name: 'comvivo/guarded-egress',
     files: ['packages/**/*.{ts,tsx}', 'apps/**/*.{ts,tsx}'],
-    // `packages/core/**` is excluded because `comvivo/core-purity` above already carries the fetch
-    // ban as part of its own `no-restricted-globals`. ESLint flat config **replaces** a rule's
-    // options rather than merging them, so a block that matched core here would silently take the
-    // `Date` and `process` bans away — which is exactly what happened for most of M0, and what
-    // the exit gate caught by planting `new Date()` in core and finding `pnpm lint` green.
-    ignores: ['packages/core/**', ...FETCH_ALLOWED_GLOBS, '**/*.test.ts', '**/testing/**'],
+    // `packages/core/**` and `packages/plugin-sdk/**` are excluded because the purity blocks for
+    // those two already carry the fetch ban as part of their own `no-restricted-globals`. ESLint
+    // flat config **replaces** a rule's options rather than merging them, so a block that matched
+    // either here would silently take the `Date` and `process` bans away — which is exactly what
+    // happened for most of M0, and what the exit gate caught by planting `new Date()` in core and
+    // finding `pnpm lint` green.
+    ignores: [
+      'packages/core/**',
+      'packages/plugin-sdk/**',
+      ...FETCH_ALLOWED_GLOBS,
+      '**/*.test.ts',
+      '**/testing/**',
+    ],
     rules: FETCH_BAN,
+  },
+  {
+    // `M2-T5`: the plugin SDK's tsconfig carries `"types": ["node"]` so `ToolContext` can name an
+    // `AbortSignal` and a `Response` (`10` §3.2.4). These bans are what stops that from becoming a
+    // licence to use the rest of the platform — every one of them has a replacement on the context
+    // object a tool is handed, and this is the package whose examples plugin authors copy.
+    name: 'comvivo/plugin-sdk-purity',
+    files: ['packages/plugin-sdk/**/*.ts'],
+    ignores: ['**/*.test.ts', '**/testing/**'],
+    rules: SDK_PURITY_RULES,
   },
   {
     // `08` §3.7.13: a secret is compared in constant time, or not at all. Its own rule id rather

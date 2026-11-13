@@ -158,6 +158,13 @@ const PLANTED: Record<string, PlantedFile> = {
     path: 'packages/core/src/reads-a-file.ts',
     imports: ['node:fs'],
   },
+  'no-node-builtins-in-plugin-sdk-testing': {
+    // "it's only the test kit" — except `./testing` is a PUBLIC entry point of a published SDK
+    // (`10` §3.2.1), so a fake ToolContext that reads a fixture off disk ships to every plugin
+    // author and breaks the browser target.
+    path: 'packages/plugin-sdk/src/testing/reads-a-fixture.ts',
+    imports: ['node:fs'],
+  },
 
   // --- Security import restrictions (08 PSC-8) -------------------------------------------------
   'network-apis-only-in-shared-net-and-adapters': {
@@ -223,6 +230,26 @@ describe('A11 allows the type edge it forbids as a value', { tags: ['slow'] }, (
     // Non-vacuous: the modules really were cruised, so "no violations" is a verdict rather than an
     // empty graph.
     expect(result.modulesCruised).toBeGreaterThan(20);
+  });
+});
+
+describe('a peer dependency is not a devDependency that ships', { tags: ['slow'] }, () => {
+  // The positive control for `no-dev-dep-in-src`'s `dependencyTypesNot: ['npm-peer']`, added at
+  // `M2-T5` when `@comvivo/plugin-sdk` became the first package to declare a peer (`10` §3.2.1
+  // makes `zod` one, and it has to be: a plugin builds its schemas with its own copy of zod).
+  // pnpm resolves a peer through the matching devDependency, so depcruise reports
+  // `['npm-peer', 'npm-dev', …]` and the rule fired on a perfectly correct import.
+  it('allows a peer import in src and still refuses a dev-only one', async () => {
+    const result = await cruisePlanted([
+      { path: 'packages/plugin-sdk/src/uses-a-peer.ts', imports: ['zod'] },
+      { path: 'packages/engine/src/ships-a-devdep-too.ts', imports: ['vitest'] },
+    ]);
+    const devDep = result.violations.filter((v) => v.rule === 'no-dev-dep-in-src');
+    expect(
+      devDep.map((v) => v.from),
+      'A peer dependency is a declared runtime requirement of the consumer, not something we ' +
+        'ship. A dev-only import must still fail, or the exemption swallowed the rule.',
+    ).toEqual(['packages/engine/src/ships-a-devdep-too.ts']);
   });
 });
 

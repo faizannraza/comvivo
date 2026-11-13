@@ -164,10 +164,16 @@ module.exports = {
       name: 'no-dev-dep-in-src',
       comment:
         'Production code may import only runtime dependencies. A devDependency that ships is a ' +
-        'broken install for every user.',
+        'broken install for every user. A **peer** dependency is exempt: it is a declared runtime ' +
+        'requirement of the consumer, not something we ship, and the workspace still needs it as ' +
+        'a devDependency to compile. `@comvivo/plugin-sdk` is the first package to need this ' +
+        '(`10` §3.2.1 makes `zod` a peer, and it has to be: a plugin builds its schemas with its ' +
+        'own copy of zod, and a second copy resolved under the SDK would walk a schema object it ' +
+        'did not create). A devDependency that is *not* also a peer still fails — the planted ' +
+        '`vitest` import in `test/boundaries/fixtures.int.test.ts` proves it.',
       severity: 'error',
       from: { path: '^(packages|apps)/', pathNot: `(${TEST_SHAPED}|${PACKAGE_BUILD_TOOLING})` },
-      to: { dependencyTypes: ['npm-dev'] },
+      to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['npm-peer'] },
     },
 
     // --- 01 §4: the package graph, bottom up ---------------------------------------------------
@@ -428,6 +434,21 @@ module.exports = {
         'because both are consumed outside Node.',
       severity: 'error',
       from: { path: PURE_PACKAGES, pathNot: TEST_SHAPED },
+      to: { dependencyTypes: ['core'] },
+    },
+    {
+      name: 'no-node-builtins-in-plugin-sdk-testing',
+      comment:
+        "A11 and `10` §3.2.1 say the plugin SDK's **root and `./testing`** entry points must not " +
+        'import `node:*`; only `./runtime` and `src/cli/` may. The rule above could not carry the ' +
+        '`./testing` half, because its `pathNot: TEST_SHAPED` exempts every `/testing/` directory ' +
+        '— correctly, for the test doubles in every other package, which never ship. The plugin ' +
+        "SDK's is different: §3.2.1 marks it a **PUBLIC** entry point, so it is shipped product " +
+        'that `@comvivo/tools` imports, and a `node:*` in it would break the browser target A11 ' +
+        'exists to protect. Found at `M2-T5`, while checking the AC clause that names it. ' +
+        "`*.test.ts` files inside it are still exempt: those are the subpath's own tests.",
+      severity: 'error',
+      from: { path: '^packages/plugin-sdk/src/testing/', pathNot: '\\.test\\.ts$' },
       to: { dependencyTypes: ['core'] },
     },
 

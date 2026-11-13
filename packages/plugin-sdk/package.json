@@ -21,6 +21,8 @@
   "scripts": {
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
+    "api:check": "pnpm -w exec api-extractor run --config packages/plugin-sdk/api-extractor.json",
+    "api:update": "pnpm -w exec api-extractor run --local --config packages/plugin-sdk/api-extractor.json",
     "test": "pnpm -w exec vitest run packages/plugin-sdk"
   },
   "dependencies": {
@@ -28,8 +30,14 @@
     "@comvivo/shared": "workspace:*",
     "@comvivo/channel-sdk": "workspace:*"
   },
+  "peerDependencies": {
+    "temporal-polyfill": "^1.0.6",
+    "zod": "^4.6"
+  },
   "devDependencies": {
-    "vitest": "catalog:"
+    "temporal-polyfill": "catalog:",
+    "vitest": "catalog:",
+    "zod": "catalog:"
   },
   "publishConfig": {
     "access": "public",

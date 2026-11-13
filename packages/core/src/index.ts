@@ -424,6 +424,33 @@ export {
   SubjectRefSchema,
 } from './memory/subjects.js';
 export { ianaTzSchema, type TimeSpec, TimeSpecSchema } from './memory/time-spec.js';
+// --- Policy: the capability and risk vocabulary (M2-T5; the catalog lands at M4-T1) -----------
+export {
+  type Capability,
+  capabilitySchema,
+  DOMAIN_CAPABILITIES,
+  type DomainCapability,
+  isCapability,
+  isDomainCapability,
+  isPluginCapability,
+  isProviderId,
+  isToolLocalName,
+  type ParsedPluginCapability,
+  type PluginCapability,
+  PROVIDER_ID_PATTERN,
+  parsePluginCapability,
+  pluginCapability,
+  pluginWildcardCapability,
+  TOOL_LOCAL_NAME_PATTERN,
+} from './policy/capability.js';
+export {
+  atLeastRisk,
+  maxRisk,
+  RISK_LEVELS,
+  type Risk,
+  riskRank,
+  riskSchema,
+} from './policy/risk.js';
 // --- Ports: the model gateway (M2-T1) -----------------------------------------------------------
 //
 // From the root, like the storage ports: `05` §4.1 cites it as `@comvivo/core/ports/model.ts` and a
