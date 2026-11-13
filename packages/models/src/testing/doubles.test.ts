@@ -10,7 +10,7 @@ import type { ModelTurnRequest } from '@comvivo/core';
 import { VirtualClock } from '@comvivo/shared/testing';
 import { describe, expect, it } from 'vitest';
 import { bindingFor, OPUS, turnRequest } from '../anthropic/testing/fixtures.js';
-import { hashTurnRequest } from './canonical-hash.js';
+import { hashTurnRequest } from '../request-hash.js';
 import { CassetteMiss, CassetteModel, replyText } from './cassette-model.js';
 import { FakeModelGateway, FakeScriptExhausted } from './fake-gateway.js';
 import { RecordingGateway, scrubDeep, scrubText } from './recorder.js';

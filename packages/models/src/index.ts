@@ -77,6 +77,34 @@ export {
   WireInvariantError,
   withRepairTurn,
 } from './anthropic/index.js';
+// --- The middleware chain (05 §3.5.1; M2-T9) --------------------------------------------------
+export {
+  BREAKER_DEFAULTS,
+  type BreakerOptions,
+  BreakerRegistry,
+  type BreakerState,
+  type ChainDeps,
+  CircuitBreaker,
+  CircuitOpenError,
+  COUNTS_TOWARD_BREAKER,
+  INTERACTIVE_ROUTES,
+  LIMITER_DEFAULTS,
+  type LimiterOptions,
+  type ModelCallTrace,
+  PriorityLimiter,
+  priorityOf,
+  ROUTE_PRIORITY,
+  recordUsage,
+  type TraceContext,
+  type TraceHookDeps,
+  traceOf,
+  traceOfError,
+  type UsageContext,
+  type UsageHookDeps,
+  usageRecordFor,
+  withMiddleware,
+  withTrace,
+} from './middleware/index.js';
 export {
   batchMultiplierFor,
   costIteration,
@@ -140,3 +168,10 @@ export {
   toFeatureSet,
   withOverrides,
 } from './registry/index.js';
+// --- The canonical request hash (05 §3.5.7, 11 §12-1; M2-T7) ----------------------------------
+export {
+  canonicalStructuredRequest,
+  canonicalTurnRequest,
+  hashStructuredRequest,
+  hashTurnRequest,
+} from './request-hash.js';

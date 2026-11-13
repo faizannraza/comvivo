@@ -20,7 +20,7 @@ import type {
   StructuredRequest,
   StructuredResult,
 } from '@comvivo/core';
-import { hashStructuredRequest, hashTurnRequest } from './canonical-hash.js';
+import { hashStructuredRequest, hashTurnRequest } from '../request-hash.js';
 import {
   FakeModelGateway,
   type FakeModelGatewayOptions,

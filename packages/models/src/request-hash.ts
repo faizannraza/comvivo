@@ -1,5 +1,13 @@
 /**
- * A stable hash of a model request (`05` §3.5.7; `M2-T7`).
+ * A stable hash of a model request (`05` §3.5.7, `11` §12-1; `M2-T7`, moved at `M2-T9`).
+ *
+ * **Production code, not a test double.** It was written in `src/testing/` for `CassetteModel`,
+ * and `M2-T9`'s trace hook then needed the same hash for the trace's `requestHash` — which
+ * `testing-subpath-only-from-tests` correctly refused, because a production module must not import
+ * a test double. The guard was right about the direction and wrong about nothing: the hash is a
+ * production concern that the doubles happen to also use, so it moved up. `11` §12-1 is the
+ * production requirement: a replay has to be able to assert it reproduced the same assembly, and a
+ * hash settles that without the trace carrying the prompt.
  *
  * `CassetteModel` keys recorded responses by this hash, which makes the whole design hinge on one
  * property: **the same logical request must hash the same on every run, on every machine, forever**

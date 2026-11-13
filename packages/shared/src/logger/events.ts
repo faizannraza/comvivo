@@ -149,6 +149,17 @@ export const LOG_EVENTS = {
    * prompt fragments before, which is why `ModelCallError` does not interpolate it either.
    */
   'model.call_failed': 'a model call failed',
+  /**
+   * A usage record could not be written, so the ledger is behind what the provider billed.
+   *
+   * Logged and swallowed rather than thrown (`05` §3.9.1): a usage write that propagated would
+   * turn a successful turn into a failed one — a member seeing an error for a reply the model had
+   * already produced and the provider had already charged for. This line is the evidence, and
+   * `02` §3.3.7's reconciliation is the backstop.
+   */
+  'usage.record_failed': 'a usage record could not be written',
+  /** The circuit breaker for a provider changed state (`05` §3.5.1). */
+  'model.breaker_changed': 'a provider circuit breaker changed state',
 
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */

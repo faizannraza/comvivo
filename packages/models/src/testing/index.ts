@@ -6,7 +6,6 @@
  * | `provider-wire` | The Anthropic Messages and OpenAI-compatible wire formats, as pure functions |
  * | `fake-provider-server` | A loopback HTTP server that speaks them, with `11` §3.6 S10's fault plans and request capture |
  *
- * | `canonical-hash` | A stable hash of a request, which is `CassetteModel`'s key |
  * | `cache-sim` | The prompt cache, rendered through the real `buildChatRequest` |
  * | `fake-gateway` | `FakeModelGateway` and the script DSL |
  * | `assertions` | Prompt assertions over the captured calls, including I1's `expectNoReadUp` |
@@ -51,12 +50,6 @@ export {
   type EffortStrategy,
   renderBlocks,
 } from './cache-sim.js';
-export {
-  canonicalStructuredRequest,
-  canonicalTurnRequest,
-  hashStructuredRequest,
-  hashTurnRequest,
-} from './canonical-hash.js';
 export {
   type CassetteEntry,
   CassetteMiss,

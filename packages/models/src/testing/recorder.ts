@@ -36,7 +36,7 @@ import type {
   StructuredResult,
 } from '@comvivo/core';
 import { canonicalJson } from '@comvivo/shared';
-import { canonicalTurnRequest, hashTurnRequest } from './canonical-hash.js';
+import { canonicalTurnRequest, hashTurnRequest } from '../request-hash.js';
 
 /** Where a recording goes. Relative to `fixtures/model/`. */
 export type FixtureWriter = (relativePath: string, contents: string) => Promise<void>;

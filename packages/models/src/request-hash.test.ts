@@ -1,5 +1,5 @@
 /**
- * The canonical request hash (`05` §3.5.7; `M2-T7`).
+ * The canonical request hash (`05` §3.5.7, `11` §12-1; `M2-T7`).
  *
  * `CassetteModel` keys recorded responses by this hash, which makes the whole design hinge on one
  * property with two halves: **the same logical request hashes the same**, and **a request that
@@ -15,8 +15,8 @@ import type { ModelTurnRequest } from '@comvivo/core';
 import { fcConfig } from '@comvivo/shared/testing';
 import * as fc from 'fast-check';
 import { describe, expect, it } from 'vitest';
-import { toolSpec, turnRequest } from '../anthropic/testing/fixtures.js';
-import { canonicalTurnRequest, hashStructuredRequest, hashTurnRequest } from './canonical-hash.js';
+import { toolSpec, turnRequest } from './anthropic/testing/fixtures.js';
+import { canonicalTurnRequest, hashStructuredRequest, hashTurnRequest } from './request-hash.js';
 
 const SCHEMA = { safeParse: (input: unknown) => ({ success: true, data: input }) as const };
 
@@ -150,6 +150,72 @@ describe('what the hash includes', () => {
     expect(await hashTurnRequest(assistant([{ type: 'text', text: 'hi' }]))).not.toBe(
       await hashTurnRequest(assistant([{ type: 'opaque' }, { type: 'text', text: 'hi' }])),
     );
+  });
+});
+
+describe('the parts and messages a hash must still distinguish', () => {
+  it('includes a PDF’s length, like an image’s', async () => {
+    const withPdf = (bytes: Uint8Array): ModelTurnRequest =>
+      turnRequest({
+        messages: [
+          { role: 'user', content: [{ type: 'document', mime: 'application/pdf', data: bytes }] },
+        ],
+      });
+    expect(await hashTurnRequest(withPdf(new Uint8Array([1, 2])))).not.toBe(
+      await hashTurnRequest(withPdf(new Uint8Array([1, 2, 3]))),
+    );
+  });
+
+  it('distinguishes the two mid-conversation system variants', async () => {
+    const note = (scope: 'persistent' | 'turn'): ModelTurnRequest =>
+      turnRequest({
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'go' }] },
+          { role: 'system', kind: 'notes', text: 'quiet hours', scope },
+        ],
+      });
+    // A turn-scoped note renders once and a persistent one renders on every request: different
+    // prompts, so different hashes.
+    expect(await hashTurnRequest(note('persistent'))).not.toBe(await hashTurnRequest(note('turn')));
+
+    const effort = turnRequest({
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'go' }] },
+        { role: 'system', kind: 'effort', effort: 'max' },
+      ],
+    });
+    expect(await hashTurnRequest(effort)).not.toBe(await hashTurnRequest(note('persistent')));
+  });
+
+  it('distinguishes a tool result that errored from one that did not', async () => {
+    const result = (isError: boolean): ModelTurnRequest =>
+      turnRequest({
+        messages: [
+          { role: 'user', content: [{ type: 'text', text: 'go' }] },
+          {
+            role: 'assistant',
+            provider: 'anthropic',
+            servedModel: 'claude-opus-5-5',
+            raw: [],
+            view: [{ type: 'tool_call', id: 't1', name: 'a', input: {} }],
+          },
+          {
+            role: 'user',
+            content: [{ type: 'tool_result', toolCallId: 't1', content: 'x', isError }],
+          },
+        ],
+      });
+    expect(await hashTurnRequest(result(true))).not.toBe(await hashTurnRequest(result(false)));
+  });
+
+  it('includes a part’s cache hint', async () => {
+    const cached = turnRequest({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go', cache: { ttl: '1h' } }] }],
+    });
+    const plain = turnRequest({
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'go' }] }],
+    });
+    expect(await hashTurnRequest(cached)).not.toBe(await hashTurnRequest(plain));
   });
 });
 

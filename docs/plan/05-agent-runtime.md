@@ -793,7 +793,36 @@ The profile is part of the prompt-asset hash.
 
 The middleware chain, in order:
 1. `limiter`: the priority queue from §3.3.3.
+
+> **The order of the four stages is load-bearing** (recorded at `M2-T9`). `limiter` first, because
+> a call that is going to wait should wait before it consumes anything else — queueing behind the
+> breaker would mean a queued call acted on a breaker decision made thirty seconds earlier.
+> `breaker` second, so a provider that is down is refused **without taking a limiter slot for the
+> length of a timeout**: that is the difference between an outage that degrades one provider and one
+> that stalls the host. `trace-hook` inside both, so the recorded duration is the provider's and not
+> the queue's — a trace that included queue time would make every busy minute look like a slow
+> provider. `usage-hook` innermost, because it needs the result.
+>
+> The optional port members (`countTokens`, the Batches trio) pass **straight through**: none is a
+> turn-path model call, and putting a nightly job in a queue sized for turn concurrency would let it
+> stall a member's question.
 2. `breaker`: one per provider. It opens after 5 consecutive infrastructure failures within 60 s and goes half-open after 30 s.
+
+> **Which failures count** (recorded at `M2-T9`; `COUNTS_TOWARD_BREAKER` is a total map over
+> `ModelCallErrorKind`, so a new kind is a compile error rather than a silent default). Counting:
+> `timeout`, `network`, `overloaded`, `server`, `unknown` — the failures where waiting helps. Not
+> counting: a **429**, which is back-pressure from a provider that is up and said when to come back
+> (a breaker that opened on rate limits would turn a busy minute into a five-minute outage); an
+> **abort**, which is the caller's decision; and a **400/401/403/404/413**, which is our bug or the
+> host's configuration and which a circuit would hide behind "provider unavailable" for thirty
+> seconds before failing the same way again.
+>
+> A non-counting failure does not **reset** the streak either: a 429 between two timeouts does not
+> make the provider healthy, and clearing the count there would stop the breaker opening during
+> exactly the degraded minute it exists for.
+>
+> Half-open admits **one** trial request. Letting several through would meet a provider returning
+> from an outage with the whole backlog at once, which is how an outage repeats itself.
 3. `trace-hook`: timings and request hash.
 4. `usage-hook`: turns usage into `UsageRecord`s, written in their own transaction immediately, so cost is counted even if the process crashes afterwards.
 
