@@ -536,6 +536,12 @@ importers:
         specifier: workspace:*
         version: link:../shared
     devDependencies:
+      '@comvivo/models':
+        specifier: workspace:*
+        version: link:../models
+      fast-check:
+        specifier: 'catalog:'
+        version: 4.10.2
       vitest:
         specifier: 'catalog:'
         version: 5.0.5(@opentelemetry/api@1.10.0)(@types/node@24.19.2)(@vitest/coverage-v8@5.0.5)(jsdom@30.1.3)(vite@8.3.5(@types/node@24.19.2)(esbuild@0.25.12)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))

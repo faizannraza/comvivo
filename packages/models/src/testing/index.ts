@@ -12,6 +12,7 @@
  * | `scripted-model` | Responses keyed by position, for golden journeys |
  * | `cassette-model` | Recorded responses keyed by the request hash, strict by default |
  * | `recorder` | `RecordingGateway`, which writes scrubbed fixtures |
+ * | `anthropic/testing/fixtures` | A real `RouteBinding` and a minimal valid `ModelTurnRequest` |
  *
  * ## Why this is not in `@comvivo/evals`
  *
@@ -33,6 +34,21 @@
  * exception `11` §1332 already carves out.
  */
 
+/**
+ * The adapter fixtures, re-exported (`M2-T17`).
+ *
+ * `bindingFor` builds a `RouteBinding` from the **registry's own row** rather than a hand-written
+ * object, which is why it is worth sharing: a test outside this package that invented its own
+ * capabilities would be asserting against a model that does not exist. `M2-T17`'s catalogue cache
+ * accounting is the first consumer; `M3`'s turn tests are the next.
+ */
+export {
+  bindingFor,
+  OPUS,
+  opusCapabilities,
+  toolSpec,
+  turnRequest,
+} from '../anthropic/testing/fixtures.js';
 export {
   effortsRequested,
   expectNoReadUp,
