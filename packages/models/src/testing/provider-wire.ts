@@ -54,6 +54,20 @@ export interface FakeToolCall {
  */
 export type FakeStopReason = 'end_turn' | 'tool_use' | 'max_tokens' | 'refusal' | 'pause_turn';
 
+/**
+ * `stop_details`, which the real API populates **only** for a refusal.
+ *
+ * Added at `M2-T6`: `05` §9.3 names "refusal (category `null` and set)" as a required adapter
+ * contract case, and a fake that could not say `category: null` could not produce it. `category`
+ * is `null` for a refusal that maps to no named policy category, which the API documents.
+ */
+export interface FakeRefusal {
+  readonly category: string | null;
+  readonly explanation?: string | null;
+  /** The server's suggested retry target when the fallback attempt could not be made. */
+  readonly recommendedModel?: string;
+}
+
 export interface FakeReply {
   /** A summarized thinking block, emitted before the text. Replayed unchanged by `05`. */
   readonly thinking?: string;
@@ -61,6 +75,8 @@ export interface FakeReply {
   readonly toolCalls?: readonly FakeToolCall[];
   /** Defaults to `tool_use` when there are tool calls, `end_turn` otherwise. */
   readonly stopReason?: FakeStopReason;
+  /** Only read when `stopReason` is `'refusal'`, which is the API's own rule. */
+  readonly refusal?: FakeRefusal;
   readonly usage?: FakeUsage;
   readonly model?: string;
 }
@@ -99,6 +115,20 @@ export const FAKE_THINKING_SIGNATURE = 'sig_fake';
 function stopReasonOf(reply: FakeReply): FakeStopReason {
   if (reply.stopReason !== undefined) return reply.stopReason;
   return (reply.toolCalls?.length ?? 0) > 0 ? 'tool_use' : 'end_turn';
+}
+
+/** `null` for every reason but `refusal`, exactly as the API behaves. */
+function stopDetailsOf(reply: FakeReply): Record<string, unknown> | null {
+  if (stopReasonOf(reply) !== 'refusal') return null;
+  const refusal = reply.refusal ?? { category: null };
+  return {
+    type: 'refusal',
+    category: refusal.category,
+    explanation: refusal.explanation ?? null,
+    fallback_credit_token: null,
+    fallback_has_prefill_claim: null,
+    recommended_model: refusal.recommendedModel ?? null,
+  };
 }
 
 /* ────────────────────────────── Anthropic Messages ────────────────────────────── */
@@ -173,6 +203,7 @@ export function anthropicMessage(
     content: anthropicContent(reply),
     stop_reason: stopReasonOf(reply),
     stop_sequence: null,
+    stop_details: stopDetailsOf(reply),
     usage: anthropicUsage(reply.usage ?? DEFAULT_USAGE),
   };
 }
@@ -220,7 +251,11 @@ export function anthropicStream(
     event: 'message_delta',
     data: {
       type: 'message_delta',
-      delta: { stop_reason: stopReasonOf(reply), stop_sequence: null },
+      delta: {
+        stop_reason: stopReasonOf(reply),
+        stop_sequence: null,
+        stop_details: stopDetailsOf(reply),
+      },
       usage: { output_tokens: usage.outputTokens },
     },
   });

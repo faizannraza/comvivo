@@ -29,6 +29,7 @@
     "test": "pnpm -w exec vitest run packages/models"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "catalog:",
     "@comvivo/core": "workspace:*",
     "@comvivo/shared": "workspace:*"
   },

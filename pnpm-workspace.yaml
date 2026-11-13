@@ -147,6 +147,17 @@ catalog:
   # devDependency of `@comvivo/shared` and cross-decrypts between the two implementations in both
   # directions. No install script and no compiler: it loads a prebuilt addon via `require-addon`.
   sodium-native: 5.2.0
+  # --- models (M2) ------------------------------------------------------------------------------
+  # Exact minor, per `05` §3.5.3.1. The adapter sends beta-only request fields (`fallbacks`,
+  # per-message `output_config`, `clear_at`, `block_binding`) that are ahead of the published
+  # typings, so `request.ts` casts once at a local wire type — and a silent minor bump is exactly
+  # what would move those shapes under the cast without a test noticing. Renovate opens a PR per
+  # bump (grouped, `minimumReleaseAge: 3 days`, no auto-merge) so the contract fixtures re-run.
+  #
+  # 1.7.0 chosen at `M2-T6` over the newest published 1.8.0, which `minimumReleaseAge` refuses:
+  # 1.8.0 went out 2026-11-10 and the cutoff that day was 2026-11-10T06:16Z. The guardrail is
+  # working as `08` §3.15 intends; the version moves up when Renovate's PR matures.
+  "@anthropic-ai/sdk": 1.7.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2

@@ -161,7 +161,12 @@ describe('anthropicStream', () => {
     expect(start['stop_reason']).toBeNull();
 
     const delta = dataOf(events.at(-2) as SseEvent);
-    expect(delta['delta']).toEqual({ stop_reason: 'end_turn', stop_sequence: null });
+    // `stop_details` is `null` for every reason but `refusal`, exactly as the API behaves.
+    expect(delta['delta']).toEqual({
+      stop_reason: 'end_turn',
+      stop_sequence: null,
+      stop_details: null,
+    });
     expect(delta['usage']).toEqual({ output_tokens: 4 });
   });
 
@@ -207,6 +212,46 @@ describe('anthropicStream', () => {
       .filter((event) => event.event === 'content_block_start')
       .map((event) => dataOf(event)['index']);
     expect(indices).toEqual([0, 1, 2]);
+  });
+});
+
+describe('refusal details', () => {
+  it('populates stop_details only for a refusal', () => {
+    expect(anthropicMessage({ text: 'hi' }, IDS, MODEL)['stop_details']).toBeNull();
+    expect(
+      anthropicMessage(
+        {
+          text: 'partial',
+          stopReason: 'refusal',
+          refusal: { category: 'cyber', explanation: 'no' },
+        },
+        IDS,
+        MODEL,
+      )['stop_details'],
+    ).toEqual({
+      type: 'refusal',
+      category: 'cyber',
+      explanation: 'no',
+      fallback_credit_token: null,
+      fallback_has_prefill_claim: null,
+      recommended_model: null,
+    });
+  });
+
+  it('defaults the category to null, which the API allows for an uncategorised refusal', () => {
+    expect(
+      anthropicMessage({ text: 'x', stopReason: 'refusal' }, IDS, MODEL)['stop_details'],
+    ).toMatchObject({ category: null, explanation: null });
+  });
+
+  it('carries the details in the stream’s message_delta too', () => {
+    const events = anthropicStream(
+      { text: 'x', stopReason: 'refusal', refusal: { category: 'bio' } },
+      IDS,
+      MODEL,
+    );
+    const delta = dataOf(events.at(-2) as SseEvent)['delta'] as Record<string, unknown>;
+    expect(delta['stop_details']).toMatchObject({ type: 'refusal', category: 'bio' });
   });
 });
 

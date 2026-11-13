@@ -5,37 +5,14 @@
  *
  * Scaffolded by M0-T1. The implementation lands in this package's own milestone; see
  * `docs/plan/14-milestones.md`.
+ *
+ * `FakeProviderServer` was built here at `M2-T10` and moved to `@comvivo/models/testing` at
+ * `M2-T6`: this package depends on `@comvivo/models`, so a provider fake here cannot serve that
+ * package's own adapter tests without a cycle Turborepo refuses. `11` §3.2.4's table already put
+ * every model double in `models/testing`; the worst-case behavioural models (`LeakyModel`,
+ * `GreedyToolModel`, `GullibleModel`) still belong here, and so will `SimPlatformServer`.
  */
 
-export {
-  anthropicError,
-  anthropicErrorType,
-  anthropicMessage,
-  anthropicStream,
-  CAPTURED_SECRET,
-  type CapturedRequest,
-  DEFAULT_SERVER_ERROR_STATUS,
-  FAKE_CREATED_EPOCH_SECONDS,
-  type FakeProviderServer,
-  type FakeProviderServerOptions,
-  type FakeReply,
-  type FakeStopReason,
-  type FakeToolCall,
-  type FakeTurn,
-  type FakeUsage,
-  frameSse,
-  type OpenaiStreamOptions,
-  OVERLOADED_STATUS,
-  openaiCompletion,
-  openaiError,
-  openaiFinishReason,
-  openaiStream,
-  PROVIDER_KINDS,
-  type ProviderKind,
-  type SseEvent,
-  startFakeProviderServer,
-  type WireIds,
-} from './chaos/index.js';
 export {
   type BenchDefinition,
   type BenchEnv,

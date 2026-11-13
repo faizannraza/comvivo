@@ -67,7 +67,7 @@ import {
   UTC,
 } from '@comvivo/shared';
 import { sha256 } from '@comvivo/shared/crypto';
-import { SeededRng } from '@comvivo/shared/testing';
+import { SeededRng, silentLogger as sharedSilentLogger } from '@comvivo/shared/testing';
 import type Database from 'better-sqlite3-multiple-ciphers';
 import { Temporal } from 'temporal-polyfill';
 import { type Db, makeDb } from '../../db/drizzle.js';
@@ -75,24 +75,17 @@ import { SqliteStore } from '../../db/tx.js';
 import { withMigratedDb, withMigratedDbAsync } from '../../schema/testing/migrated-db.js';
 import { makeRepositories, type Repositories } from '../index.js';
 
-/** A logger that records nothing: these tests assert on rows, not on lines. */
-const silent = {
-  trace: () => {},
-  debug: () => {},
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  fatal: () => {},
-  content: () => {},
-  child: () => silent,
-} as unknown as Logger;
-
 /**
- * The same silent logger, for a test that constructs something needing one.
+ * A logger that records nothing: these tests assert on rows, not on lines.
  *
- * Exported as an alias rather than renamed, so the `withRepos` body below reads the way it did.
+ * Re-exported from `@comvivo/shared/testing` rather than defined here, as of `M2-T6`. The double
+ * was written here first and then wanted by the model adapter's contract tests too; `Logger` is
+ * `shared`'s type, so one implementation of its stub belongs beside it. Two copies of an
+ * eight-method stub is two places to forget a method when `Logger` grows.
  */
-export const silentLogger: Logger = silent;
+export { silentLogger } from '@comvivo/shared/testing';
+
+const silent: Logger = sharedSilentLogger;
 
 /** A fixed instant, so a test that asserts on a timestamp has something to assert against. */
 export const T0 = Temporal.Instant.from('2026-11-08T12:00:00Z');

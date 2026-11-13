@@ -491,6 +491,7 @@ export {
   type SystemBlock,
   type ToolSpec,
   type UsageIteration,
+  type UsageIterationKind,
   type UserPart,
   usageOf,
 } from './ports/model.js';

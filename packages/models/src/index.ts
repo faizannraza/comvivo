@@ -9,6 +9,37 @@
  * here is importable from `core`, and `01` §4's dependency rules prove it.
  */
 
+// --- The Anthropic adapter (05 §3.5.3; M2-T6) -------------------------------------------------
+export {
+  ANTHROPIC_PROVIDER,
+  type AnthropicAdapterDeps,
+  type AnthropicChatParams,
+  assertWireInvariants,
+  assistantMessageOf,
+  assistantPartsOf,
+  type BuildChatOptions,
+  type BuiltChatRequest,
+  buildChatRequest,
+  CLIENT_DEFAULTS,
+  createAnthropicClient,
+  createAnthropicGateway,
+  FORBIDDEN_REQUEST_KEYS,
+  type InvariantContext,
+  lastFallbackIndex,
+  MAX_CACHE_BREAKPOINTS,
+  normalizeForEcho,
+  OPTIONAL_BETAS,
+  type RunOptions,
+  readStop,
+  retryAfterMs,
+  runChat,
+  servedByFallback,
+  toModelCallError,
+  toolCallsAfterLastFallback,
+  usageIterations,
+  visibleTextAfterLastFallback,
+  WireInvariantError,
+} from './anthropic/index.js';
 export {
   batchMultiplierFor,
   costIteration,

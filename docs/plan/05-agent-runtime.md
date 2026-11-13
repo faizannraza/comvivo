@@ -856,6 +856,27 @@ const client = new Anthropic({            // credentials: ANTHROPIC_API_KEY (or 
 - Wall-clock time can reach `timeout × (maxRetries + 1)` [R1]. The turn signal bounds it.
 - Beta-only request fields (`fallbacks`, per-message `output_config`, `clear_at`, `block_binding`) may be ahead of the SDK typings. `request.ts` builds a local `AnthropicWireRequest` type and casts once at the boundary in `toSdkParams()`, which has its own unit tests. It never scatters `@ts-expect-error`.
 
+> **Measured at `M2-T6` against `@anthropic-ai/sdk` 1.7.0: there is no such cast, and the drift
+> runs the other way.** All four beta-only fields are typed —
+> `BetaFallbacksParam = Array<BetaFallbackParam> | 'default'`, `BetaSystemMessageParam` carries
+> `clear_at` and `output_config`, `BetaThinkingConfigAdaptive` carries `block_binding` — so
+> `request.ts` builds the SDK's own `Omit<MessageCreateParamsNonStreaming, 'stream'>` and `tsc`
+> checks the whole of §3.5.3.2's mapping. `temperature`, `top_p` and `top_k` are **absent from the
+> beta params type entirely**, which makes the SDK's typings the first guard on `01` §2.1,
+> `assertWireInvariants` the second and the provider's 400 the third.
+>
+> The published types are instead *too confident* about a **response**: a message assembled by the
+> SDK's stream accumulator carries only the fields the stream actually sent, so `usage.iterations`
+> is `undefined` where `BetaUsage` promises `BetaIterationsUsage | null`. `response.ts` reads usage
+> through one documented local wire type whose numeric fields are all optional — the cast §3.5.3.1
+> anticipated, in the place it was actually needed. Found by the contract test against a real
+> socket; a unit test with a hand-built `Message` sets `null` and cannot find it.
+>
+> Three smaller corrections, same source: the **five beta names in §3.5.3.9 are all real and
+> verbatim** in the SDK's `AnthropicBeta` union; the scalar `fallbacks: 'default'` form pairs with
+> `server-side-fallback-2026-07-01` specifically (the array form takes `-06-01`, and crossing them
+> is a 400); and `BetaStopReason` has **eight** members, adding `compaction` to §3.5.3.4's table.
+
 **3.5.3.2 Request mapping.**
 
 | Canonical | Anthropic wire |
@@ -965,7 +986,7 @@ At boot, and again in `village doctor`, a minimal real request (`max_tokens: 64`
 | `Anthropic.APIConnectionTimeoutError` | `timeout` | breaker failure |
 | `Anthropic.APIConnectionError` | `network` | breaker failure |
 | `Anthropic.RateLimitError` (429) | `rate_limited{retryAfterMs}` from the `retry-after` header | back-pressure; not a breaker failure |
-| `Anthropic.InternalServerError` with `.type==='overloaded_error'` (529) | `overloaded` | breaker failure |
+| `Anthropic.OverloadedError` (529) | `overloaded` | breaker failure |
 | `Anthropic.InternalServerError` (other 5xx) | `server` | breaker failure |
 | `Anthropic.AuthenticationError` (401) | `auth` | fail fast; admin notice `admin.provider_auth` |
 | `Anthropic.PermissionDeniedError` (403) | `permission` | fail fast; admin notice |
@@ -974,6 +995,22 @@ At boot, and again in `village doctor`, a minimal real request (`max_tokens: 64`
 | `APIError` status 402 | `billing` | fail fast; admin notice |
 | `APIError` status 413 | `request_too_large` | `shrinkContextOnce` |
 | other `APIError` | `unknown` | breaker failure |
+
+> **Typed classes, not string matches** (amended at `M2-T6`). 1.7.0 has a dedicated
+> `OverloadedError extends InternalServerError` with `readonly status: 529`, and its error factory
+> maps 529 to it — so the 529 row is an `instanceof`, not a `.type === 'overloaded_error'` check on
+> an error body. 413 gains `ContentTooLargeError` and 408 `RequestTimeoutError`; 402 still has no
+> class, so billing stays a status check. **Order is load-bearing**: four classes extend
+> `InternalServerError` and `APIConnectionTimeoutError` extends `APIConnectionError`, so a chain
+> written base-first reports a timeout as a generic network failure and a 529 as a plain 5xx — and
+> the breaker treats those differently. `APIError`'s own `type`, `errorCode` and `details` fields
+> are parsed from the body by the SDK, and its doc comment says to branch on those rather than on
+> the message; `detail.type` carries `errorCode ?? type`.
+>
+> `errors.ts` lands at `M2-T6` rather than `M2-T9`: `ModelGateway.run` is documented to reject with
+> a `ModelCallError`, so an adapter that let a raw `APIError` escape would make every caller reach
+> into somebody else's SDK to decide whether to retry. `M2-T9` keeps the middleware — the priority
+> limiter, the breaker, the usage and trace hooks — which is that task's substance.
 
 Interactive routes do no retries of their own beyond the SDK's. Background routes rely on job-queue retries with backoff (spine ADR-012).
 

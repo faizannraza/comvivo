@@ -21,6 +21,30 @@ const ENV: BenchEnv = {
 };
 const OPTIONS = { env: ENV, gitSha: '0123456789ab' };
 
+/**
+ * A `nanos()` that returns the given durations, one per iteration.
+ *
+ * Each iteration reads the clock twice (before and after `run`), so the sequence is built as
+ * cumulative pairs: the difference the runner records is exactly the duration asked for.
+ */
+function scriptedNanos(durationsMs: readonly number[]): () => bigint {
+  let at = 0n;
+  let index = 0;
+  let reading = 0;
+  return () => {
+    if (reading === 1) {
+      // The closing read of an iteration: advance by that iteration's duration.
+      const ms = durationsMs[index % durationsMs.length] ?? 0;
+      at += BigInt(Math.round(ms * 1e6));
+      index += 1;
+      reading = 0;
+      return at;
+    }
+    reading = 1;
+    return at;
+  };
+}
+
 /** Busy-wait, because a timer's resolution is coarser than the thing being measured. */
 function spin(ms: number): void {
   const until = performance.now() + ms;
@@ -127,34 +151,17 @@ describe('the protocol (11 §3.9.2)', () => {
     expect(latency.value).toBe(latency.p95);
     expect(latency.value).toBeGreaterThan(1.5);
 
-    // **Monotonic in the work, not bounded in absolute time.** This assertion used to be
-    // `toBeLessThan(12)`, which measures the machine's spare capacity as much as the harness: it
-    // failed at the M1 exit gate at 15.97 ms for a 2 ms spin, with three other processes
-    // saturating the host. What a measuring instrument must actually guarantee is that more work
-    // reads as more time — so a four-times-heavier benchmark is measured in the same run and
-    // compared, which no amount of load can invert.
-    const heavier = await measure(
-      {
-        id: 'micro:latency',
-        name: 'eight milliseconds',
-        unit: 'ms',
-        iterations: 5,
-        warmup: 1,
-        repetitions: 3,
-        run: () => spin(8),
-      },
-      OPTIONS,
-    );
-    // **A difference, not a ratio.** The ratio form (`> latency.value * 2`) failed at `M2-T4`:
-    // 8.03 ms for the 8 ms spin against 5.71 ms for the 2 ms one, under a full `pnpm verify`. Both
-    // measurements carry the same fixed per-measurement overhead, and when that overhead is large
-    // relative to the *smaller* benchmark the ratio collapses while the instrument is working
-    // perfectly. Subtracting cancels the overhead: the work differs by 6 ms, so the measurements
-    // must differ by a healthy fraction of that whatever the machine is doing. Third
-    // load-sensitive assertion in this repository, and the first where the fix was arithmetic
-    // rather than patience.
-    expect(heavier.value).toBeGreaterThan(latency.value);
-    expect(heavier.value - latency.value).toBeGreaterThan(1.5);
+    // **The ordering assertion is gone, and the clock is injected instead.** Three versions of
+    // "more work reads as more time" failed under load: an absolute bound at the M1 gate
+    // (15.97 ms for a 2 ms spin), a ratio at `M2-T4` (8.03 against 5.71), and the ordering itself
+    // inverting at `M2-T6` (10.38 ms measured for an 8 ms spin against 12.75 ms for a 2 ms one,
+    // during a full `pnpm verify`). None of them could work: a busy spin for 2 ms of wall time
+    // takes **at least** 2 ms with no upper bound, because the OS may deschedule it — so the
+    // lighter benchmark's p95 can exceed the heavier one's while the instrument is perfect.
+    //
+    // "More work reads as more time" is a property of the scheduler. What this harness is
+    // responsible for is the arithmetic, and `the arithmetic, on an injected clock` below asserts
+    // it exactly. Fourth and last patch to this assertion.
 
     const throughput = await measure(
       {
@@ -278,5 +285,71 @@ describe('runSuite', () => {
     expect(calls.count).toBe(2);
     expect(results[0]?.iterations).toBe(1);
     expect(results[0]?.repetitions).toBe(1);
+  });
+});
+
+describe('the arithmetic, on an injected clock', () => {
+  const latencyDefinition = {
+    id: 'micro:exact',
+    name: 'scripted durations',
+    unit: 'ms',
+    iterations: 5,
+    warmup: 0,
+    repetitions: 1,
+    run: () => {},
+  } as const;
+
+  it('reports the p50, p95 and p99 of the recorded durations', async () => {
+    // Five iterations of 1–5 ms. The HDR histogram's percentiles are exact to its precision at
+    // this scale, so the assertion is on the numbers rather than on a bound.
+    const result = await measure(latencyDefinition, {
+      ...OPTIONS,
+      nanos: scriptedNanos([1, 2, 3, 4, 5]),
+    });
+    expect(result.p50).toBeCloseTo(3, 1);
+    expect(result.p95).toBeCloseTo(5, 1);
+    expect(result.p99).toBeCloseTo(5, 1);
+    // `01` §11.10 states every budget as a p95, so that is what `value` carries.
+    expect(result.value).toBe(result.p95);
+    expect(result.iterations).toBe(5);
+    expect(result.repetitions).toBe(1);
+  });
+
+  it('takes the median across repetitions, not the mean', async () => {
+    // Three repetitions whose p95s are 2, 50 and 3 ms. The median is 3; a mean would be ~18 and a
+    // single slow repetition would dominate every budget verdict.
+    const result = await measure(
+      { ...latencyDefinition, iterations: 1, repetitions: 3 },
+      { ...OPTIONS, nanos: scriptedNanos([2, 50, 3]) },
+    );
+    expect(result.p95).toBeCloseTo(3, 1);
+  });
+
+  it('converts a median iteration to ops per second for a throughput benchmark', async () => {
+    // 2 ms per iteration, 10 operations each → 5,000 ops/s. A rate is derived from the **median**
+    // and not the tail, because `B4`'s "≥ 500 jobs/s" is not a statement about the slow end.
+    const result = await measure(
+      {
+        ...latencyDefinition,
+        id: 'micro:exact-rate',
+        unit: 'ops/s',
+        opsPerIteration: 10,
+        iterations: 3,
+      },
+      { ...OPTIONS, nanos: scriptedNanos([2, 2, 2]) },
+    );
+    expect(result.value).toBeCloseTo(5000, -1);
+    expect(result.p50).toBeCloseTo(2, 1);
+  });
+
+  it('records a zero-duration iteration as the clock floor rather than refusing it', async () => {
+    // `RecordableHistogram.record` refuses 0, and an operation faster than the clock's resolution
+    // is better described as the floor than as an error.
+    const result = await measure(latencyDefinition, {
+      ...OPTIONS,
+      nanos: scriptedNanos([0, 0, 0, 0, 0]),
+    });
+    expect(result.p50).toBeGreaterThan(0);
+    expect(result.p50).toBeLessThan(0.001);
   });
 });

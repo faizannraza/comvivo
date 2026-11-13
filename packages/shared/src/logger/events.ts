@@ -140,6 +140,16 @@ export const LOG_EVENTS = {
    */
   'audit.reanchored': 'the audit chain was re-anchored after a retention purge',
 
+  // --- Model calls (M2) ------------------------------------------------------------------------
+  /**
+   * A provider call failed, named by `ModelCallError.kind`.
+   *
+   * Content-free by construction (`01` §11.7): the kind, the route, the status and the request id,
+   * never the prompt and never the provider's own message — provider error text has carried
+   * prompt fragments before, which is why `ModelCallError` does not interpolate it either.
+   */
+  'model.call_failed': 'a model call failed',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',

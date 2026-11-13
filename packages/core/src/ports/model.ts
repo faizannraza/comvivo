@@ -331,9 +331,26 @@ export function isIncomplete(stop: StopInfo): boolean {
  * provider's `input_tokens` alone under-reports input by the cache hit rate, in the direction that
  * looks reassuring on a cost dashboard.
  */
+/**
+ * Which kind of billed round trip an iteration was.
+ *
+ * `UsageIterationKind`, not `UsageKind`: `runtime/aggregates.ts` already owns that name for
+ * `UsageRecord.kind` (`02` §3.3.7's `embed` / `chat` / … column), and two `UsageKind`s in one
+ * barrel is a collision the build catches and a reader does not.
+ *
+ * Four, not two (widened at `M2-T6` from `'message' | 'fallback_message'`, measured against
+ * `@anthropic-ai/sdk` 1.7.0's `BetaIterationsUsage`). `compaction` is the server-side
+ * summarisation request's own tokens and `advisor_message` is an advisor sub-inference; v1 enables
+ * neither feature, which is exactly why they are here. An iteration kind the adapter cannot name
+ * is one it would have to drop, and a dropped iteration is spend that never reaches the budget —
+ * the direction that looks reassuring on a cost dashboard. `01` §14 A32 is the same argument about
+ * `input`.
+ */
+export type UsageIterationKind = 'message' | 'fallback_message' | 'compaction' | 'advisor_message';
+
 export interface UsageIteration {
   readonly model: string;
-  readonly kind: 'message' | 'fallback_message';
+  readonly kind: UsageIterationKind;
   readonly input: number;
   readonly cacheRead: number;
   readonly cacheWrite5m: number;
