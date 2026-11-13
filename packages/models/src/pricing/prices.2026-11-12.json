@@ -1,10 +1,11 @@
 {
-  "$comment": "USD per million tokens (`05` \u00a73.9.2). Every Anthropic row was read off platform.claude.com/docs/en/about-claude/pricing on 2026-11-12, and one correction came out of it: Sonnet 5.5's cache read is $0.10, not the $0.20 the plan's table carried \u2014 cache hits on Opus 5.5 and Sonnet 5.5 are 0.05x base input, and 0.05 \u00d7 $2 is $0.10. A doubled cache-read price would have overstated the cost of the route a family uses most, in the direction that makes the budget guard degrade a group that had not spent its budget. `null` means unknown, and the guard falls back to Opus rates so the error is in the safe direction. OpenAI rows added at `M2-T11`, read off developers.openai.com/api/docs/pricing on 2026-11-13. The 30-minute and 12-hour cache-write prices map onto the `cacheWrite5m` and `cacheWrite1h` columns by **slot**, not by equal duration: the columns are the short and long priced slots, and 30m/12h are this provider's. `05` \u00a73.5.4's cost formula predates these columns existing on OpenAI at all and would have charged cache writes at zero.",
+  "$comment": "USD per million tokens (`05` \u00a73.9.2). Every Anthropic row was read off platform.claude.com/docs/en/about-claude/pricing on 2026-11-12, and one correction came out of it: Sonnet 5.5's cache read is $0.10, not the $0.20 the plan's table carried \u2014 cache hits on Opus 5.5 and Sonnet 5.5 are 0.05x base input, and 0.05 \u00d7 $2 is $0.10. A doubled cache-read price would have overstated the cost of the route a family uses most, in the direction that makes the budget guard degrade a group that had not spent its budget. `null` means unknown, and the guard falls back to Opus rates so the error is in the safe direction. OpenAI rows added at `M2-T11`, read off developers.openai.com/api/docs/pricing on 2026-11-13. The 30-minute and 12-hour cache-write prices map onto the `cacheWrite5m` and `cacheWrite1h` columns by **slot**, not by equal duration: the columns are the short and long priced slots, and 30m/12h are this provider's. `05` \u00a73.5.4's cost formula predates these columns existing on OpenAI at all and would have charged cache writes at zero. Google rows added at `M2-T13`, read off aistudio.google.com/docs/pricing on 2026-11-13. Four of them carry **promotional** rates with published end dates \u2014 `gemini-4-argon` through 2026-11-30 and the two 3.x flash models through 2026-12-31 \u2014 so `prices.2026-12-01.json` and `prices.2027-01-01.json` ship beside this file with the standard rates, and `pickTable` moves to each on the day. That is the mechanism `05` \u00a73.9.2 describes, used rather than a reminder nobody would act on: a table that kept a lapsed promotional rate would under-report spend, which is the direction that lets a group overspend its budget without the guard noticing. Gemini has **no billed cache-write category** (caching is implicit), so both write columns are zero rather than absent \u2014 a fact about the provider, not a gap.",
   "version": "2026-11-12",
   "currency": "USD",
   "sources": {
     "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
-    "openai": "https://developers.openai.com/api/docs/pricing"
+    "openai": "https://developers.openai.com/api/docs/pricing",
+    "google": "https://aistudio.google.com/docs/pricing"
   },
   "models": {
     "anthropic/claude-opus-5-5": {
@@ -89,6 +90,38 @@
       "cacheWrite5m": 0.125,
       "cacheWrite1h": 0.25,
       "cacheRead": 0.01,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-4-argon": {
+      "in": 2.0,
+      "out": 10.0,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.1,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.8-flash": {
+      "in": 0.75,
+      "out": 3.75,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.6-flash": {
+      "in": 0.75,
+      "out": 3.75,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.5-flash-lite": {
+      "in": 0.3,
+      "out": 2.5,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
       "batchMultiplier": 0.5
     }
   }

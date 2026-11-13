@@ -35,7 +35,9 @@
  * changes it is a price-table field and a new version, not a code change.
  */
 import { parseOrThrow, z } from '@comvivo/shared';
-import defaultTable from './prices.2026-11-12.json' with { type: 'json' };
+import novemberTable from './prices.2026-11-12.json' with { type: 'json' };
+import decemberTable from './prices.2026-12-01.json' with { type: 'json' };
+import januaryTable from './prices.2027-01-01.json' with { type: 'json' };
 
 /** The five rates every tier carries. */
 const ratesShape = {
@@ -85,9 +87,31 @@ export type PriceTable = z.infer<typeof PriceTableSchema>;
 /** The shipped table, validated at load for the reason the registry gives. */
 export const PRICES: PriceTable = parseOrThrow(
   PriceTableSchema,
-  defaultTable,
+  novemberTable,
   'models/pricing/prices.2026-11-12.json',
 );
+
+/**
+ * Every shipped table, including ones dated in the future.
+ *
+ * `05` §3.9.2's "newest `version ≤ today` wins" only does anything if more than one table ships,
+ * and until `M2-T13` only one did. Two of Google's published rates are **promotional with stated
+ * end dates** — `gemini-4-argon` through 2026-11-30, the two 3.x flash models through 2026-12-31 —
+ * so the increases ship as dated tables and `pickTable` moves to each on the day.
+ *
+ * Shipping them is the point. A table that kept a lapsed promotional rate would under-report
+ * spend, which is the direction that lets a group run past its budget without the guard noticing;
+ * a note in a backlog would depend on somebody remembering in seventeen days.
+ *
+ * Callers that want today's rates use `pickTable(ALL_PRICE_TABLES, today)`. `PRICES` remains the
+ * current table for the many call sites that are not date-aware and never will be — a test asserts
+ * the two agree while the first is in force.
+ */
+export const ALL_PRICE_TABLES: readonly PriceTable[] = [
+  PRICES,
+  parseOrThrow(PriceTableSchema, decemberTable, 'models/pricing/prices.2026-12-01.json'),
+  parseOrThrow(PriceTableSchema, januaryTable, 'models/pricing/prices.2027-01-01.json'),
+];
 
 /**
  * Pick the table in force on a given day.

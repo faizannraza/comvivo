@@ -166,6 +166,15 @@ catalog:
   # 7.56.0 went out 2026-11-12T19:37Z, under the 3-day cutoff. Same guardrail, same resolution as
   # `@anthropic-ai/sdk` — the version moves up when Renovate's PR matures.
   openai: 7.55.0
+  # Exact minor, same reasoning as the two above, and one specific to this provider: Gemini 3
+  # **rejects a function-call turn whose `thoughtSignature` is missing with a 400**, so the parts
+  # array is replayed verbatim and a minor that reshaped a part would break the tool loop without
+  # touching a type we read.
+  #
+  # 3.0.0 chosen at `M2-T13`: 3.1.0, 3.2.0 and 3.3.0 are all inside the 3-day `minimumReleaseAge`
+  # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
+  # every shape below was read off the installed typings rather than carried over from 2.x.
+  "@google/genai": 3.0.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2

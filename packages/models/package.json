@@ -32,6 +32,7 @@
     "@anthropic-ai/sdk": "catalog:",
     "@comvivo/core": "workspace:*",
     "@comvivo/shared": "workspace:*",
+    "@google/genai": "catalog:",
     "openai": "catalog:"
   },
   "devDependencies": {

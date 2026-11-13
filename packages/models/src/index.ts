@@ -77,6 +77,16 @@ export {
   WireInvariantError,
   withRepairTurn,
 } from './anthropic/index.js';
+// --- The Google adapter (05 §3.5.5; M2-T13) ---------------------------------------------------
+export {
+  createGoogleClient,
+  createGoogleGateway,
+  FINISH_REASON_MAP,
+  type GoogleAdapterDeps,
+  isRetryableToolFailure,
+  runChat as runGoogleChat,
+  runStructured as runGoogleStructured,
+} from './google/index.js';
 // --- The middleware chain (05 §3.5.1; M2-T9) --------------------------------------------------
 export {
   BREAKER_DEFAULTS,
@@ -117,6 +127,7 @@ export {
   runStructured as runOpenAiStructured,
 } from './openai/index.js';
 export {
+  ALL_PRICE_TABLES,
   batchMultiplierFor,
   costIteration,
   costTurn,

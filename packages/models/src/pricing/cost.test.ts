@@ -15,7 +15,14 @@ import {
   promptTokensOf,
   UNKNOWN_MODEL_FALLBACK,
 } from './cost.js';
-import { lookupPrice, PRICES, PriceTableSchema, pickTable, ratesFor } from './prices.js';
+import {
+  ALL_PRICE_TABLES,
+  lookupPrice,
+  PRICES,
+  PriceTableSchema,
+  pickTable,
+  ratesFor,
+} from './prices.js';
 
 const OPUS = 'anthropic/claude-opus-5-5';
 const SONNET = 'anthropic/claude-sonnet-5-5';
@@ -290,5 +297,58 @@ describe('the versioned table', () => {
     const sonnet = lookupPrice(SONNET);
     expect(sonnet).toMatchObject({ in: 2, out: 10, cacheRead: 0.1 });
     expect(PRICES.sources['anthropic']).toContain('platform.claude.com');
+  });
+});
+
+describe('the dated tables (M2-T13)', () => {
+  it('ships three tables and picks the one in force', () => {
+    // `05` §3.9.2's "newest `version ≤ today` wins" only does anything if more than one ships.
+    expect(ALL_PRICE_TABLES.map((table) => table.version)).toEqual([
+      '2026-11-12',
+      '2026-12-01',
+      '2027-01-01',
+    ]);
+    expect(pickTable(ALL_PRICE_TABLES, '2026-11-13').version).toBe('2026-11-12');
+    expect(pickTable(ALL_PRICE_TABLES, '2026-11-30').version).toBe('2026-11-12');
+    expect(pickTable(ALL_PRICE_TABLES, '2026-12-01').version).toBe('2026-12-01');
+    expect(pickTable(ALL_PRICE_TABLES, '2027-06-01').version).toBe('2027-01-01');
+  });
+
+  it('agrees with PRICES while the first table is in force', () => {
+    expect(pickTable(ALL_PRICE_TABLES, '2026-11-13')).toBe(PRICES);
+  });
+
+  it('raises each Google rate on the day its promotion lapses', () => {
+    // The reason the tables exist. A lapsed promotional rate left in place under-reports spend,
+    // which is the direction that lets a group run past its budget without the guard noticing.
+    const argon = (version: string): number => {
+      const row = lookupPrice('google/gemini-4-argon', pickTable(ALL_PRICE_TABLES, version));
+      return row !== null && row !== undefined && 'in' in row ? row.in : Number.NaN;
+    };
+    expect(argon('2026-11-30')).toBe(2.0);
+    expect(argon('2026-12-01')).toBe(4.0);
+
+    const flash = (version: string): number => {
+      const row = lookupPrice('google/gemini-3.8-flash', pickTable(ALL_PRICE_TABLES, version));
+      return row !== null && row !== undefined && 'in' in row ? row.in : Number.NaN;
+    };
+    expect(flash('2026-12-31')).toBe(0.75);
+    expect(flash('2027-01-01')).toBe(1.5);
+  });
+
+  it('carries every other model forward unchanged', () => {
+    // A dated table replaces the whole table, so a model whose price did not change must still be
+    // there — a dropped row falls back to Opus rates and silently overstates a Haiku turn.
+    const first = Object.keys(PRICES.models).toSorted();
+    for (const table of ALL_PRICE_TABLES) {
+      expect(Object.keys(table.models).toSorted(), table.version).toEqual(first);
+    }
+  });
+
+  it('prices no Google model with a cache write, because Gemini bills none', () => {
+    for (const [id, row] of Object.entries(PRICES.models)) {
+      if (!id.startsWith('google/') || row === null || !('in' in row)) continue;
+      expect([row.cacheWrite5m, row.cacheWrite1h], id).toEqual([0, 0]);
+    }
   });
 });

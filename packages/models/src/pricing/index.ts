@@ -9,6 +9,7 @@ export {
   UNKNOWN_MODEL_FALLBACK,
 } from './cost.js';
 export {
+  ALL_PRICE_TABLES,
   batchMultiplierFor,
   lookupPrice,
   type ModelPrice,

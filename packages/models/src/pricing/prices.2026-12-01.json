@@ -1,0 +1,128 @@
+{
+  "$comment": "In force from 2026-12-01. Identical to `prices.2026-11-12.json` except that `google/gemini-4-argon`'s promotional rate lapsed on 2026-11-30 and returns to the standard $4.00 / $20.00 with a $0.20 context cache (aistudio.google.com/docs/pricing, read 2026-11-13). Shipped ahead of the date because `pickTable` selects the newest table dated on or before today and refuses a future-only list, so a scheduled increase is data rather than a reminder.",
+  "version": "2026-12-01",
+  "currency": "USD",
+  "sources": {
+    "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing",
+    "openai": "https://developers.openai.com/api/docs/pricing",
+    "google": "https://aistudio.google.com/docs/pricing"
+  },
+  "models": {
+    "anthropic/claude-opus-5-5": {
+      "in": 4.0,
+      "out": 20.0,
+      "cacheWrite5m": 5.0,
+      "cacheWrite1h": 8.0,
+      "cacheRead": 0.2,
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-sonnet-5-5": {
+      "in": 2.0,
+      "out": 10.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 4.0,
+      "cacheRead": 0.1,
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-haiku-5-5": {
+      "tiers": [
+        {
+          "maxPromptTokens": 100000,
+          "in": 0.1,
+          "out": 0.5,
+          "cacheWrite5m": 0.125,
+          "cacheWrite1h": 0.2,
+          "cacheRead": 0.01
+        },
+        {
+          "in": 0.5,
+          "out": 2.5,
+          "cacheWrite5m": 0.625,
+          "cacheWrite1h": 1.0,
+          "cacheRead": 0.05
+        }
+      ],
+      "batchMultiplier": 0.5
+    },
+    "anthropic/claude-fable-5-2": {
+      "in": 8.0,
+      "out": 40.0,
+      "cacheWrite5m": 10.0,
+      "cacheWrite1h": 16.0,
+      "cacheRead": 0.2,
+      "batchMultiplier": 0.5
+    },
+    "local/*": {
+      "in": 0,
+      "out": 0,
+      "cacheWrite5m": 0,
+      "cacheWrite1h": 0,
+      "cacheRead": 0,
+      "batchMultiplier": 1
+    },
+    "openai/gpt-6-astra": {
+      "in": 10.0,
+      "out": 50.0,
+      "cacheWrite5m": 12.5,
+      "cacheWrite1h": 25.0,
+      "cacheRead": 1.0,
+      "batchMultiplier": 0.5
+    },
+    "openai/gpt-6.1-sol": {
+      "in": 2.0,
+      "out": 10.0,
+      "cacheWrite5m": 2.5,
+      "cacheWrite1h": 5.0,
+      "cacheRead": 0.1,
+      "batchMultiplier": 0.5
+    },
+    "openai/gpt-6.1-terra": {
+      "in": 1.0,
+      "out": 5.0,
+      "cacheWrite5m": 1.25,
+      "cacheWrite1h": 2.5,
+      "cacheRead": 0.05,
+      "batchMultiplier": 0.5
+    },
+    "openai/gpt-6-luna": {
+      "in": 0.1,
+      "out": 0.5,
+      "cacheWrite5m": 0.125,
+      "cacheWrite1h": 0.25,
+      "cacheRead": 0.01,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-4-argon": {
+      "in": 4.0,
+      "out": 20.0,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.2,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.8-flash": {
+      "in": 0.75,
+      "out": 3.75,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.6-flash": {
+      "in": 0.75,
+      "out": 3.75,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
+      "batchMultiplier": 0.5
+    },
+    "google/gemini-3.5-flash-lite": {
+      "in": 0.3,
+      "out": 2.5,
+      "cacheWrite5m": 0.0,
+      "cacheWrite1h": 0.0,
+      "cacheRead": 0.075,
+      "batchMultiplier": 0.5
+    }
+  }
+}

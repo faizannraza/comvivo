@@ -1102,7 +1102,12 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 - `generateContent` is stateless, fully supported, and documents thought-signature replay for manual histories [R16].
 - Revisit after 1.0 (Q8).
 
-- **Client.** `const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })`. Calls are `ai.models.generateContent({ model, contents, config })`.
+> **Re-measured at `M2-T13` (2026-11-13) against the installed `@google/genai` 3.0.0 and the
+> official pricing page.** `3.0.0` is a **major** released 2026-11-06, so nothing below was carried
+> over from 2.x. Four facts had moved and are corrected in place; the biggest is `finishReason`,
+> which this section maps five members of and which now has **twenty**.
+
+- **Client.** `const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })`. Calls are `ai.models.generateContent({ model, contents, config })`. `config.abortSignal` and `config.httpOptions.timeout` are **both as written** — verified, as this section asked.
 - **Mapping:**
 
   | Canonical | `generateContent` |
@@ -1113,14 +1118,26 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
   | tools | `config.tools: [{ functionDeclarations: [{ name, description, parametersJsonSchema }] }]` [R17] |
   | `toolChoice` | `config.toolConfig.functionCallingConfig.mode`: `AUTO` / `NONE` |
   | tool results | `{ functionResponse: { id, name, response: { output } \| { error } } }` parts, all in one `user` content |
-  | effort | `config.thinkingConfig.thinkingLevel` (`low` / `medium` or `high`, as mapped per model in the registry) [R17] |
+  | effort | `config.thinkingConfig.thinkingLevel`. **Upper-case** and four levels: `MINIMAL`, `LOW`, `MEDIUM`, `HIGH` (plus `THINKING_LEVEL_UNSPECIFIED`). There is no `XHIGH` or `MAX`, so our five-level `Effort` maps `xhigh` and `max` onto `HIGH` — rounding **up** to the provider's ceiling, because a route that asked for more thinking and silently got less would make a cross-provider eval compare two different questions. |
+  | sampling | `temperature`, `topP` and `topK` all exist on `GenerateContentConfig`, so `01` §2.1's ban is a runtime assertion over the built config, as on OpenAI. `functionCallingConfig.mode` is checked against an **allowlist** of `AUTO`/`NONE`: the enum has five members and `VALIDATED` is new. |
   | structured | `config.responseMimeType:'application/json'`, `config.responseJsonSchema` [R17] |
   | abort/timeout | `config.abortSignal`, `config.httpOptions.timeout` (verify the names at implementation time) |
-- **Stops.**
-  - `finishReason`: `STOP` → `end_turn` (or `tool_use` if there are `functionCall` parts); `MAX_TOKENS` → `max_tokens`; `SAFETY`/`PROHIBITED_CONTENT`/`BLOCKLIST`/`SPII`/`RECITATION` → `refusal`; `MALFORMED_FUNCTION_CALL` → step retried once.
-  - `promptFeedback.blockReason` → `refusal`.
-- **Usage.** `usageMetadata.promptTokenCount`, `cachedContentTokenCount` (implicit caching), `candidatesTokenCount`, `thoughtsTokenCount`. Thoughts are billed as output.
+- **Stops.** `finishReason` has **twenty** members at 3.0.0, and the adapter maps them through a **total** `Record` so a member Google adds next is a compile error rather than a silent `other`. The five this section named are unchanged; the ones it did not are the point:
+  - `STOP` → `end_turn`, or `tool_use` when there are `functionCall` parts. The reason is the same either way, so the **parts** are what tell them apart.
+  - `MAX_TOKENS` → `max_tokens`. `SAFETY`/`PROHIBITED_CONTENT`/`BLOCKLIST`/`SPII`/`RECITATION`/`LANGUAGE` and the three `IMAGE_*` policy stops → `refusal`, each carrying its own name as the category.
+  - **`CONTINUATION` → `pause_turn`.** New, and *not* a failure: the response hit a per-request token limit and can be continued with the returned continuation token, which is the same control flow as Anthropic's `pause_turn`. Reading it as `end_turn` silently truncates an answer the server was ready to finish.
+  - **`MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL` and `MALFORMED_RESPONSE` are not refusals.** They are tool-loop failures, surfaced through `isRetryableToolFailure` for the caller to act on — the adapter reports and does **not** retry itself, because an adapter that retried silently would hide a model producing malformed calls repeatedly while spending a group's budget on it. `TOO_MANY_TOOL_CALLS` is deliberately *not* retryable: calling again is how a loop becomes infinite.
+  - `promptFeedback.blockReason` → `refusal`, and it is checked **first**: a blocked prompt produces **no candidate at all**, so a reader that went to `finishReason` would see `undefined` and report a finished turn with no text.
+- **Usage.** `usageMetadata.promptTokenCount`, `cachedContentTokenCount` (implicit caching), `candidatesTokenCount`, `thoughtsTokenCount` — **and `toolUsePromptTokenCount`** (added at `M2-T13`), which is billed input for a server-tool prompt and which this section did not name.
+  - `promptTokenCount` **includes** the cached tokens, so the canonical `input` is the remainder plus the tool-use prompt.
+  - Thoughts are billed as output and are reported **outside** `candidatesTokenCount`, so the canonical `output` is the **sum**. A turn that spent 2,000 tokens thinking and 50 answering is billed for 2,050; reporting only `candidatesTokenCount` would under-report it fortyfold.
+  - There is **no billed cache-write category** — caching is implicit — so both write columns are zero. That is a fact about the provider rather than a gap in the mapping, and a test says so.
+- **Errors.** The SDK exports exactly one error class: **`ApiError`**, whose whole shape is `{ message, status }`. No rate-limit, auth, connection or timeout classes, and **no headers**. Two consequences:
+  - The mapping is a **status table**, not an `instanceof` chain. 429 is `rate_limited` and 503 is `overloaded`; an unlisted status is grouped by class (any 5xx `server`, any other 4xx `bad_request`) because the breaker must count a provider fault and must **not** count our own bad request.
+  - **`retryAfterMs` is never populated.** A `retry-after` the server sent is not reachable from the thrown value, so the middleware falls back to its own backoff. Correct, and less polite than honouring the server's number — stated here rather than left as a field that is silently always absent.
+  - An abort is `AbortSignal`'s own `AbortError`/`TimeoutError`, detected by name, and a transport failure is undici's `TypeError` with a `cause`. Without both, every network blip would map to `unknown` and drive the breaker on the wrong signal.
 - **Models.** As of 2026-11, stable: `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-4-argon`. Preview: `gemini-3.1-pro-preview` [R14]. Registry entries are added only after contract tests pass.
+  - **Prices filled at `M2-T13`** from aistudio.google.com/docs/pricing on 2026-11-13 for the four stable models. Three of those rates are **promotional with published end dates** (`gemini-4-argon` through 2026-11-30, the two 3.x flash models through 2026-12-31), so `prices.2026-12-01.json` and `prices.2027-01-01.json` ship beside the current table and `pickTable` moves to each on the day. That is this document's own §3.9.2 mechanism, used rather than a reminder: a lapsed promotional rate left in place under-reports spend, which is the direction that lets a group run past its budget unnoticed.
 
 #### 3.5.6 OpenAI-compatible local adapter (Ollama, LM Studio, llama.cpp, vLLM)
 **Transport.** Chat Completions (`client.chat.completions.create`) through the `openai` SDK with `baseURL`. Rationale:

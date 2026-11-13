@@ -46,6 +46,8 @@ import {
   anthropicStream,
   type FakeReply,
   frameSse,
+  googleError,
+  googleGenerateContent,
   openaiCompletion,
   openaiError,
   openaiResponse,
@@ -63,7 +65,7 @@ import {
  * last. `openai` stays the Chat Completions shape the OpenAI-compatible local servers speak
  * (`M2-T12`).
  */
-export const PROVIDER_KINDS = ['anthropic', 'openai', 'openai_responses'] as const;
+export const PROVIDER_KINDS = ['anthropic', 'openai', 'openai_responses', 'google'] as const;
 
 export type ProviderKind = (typeof PROVIDER_KINDS)[number];
 
@@ -176,6 +178,9 @@ function providerFor(path: string): ProviderKind | 'unknown' {
   if (withoutQuery.endsWith('/v1/messages')) return 'anthropic';
   if (withoutQuery.endsWith('/v1/chat/completions')) return 'openai';
   if (withoutQuery.endsWith('/v1/responses')) return 'openai_responses';
+  // `…/models/{model}:generateContent`, which is how the Gemini REST surface names a method.
+  if (withoutQuery.endsWith(':generateContent')) return 'google';
+  if (withoutQuery.endsWith(':streamGenerateContent')) return 'google';
   if (withoutQuery.endsWith('/v1/messages/count_tokens')) return 'anthropic';
   if (withoutQuery.includes('/v1/messages/batches')) return 'anthropic';
   return 'unknown';
@@ -320,6 +325,7 @@ export async function startFakeProviderServer(
 
   function errorBody(provider: ProviderKind | 'unknown', status: number): unknown {
     if (provider === 'openai' || provider === 'openai_responses') return openaiError(status);
+    if (provider === 'google') return googleError(status);
     return anthropicError(status, `req_fake_${String(captured.length)}`);
   }
 
@@ -341,6 +347,7 @@ export async function startFakeProviderServer(
   ): Record<string, unknown> {
     if (provider === 'openai') return openaiCompletion(reply, ids, defaultModel);
     if (provider === 'openai_responses') return openaiResponse(reply, ids, defaultModel);
+    if (provider === 'google') return googleGenerateContent(reply, ids, defaultModel);
     return anthropicMessage(reply, ids, defaultModel);
   }
 

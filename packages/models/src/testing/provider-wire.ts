@@ -567,6 +567,113 @@ export function openaiResponsesError(status: number): Record<string, unknown> {
   return openaiError(status);
 }
 
+/* ────────────────────────────── Google generateContent ────────────────────────────── */
+
+/**
+ * The `generateContent` body (`05` §3.5.5; `M2-T13`).
+ *
+ * A third shape again, and the differences an adapter written from memory gets wrong:
+ *
+ *  - The answer is `candidates[0].content.parts`, a flat array where text, `functionCall` and
+ *    `thoughtSignature` sit side by side — a part can carry a signature **and** a function call.
+ *  - `finishReason` is an upper-case enum string, and `STOP` with function-call parts is a tool
+ *    round trip rather than a finished turn.
+ *  - A blocked **prompt** produces `promptFeedback.blockReason` and **no candidate at all**, so a
+ *    reader that went straight to `finishReason` sees `undefined`.
+ *  - Usage is `usageMetadata.{promptTokenCount, cachedContentTokenCount, candidatesTokenCount,
+ *    thoughtsTokenCount}`, where `promptTokenCount` includes the cached tokens and thoughts are
+ *    reported **outside** `candidatesTokenCount` while being billed as output.
+ */
+export function googleFinishReason(reason: FakeStopReason): string {
+  if (reason === 'max_tokens') return 'MAX_TOKENS';
+  if (reason === 'refusal') return 'SAFETY';
+  if (reason === 'pause_turn') return 'CONTINUATION';
+  // `STOP` for both `end_turn` and `tool_use`: the presence of function-call parts is what tells
+  // them apart, which is the rule the adapter has to implement.
+  return 'STOP';
+}
+
+function googleUsage(usage: FakeUsage): Record<string, unknown> {
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
+  const thoughts = usage.reasoningTokens ?? 0;
+  return {
+    // Includes the cached tokens, as the API reports it.
+    promptTokenCount: usage.inputTokens + cacheRead,
+    cachedContentTokenCount: cacheRead,
+    // Thoughts are **not** inside this count on Gemini, which is why the adapter adds them.
+    candidatesTokenCount: Math.max(0, usage.outputTokens - thoughts),
+    ...(thoughts === 0 ? {} : { thoughtsTokenCount: thoughts }),
+    totalTokenCount: usage.inputTokens + cacheRead + usage.outputTokens,
+  };
+}
+
+export function googleGenerateContent(
+  reply: FakeReply,
+  ids: WireIds,
+  defaultModel: string,
+): Record<string, unknown> {
+  const model = reply.model ?? defaultModel;
+  const reason = stopReasonOf(reply);
+
+  // A blocked prompt: no candidate, only feedback. The shape that breaks a reader which assumes
+  // `candidates[0]` exists.
+  if (reason === 'refusal' && reply.refusal?.category === 'prompt_blocked') {
+    return {
+      promptFeedback: { blockReason: 'SAFETY' },
+      modelVersion: model,
+      responseId: `resp_${ids.messageId}`,
+      usageMetadata: googleUsage(reply.usage ?? DEFAULT_USAGE),
+    };
+  }
+
+  const parts: Record<string, unknown>[] = [];
+  if (reply.thinking !== undefined) {
+    // A thought part, and separately a signature the adapter must replay. Gemini 3 rejects a
+    // function-call turn whose signature is missing with a 400.
+    parts.push({ text: reply.thinking, thought: true });
+  }
+  if (reply.text !== undefined) parts.push({ text: reply.text });
+  for (const call of reply.toolCalls ?? []) {
+    parts.push({
+      functionCall: { id: call.id, name: call.name, args: call.input },
+      thoughtSignature: `${FAKE_THINKING_SIGNATURE}_${call.id}`,
+    });
+  }
+
+  return {
+    candidates: [
+      {
+        content: { role: 'model', parts },
+        finishReason: googleFinishReason(reason),
+        index: 0,
+        ...(reason === 'refusal' && reply.refusal?.explanation != null
+          ? { finishMessage: reply.refusal.explanation }
+          : {}),
+      },
+    ],
+    modelVersion: model,
+    responseId: `resp_${ids.messageId}`,
+    usageMetadata: googleUsage(reply.usage ?? DEFAULT_USAGE),
+  };
+}
+
+/** The Google error envelope: `{ error: { code, message, status } }`. */
+export function googleError(status: number): Record<string, unknown> {
+  const statusText =
+    status === 429
+      ? 'RESOURCE_EXHAUSTED'
+      : status === 503
+        ? 'UNAVAILABLE'
+        : status === 400
+          ? 'INVALID_ARGUMENT'
+          : status === 403
+            ? 'PERMISSION_DENIED'
+            : status === 404
+              ? 'NOT_FOUND'
+              : 'INTERNAL';
+  return { error: { code: status, message: anthropicErrorMessage(status), status: statusText } };
+}
+
 export function openaiError(status: number): Record<string, unknown> {
   return {
     error: {
