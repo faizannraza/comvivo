@@ -19,7 +19,7 @@
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.astro',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\""
   },
   "devDependencies": {
-    "astro": "7.4.4",
+    "astro": "7.4.10",
     "@astrojs/starlight": "0.42.8",
     "starlight-links-validator": "0.27.0"
   }
