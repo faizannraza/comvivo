@@ -24,8 +24,8 @@ The build machine is the project owner's macOS arm64 laptop (Darwin 23.6.0 / mac
 
 | Tool | Required | Found | Action taken |
 |---|---|---|---|
-| Node (primary) | 26 LTS | `v26.0.0` via Homebrew; **26.13.0 "Lithium"** is the current Active LTS (since 2026-10-28) | Installing 26.13.0 into `~/.local/node/v26.13.0` (official tarball; Homebrew is on a Tier-3 config here and can only build from source) |
-| Node (matrix leg) | ≥ 24.11 | absent | Installing **24.22.2** ("Krypton") into `~/.local/node/v24.22.2` |
+| Node (primary) | 26 LTS | `v26.0.0` via Homebrew; **26.13.0 "Lithium"** is the current Active LTS (since 2026-10-28) | Installed into `~/.local/node/v26.13.0` (official tarball; Homebrew is on a Tier-3 config here and can only build from source). **It is not on the default `PATH`** — a shell that has not been set up runs Homebrew's `v26.0.0`, and `node -v` says so. **Gate every measurement with `export PATH="$HOME/.local/node/v26.13.0/bin:$PATH"` first**, and check `node -v` before quoting a number. This cost a real mistake on 2026-11-14: two commits were measured under 26.0.0 and reported 26.13.0, and the difference was not cosmetic — `blob-format.test.ts`'s wall-clock budget failed under coverage on 26.13.0 and passed on 26.0.0, so the wrong runtime hid a test that made the gate a coin flip (`8cf0b19`). |
+| Node (matrix leg) | ≥ 24.11 | absent | Installed: **24.22.2** ("Krypton") at `~/.local/node/v24.22.2`. Same `PATH` caveat as the row above. |
 | pnpm | ≥ 11, explicit, no Corepack | absent | **12.16.1** installed with `npm install -g pnpm` (explicit, not Corepack). Pinned in `package.json#packageManager` |
 | Docker Desktop | running | installed (`29.2.0`), daemon stopped | `open -a Docker` issued; first-run GUI acceptance may be needed → owner ask #4 |
 | gh CLI | authenticated | `2.83.1`, logged in as `faizannraza`, scopes `repo, workflow, read:org, gist, user, delete_repo` | ready |
