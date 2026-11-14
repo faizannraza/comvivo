@@ -130,9 +130,12 @@ function toolResultPart(part: Extract<UserPart, { readonly type: 'tool_result' }
   return {
     functionResponse: {
       id: part.toolCallId,
-      // `name` is required by the API and we do not carry it on a tool result, so the id stands in.
-      // The id is what the model matches on; the name is informational here.
-      name: part.toolCallId,
+      // The **function's own name**, which `UserPart` now carries. This sent `toolCallId` until
+      // the M2 second-pass review, with a comment claiming the name was "informational" — it is a
+      // required field naming a declared function, and sending an id in it means every Gemini tool
+      // loop answered a function the model never declared. `FakeProviderServer` does not validate
+      // names, so no offline test could see it: it would have failed against the real provider only.
+      name: part.toolName,
       response: part.isError ? { error: part.content } : { output: part.content },
     },
   };

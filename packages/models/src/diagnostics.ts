@@ -11,15 +11,17 @@
  *
  * ## The one thing these checks are for
  *
- * A host whose bot is not working needs to know **which** of six things is wrong, and what to type.
+ * A host whose bot is not working needs to know **which** of seven things is wrong, and what to
+ * type.
  * Not "the model layer is unhealthy". So every check returns a `fix` with a literal command where
  * one exists, and the checks are separate rather than one "models" check — `09` §3.11.6's output
  * prints one line per check, and "✖ Models" would tell a host nothing they did not already know.
  *
  * ## Offline by default
  *
- * Five of the six run with no network at all: price coverage, estimator calibration, the local
- * ladder and the local context verdict all read what is already on disk or in a cached probe. Only
+ * Five of the seven run with no network at all: price coverage, registry coverage, estimator
+ * calibration, the local ladder and the local context verdict all read what is already on disk or
+ * in a cached probe. Only
  * `models.key` and `models.betas` need a provider, and both are **skipped** rather than failed when
  * there is no key — a host running Local-only has no key by design, and reporting that as a failure
  * would make `doctor` red for a configuration that is correct.

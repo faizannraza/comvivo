@@ -516,7 +516,15 @@ describe('the request shape (05 §3.5.6)', () => {
         },
         {
           role: 'user',
-          content: [{ type: 'tool_result', toolCallId: 'c1', content: 'ok', isError: false }],
+          content: [
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'c1',
+              content: 'ok',
+              isError: false,
+            },
+          ],
         },
       ],
     });

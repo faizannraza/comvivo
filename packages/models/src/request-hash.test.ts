@@ -201,7 +201,15 @@ describe('the parts and messages a hash must still distinguish', () => {
           },
           {
             role: 'user',
-            content: [{ type: 'tool_result', toolCallId: 't1', content: 'x', isError }],
+            content: [
+              {
+                type: 'tool_result',
+                toolCallId: 't1',
+                toolName: 'probe_echo',
+                content: 'x',
+                isError,
+              },
+            ],
           },
         ],
       });
@@ -237,8 +245,20 @@ describe('tool-call ids', () => {
         {
           role: 'user',
           content: [
-            { type: 'tool_result', toolCallId: first, content: 'x', isError: false },
-            { type: 'tool_result', toolCallId: second, content: 'y', isError: false },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: first,
+              content: 'x',
+              isError: false,
+            },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: second,
+              content: 'y',
+              isError: false,
+            },
           ],
         },
       ],
@@ -268,8 +288,20 @@ describe('tool-call ids', () => {
           role: 'user',
           content: [
             // Results in the other order: a different request, which must hash differently.
-            { type: 'tool_result', toolCallId: 'b', content: 'y', isError: false },
-            { type: 'tool_result', toolCallId: 'a', content: 'x', isError: false },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'b',
+              content: 'y',
+              isError: false,
+            },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'a',
+              content: 'x',
+              isError: false,
+            },
           ],
         },
       ],
@@ -340,7 +372,13 @@ describe('stability', () => {
               {
                 role: 'user',
                 content: [
-                  { type: 'tool_result', toolCallId: toolId, content: 'x', isError: false },
+                  {
+                    type: 'tool_result',
+                    toolName: 'probe_echo',
+                    toolCallId: toolId,
+                    content: 'x',
+                    isError: false,
+                  },
                 ],
               },
             ],

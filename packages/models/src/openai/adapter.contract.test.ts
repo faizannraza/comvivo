@@ -331,6 +331,7 @@ describe('the response is read before its content', () => {
               {
                 type: 'tool_result',
                 toolCallId: 'call_7',
+                toolName: 'probe_echo',
                 content: '{"rain":true}',
                 isError: false,
               },

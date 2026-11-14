@@ -136,8 +136,20 @@ describe('expectToolResultsInSingleMessage', () => {
         {
           role: 'user',
           content: [
-            { type: 'tool_result', toolCallId: 'a', content: 'ok', isError: false },
-            { type: 'tool_result', toolCallId: 'b', content: 'ok', isError: false },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'a',
+              content: 'ok',
+              isError: false,
+            },
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'b',
+              content: 'ok',
+              isError: false,
+            },
           ],
         },
       ],
@@ -153,11 +165,27 @@ describe('expectToolResultsInSingleMessage', () => {
         { role: 'assistant', provider: 'anthropic', servedModel: 'm', raw: [], view: [] },
         {
           role: 'user',
-          content: [{ type: 'tool_result', toolCallId: 'a', content: 'ok', isError: false }],
+          content: [
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'a',
+              content: 'ok',
+              isError: false,
+            },
+          ],
         },
         {
           role: 'user',
-          content: [{ type: 'tool_result', toolCallId: 'b', content: 'ok', isError: false }],
+          content: [
+            {
+              type: 'tool_result',
+              toolName: 'probe_echo',
+              toolCallId: 'b',
+              content: 'ok',
+              isError: false,
+            },
+          ],
         },
       ],
     });

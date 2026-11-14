@@ -849,7 +849,7 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
 }
 ```
 
-> **Amended 2026-11-14 (`M2-T16` review): `sampling` is gone.** The field recorded whether a server
+> **Amended 2026-11-14 (M2 independent review; the field is `M2-T2`'s): `sampling` is gone.** The field recorded whether a server
 > *would* accept sampling parameters, which `01` §2.1 forbids us from sending to any provider with
 > no exception — so nothing read it, and its presence invited the misreading it got: the local
 > adapter grew a `temperatureOverride` for a "registry override" the field never authorised. A row
@@ -1169,7 +1169,8 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
   earlier version of this section said "omitted unless set by a registry override" — which
   contradicted §2.1 in the same sentence that cited it, and the adapter grew a
   `temperatureOverride` option to match. The M2 independent review caught both. **Amended
-  2026-11-14 (`M2-T16` review):** no override exists, nothing ever set one, and `temperature`
+  2026-11-14 (M2 independent review; this adapter is `M2-T12`'s):** no override exists, nothing
+  ever set one, and `temperature`
   joins `top_p`, `top_k`, `tool_choice` and `user` in this adapter's `FORBIDDEN_REQUEST_KEYS`,
   asserted over the **built** request so a value arriving from any future path is a violation.
   It is also the right default: a local model's sampler settings are tuned by whoever packaged
@@ -1599,7 +1600,8 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
 - **Units.** Prices are USD per million tokens [R1]. `costMicros = Σ round(tokens × pricePerMTok)`: dollars per MTok × tokens equals micro-USD exactly. `batchMultiplier` is applied for Batches.
 - **Haiku tier.** Chosen by total prompt tokens (input + cache read + cache write) [R1].
 - **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates) and `doctor` warns.
-  **Amended 2026-11-14 (`M2-T16` review):** this said "so it is conservative", which is true only
+  **Amended 2026-11-14 (M2 independent review; the price tables are `M2-T3`'s):** this said "so it
+  is conservative", which is true only
   relative to the table. Opus is the dearest model we publish prices for, not the dearest model
   that can exist — `openai/gpt-6-astra` is 2.5× Opus on the same tokens — so a model dearer than
   Opus that falls through is **under**-reported, the dangerous direction for a budget. The

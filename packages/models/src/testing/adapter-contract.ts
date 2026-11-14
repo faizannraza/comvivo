@@ -234,7 +234,13 @@ export function runAdapterContract(subject: ContractSubject): void {
           {
             role: 'user',
             content: [
-              { type: 'tool_result', toolCallId: 'call_1', content: '{"ok":true}', isError: false },
+              {
+                type: 'tool_result',
+                toolCallId: 'call_1',
+                toolName: 'probe_echo',
+                content: '{"ok":true}',
+                isError: false,
+              },
             ],
           },
         ],
@@ -282,7 +288,13 @@ export function runAdapterContract(subject: ContractSubject): void {
           {
             role: 'user',
             content: [
-              { type: 'tool_result', toolCallId: 'c1', content: '{"ok":true}', isError: false },
+              {
+                type: 'tool_result',
+                toolCallId: 'c1',
+                toolName: 'probe_echo',
+                content: '{"ok":true}',
+                isError: false,
+              },
             ],
           },
         ],
@@ -353,8 +365,20 @@ export function runAdapterContract(subject: ContractSubject): void {
           {
             role: 'user',
             content: [
-              { type: 'tool_result', toolCallId: 'c1', content: '{"a":1}', isError: false },
-              { type: 'tool_result', toolCallId: 'c2', content: '{"b":2}', isError: false },
+              {
+                type: 'tool_result',
+                toolCallId: 'c1',
+                toolName: 'probe_echo',
+                content: '{"a":1}',
+                isError: false,
+              },
+              {
+                type: 'tool_result',
+                toolCallId: 'c2',
+                toolName: 'probe_echo',
+                content: '{"b":2}',
+                isError: false,
+              },
             ],
           },
         ],
@@ -391,7 +415,13 @@ export function runAdapterContract(subject: ContractSubject): void {
           {
             role: 'user',
             content: [
-              { type: 'tool_result', toolCallId: 'c1', content: '{"ok":true}', isError: false },
+              {
+                type: 'tool_result',
+                toolCallId: 'c1',
+                toolName: 'probe_echo',
+                content: '{"ok":true}',
+                isError: false,
+              },
             ],
           },
         ],

@@ -50,7 +50,11 @@ export interface UsageContext {
    * Only consulted when the **served** model is the requested one, because a refusal fallback
    * answered on a different model and that model's own rates are what were charged. Supplied by
    * whoever resolved the route; omitted, the served id prices itself, which is the normal case
-   * (`priceKey` is `null` for every registry row we ship).
+   * Supplied by the layer that resolved the route — `withMiddleware` fills it from `RouteInfo`.
+   * The three Anthropic rows set `priceKey` to their own id (an identity mapping, so the result is
+   * the same either way) and the three wildcard rows leave it `null`, where `RouteBinding.priceId`
+   * falls back to `<provider>/<model>`. An earlier version of this comment said the field was
+   * `null` on every row we ship, which was wrong about half of them.
    */
   readonly priceId?: string;
   readonly effort?: string;

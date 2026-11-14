@@ -193,7 +193,15 @@ describe('rendering the canonical request', () => {
     const { items } = inputItemsOf([
       {
         role: 'user',
-        content: [{ type: 'tool_result', toolCallId: 'call_1', content: 'ok', isError: false }],
+        content: [
+          {
+            type: 'tool_result',
+            toolName: 'probe_echo',
+            toolCallId: 'call_1',
+            content: 'ok',
+            isError: false,
+          },
+        ],
       },
     ]);
     expect(items).toEqual([{ type: 'function_call_output', call_id: 'call_1', output: 'ok' }]);

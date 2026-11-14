@@ -101,6 +101,19 @@ export type UserPart =
   | {
       readonly type: 'tool_result';
       readonly toolCallId: string;
+      /**
+       * The tool that ran, by name.
+       *
+       * Carried because **Google requires it**: `functionResponse` has a required `name` field,
+       * and the Google adapter was sending `toolCallId` in it with a comment saying the id "stands
+       * in" — so every Gemini tool loop sent a response naming a function the model never
+       * declared, and `FakeProviderServer` does not validate names, so no test could catch it. The
+       * engine knows the name: it has the `tool_call` it is answering. Found at the M2 second-pass
+       * review, which traced it to this type having nowhere to put it.
+       *
+       * Anthropic and the two OpenAI-shaped adapters match on the id alone and ignore this.
+       */
+      readonly toolName: string;
       readonly content: string;
       readonly isError: boolean;
       readonly cache?: CacheHint;

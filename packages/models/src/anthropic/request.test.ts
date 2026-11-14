@@ -175,7 +175,15 @@ describe('user parts', () => {
       assistant([{ type: 'tool_use', id: 'toolu_1', name: 'get_forecast', input: {} }]),
       {
         role: 'user',
-        content: [{ type: 'tool_result', toolCallId: 'toolu_1', content: 'sunny', isError: false }],
+        content: [
+          {
+            type: 'tool_result',
+            toolName: 'probe_echo',
+            toolCallId: 'toolu_1',
+            content: 'sunny',
+            isError: false,
+          },
+        ],
       },
     ];
     const { params } = build({ messages });
@@ -188,7 +196,15 @@ describe('user parts', () => {
       messages[1] as ModelMessage,
       {
         role: 'user',
-        content: [{ type: 'tool_result', toolCallId: 'toolu_1', content: 'down', isError: true }],
+        content: [
+          {
+            type: 'tool_result',
+            toolName: 'probe_echo',
+            toolCallId: 'toolu_1',
+            content: 'down',
+            isError: true,
+          },
+        ],
       },
     ];
     expect(build({ messages: failed }).params.messages[2]?.content).toEqual([

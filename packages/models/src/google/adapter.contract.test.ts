@@ -182,8 +182,20 @@ describe('the request reaches :generateContent in the documented shape', () => {
           {
             role: 'user',
             content: [
-              { type: 'tool_result', toolCallId: 'c1', content: '{"a":1}', isError: false },
-              { type: 'tool_result', toolCallId: 'c2', content: 'boom', isError: true },
+              {
+                type: 'tool_result',
+                toolCallId: 'c1',
+                toolName: 'probe_echo',
+                content: '{"a":1}',
+                isError: false,
+              },
+              {
+                type: 'tool_result',
+                toolName: 'probe_echo',
+                toolCallId: 'c2',
+                content: 'boom',
+                isError: true,
+              },
             ],
           },
         ],
@@ -258,7 +270,15 @@ describe('reading the response', () => {
           first.assistant,
           {
             role: 'user',
-            content: [{ type: 'tool_result', toolCallId: 'call_7', content: 'ok', isError: false }],
+            content: [
+              {
+                type: 'tool_result',
+                toolName: 'probe_echo',
+                toolCallId: 'call_7',
+                content: 'ok',
+                isError: false,
+              },
+            ],
           },
         ],
       }),

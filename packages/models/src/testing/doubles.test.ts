@@ -36,7 +36,15 @@ function toolRoundTrip(): ModelTurnRequest {
       },
       {
         role: 'user',
-        content: [{ type: 'tool_result', toolCallId: 'toolu_1', content: 'ok', isError: false }],
+        content: [
+          {
+            type: 'tool_result',
+            toolName: 'probe_echo',
+            toolCallId: 'toolu_1',
+            content: 'ok',
+            isError: false,
+          },
+        ],
       },
     ],
   });

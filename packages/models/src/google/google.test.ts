@@ -256,6 +256,37 @@ describe('reading parts', () => {
     ]);
   });
 
+  it('answers a tool call with the function’s name, not the call id', () => {
+    // The M2 second-pass review's seventh finding. `functionResponse.name` is a **required** field
+    // naming a declared function, and this adapter sent `toolCallId` in it with a comment saying
+    // the name was "informational" — so every Gemini tool loop answered a function the model never
+    // declared. Nothing offline could catch it: `FakeProviderServer` does not validate names, so
+    // it would have failed against the real provider only.
+    //
+    // The root cause was the port: `UserPart`'s `tool_result` had nowhere to put the name. It does
+    // now, and this asserts the value reaches the wire.
+    const { contents } = contentsOf([
+      {
+        role: 'user',
+        content: [
+          {
+            type: 'tool_result',
+            toolCallId: 'c1',
+            toolName: 'weather_lookup',
+            content: '{"rain":true}',
+            isError: false,
+          },
+        ],
+      },
+    ]);
+    const response = contents
+      .flatMap((content) => content.parts ?? [])
+      .find((part) => part.functionResponse !== undefined)?.functionResponse;
+    expect(response?.name).toBe('weather_lookup');
+    // The id still travels too — that is what the model matches the response to its call by.
+    expect(response?.id).toBe('c1');
+  });
+
   it('defaults missing args to an empty object', () => {
     expect(toolCallsOf([{ functionCall: { id: 'c', name: 'f' } }])[0]?.input).toEqual({});
   });
