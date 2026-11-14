@@ -352,3 +352,38 @@ describe('the dated tables (M2-T13)', () => {
     }
   });
 });
+
+describe('a usage object the wire mangled', () => {
+  const ITERATION = {
+    model: 'anthropic/claude-opus-5-5',
+    kind: 'message' as const,
+    input: 1_000,
+    cacheRead: 0,
+    cacheWrite5m: 0,
+    cacheWrite1h: 0,
+    output: 100,
+    batch: false,
+  };
+
+  it('never produces a NaN cost, because NaN is the one wrong cost nothing can see', () => {
+    // `UsageIteration`'s numbers come off a provider's JSON through the SDKs' compile-time types,
+    // so a mangled field reaches here as a value the type says is a `number` and is not. `NaN`
+    // matters more than any other wrong value: `NaN > limit` is `false`, so a budget guard handed
+    // one stops enforcing the budget and reports nothing unusual.
+    for (const bad of [Number.NaN, Number.POSITIVE_INFINITY, -5, '1000' as unknown as number]) {
+      for (const field of ['input', 'cacheRead', 'output'] as const) {
+        const cost = costIteration({ ...ITERATION, [field]: bad }, PRICES);
+        expect(Number.isFinite(cost.micros), `${field}=${String(bad)}`).toBe(true);
+        expect(cost.micros, `${field}=${String(bad)}`).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('still charges the fields that did arrive', () => {
+    // Zeroing one count must not zero the turn: a group whose cache-read figure was unreadable
+    // still spent real money on input and output.
+    const cost = costIteration({ ...ITERATION, cacheRead: Number.NaN }, PRICES);
+    expect(cost.micros).toBe(costIteration({ ...ITERATION, cacheRead: 0 }, PRICES).micros);
+    expect(cost.micros).toBeGreaterThan(0);
+  });
+});

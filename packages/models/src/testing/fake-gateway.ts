@@ -50,6 +50,7 @@ import {
   type ModelRoute,
   type ModelTurnRequest,
   type ModelTurnResult,
+  type ProviderId,
   type RouteInfo,
   type RouteVariant,
   type StopInfo,
@@ -329,7 +330,15 @@ export class FakeModelGateway implements ModelGateway {
 
   routeInfo(route: ModelRoute, variant?: RouteVariant): RouteInfo {
     const binding = this.#options.bindingFor(route, variant);
-    return { provider: binding.provider, model: binding.model, supports: binding.features };
+    return {
+      provider: binding.provider,
+      // The fake answers as whichever adapter the binding names, so a test that asserts on a
+      // breaker key or a span attribute sees what production would. `fake` only when the binding
+      // is one the registry has no provider for.
+      providerId: providerIdOf(binding.provider),
+      model: binding.model,
+      supports: binding.features,
+    };
   }
 
   async run(req: ModelTurnRequest, signal: AbortSignal): Promise<ModelTurnResult> {
@@ -614,3 +623,16 @@ export const FAKE_EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh'
 
 /** Batches are `M2-T8`'s; named here so a caller sees which task adds them. */
 export type FakeBatch = { readonly handle: BatchHandle; readonly status: BatchStatus };
+
+/**
+ * The adapter id for a registry provider prefix.
+ *
+ * The two namespaces coincide for the cloud providers and differ for `local`, whose adapter is
+ * `openai-compatible` (`RouteInfo.providerId`'s doc comment has the full reason). `fake` for
+ * anything else, which is the honest answer for a binding this build has no adapter for.
+ */
+function providerIdOf(provider: string): ProviderId {
+  if (provider === 'anthropic' || provider === 'openai' || provider === 'google') return provider;
+  if (provider === 'local' || provider === 'openai-compatible') return 'openai-compatible';
+  return 'fake';
+}

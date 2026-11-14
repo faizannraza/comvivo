@@ -134,12 +134,21 @@ export const ModelCapabilitiesSchema = z
     pdf: z.boolean(),
     batches: z.boolean(),
     countTokens: z.boolean(),
-    /** `01` §2.1 forbids sampling parameters; `allowed` records that a server would accept them. */
-    sampling: z.enum(['forbidden', 'allowed']),
     prefill: z.boolean(),
     /** Whether earlier-turn edits invalidate thinking blocks (append-only history required). */
     preservedThinking: z.boolean(),
-    /** The key into `05` §9.1's price table, or `null` where prices are per-deployment. */
+    /**
+     * The price-table row to charge this model against, or `null` to use its own id.
+     *
+     * Read through `RouteBinding.priceId`. It exists for the case `05` §3.5.2's wildcard rows
+     * create: a host pins a dated snapshot (`openai/gpt-6-astra-2027-03-01`), the registry answers
+     * through `openai/*`, and the price table — which carries exact ids and no `openai/*` family
+     * row — has nothing for it, so spend would be estimated at the fallback's rates. Setting
+     * `priceKey: "openai/gpt-6-astra"` in `models.registryOverrides` prices it correctly.
+     *
+     * The M2 review found this field written by every row and read by nothing, which meant the
+     * override above silently did nothing.
+     */
     priceKey: z.string().min(1).nullable(),
   })
   .readonly();
@@ -224,7 +233,7 @@ export function withOverrides(
  * The capability subset `core`'s `routeInfo` publishes.
  *
  * Narrower than `ModelCapabilities` on purpose: `ModelFeatureSet` is what a *caller* branches on,
- * and the rest (pricing keys, prefill, sampling, the thinking mode) is the adapter's business. A
+ * and the rest (pricing keys, prefill, the thinking mode) is the adapter's business. A
  * port that exposed everything would invite the engine to make provider-shaped decisions.
  */
 export function toFeatureSet(capabilities: ModelCapabilities): ModelFeatureSet {

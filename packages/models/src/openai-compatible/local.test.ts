@@ -32,7 +32,13 @@ import {
   needlePrompt,
   probeCacheKey,
 } from './probe.js';
-import { buildLocalRequest, messagesOf, operatorBlock, WireInvariantError } from './request.js';
+import {
+  assertWireInvariants,
+  buildLocalRequest,
+  messagesOf,
+  operatorBlock,
+  WireInvariantError,
+} from './request.js';
 import { readEnvelope, readStop, rejectionResults, usageIterationOf } from './response.js';
 import { buildLocalStructuredRequest, readLocalStructured, unfence } from './structured.js';
 import {
@@ -369,14 +375,21 @@ describe('the request shape (05 §3.5.6)', () => {
     expect((built.params as Readonly<Record<string, unknown>>)['reasoning_effort']).toBe('high');
   });
 
-  it('sends temperature only when a registry override asks for it', () => {
+  it('refuses a temperature that reached the request by any other path', () => {
+    // `01` §2.1 bans sampling parameters with no exception, so the assertion is over the **built**
+    // request rather than over an option: a `temperature` that arrived from anywhere — a future
+    // registry field, a merged default, a typo in a spread — is a violation. This is the positive
+    // control for that clause. An earlier version of this adapter had a `temperatureOverride`
+    // option, which the M2 review correctly read as a contradiction of the rule it cited.
     const built = buildLocalRequest(localTurnRequest(), {
       binding: localBinding(),
       level: 'L1',
       reasoningEffortAccepted: false,
-      temperatureOverride: 0.2,
     });
-    expect(built.params.temperature).toBe(0.2);
+    expect('temperature' in built.params).toBe(false);
+    expect(() => assertWireInvariants({ ...built.params, temperature: 0.2 })).toThrow(
+      /"temperature" must never be sent/,
+    );
   });
 
   it('puts one system message first and nothing else there', () => {
@@ -627,7 +640,7 @@ describe('the structured request at each level', () => {
     expect(JSON.stringify(built.params.messages)).not.toContain('base64');
   });
 
-  it('sends effort only when the probe accepted it, and a temperature only on override', () => {
+  it('sends effort only when the probe accepted it, and never a temperature', () => {
     const plain = buildLocalStructuredRequest(request, {
       binding: localBinding(),
       level: 'L2',
@@ -636,14 +649,14 @@ describe('the structured request at each level', () => {
     expect('reasoning_effort' in plain).toBe(false);
     expect('temperature' in plain).toBe(false);
 
-    const withBoth = buildLocalStructuredRequest(request, {
+    const withEffort = buildLocalStructuredRequest(request, {
       binding: localBinding(),
       level: 'L2',
       reasoningEffortAccepted: true,
-      temperatureOverride: 0.1,
     }).params as Readonly<Record<string, unknown>>;
-    expect(withBoth['reasoning_effort']).toBe('medium');
-    expect(withBoth['temperature']).toBe(0.1);
+    expect(withEffort['reasoning_effort']).toBe('medium');
+    // No override exists any more, so there is no path by which this key can appear.
+    expect('temperature' in withEffort).toBe(false);
   });
 
   it('builds a repair that replays the answer and still passes the invariants', () => {

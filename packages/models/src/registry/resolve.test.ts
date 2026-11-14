@@ -393,7 +393,6 @@ describe('the shipped data files', () => {
       expect(model?.maxBreakpoints).toBe(4);
       expect(model?.midConversationSystem).toBe(true);
       expect(model?.perMessageEffort).toBe(true);
-      expect(model?.sampling).toBe('forbidden');
       expect(model?.prefill).toBe(false);
     }
   });

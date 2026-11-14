@@ -338,18 +338,20 @@ export const contextCheck: ModelCheck = {
 /**
  * `models.prices` — is every routed model priced?
  *
- * A **warn**, because `05` §3.9.2's fallback is conservative: an unpriced model is costed at Opus
- * rates, so the budget guard over-reports rather than under-reports and a group is protected
- * either way. What is lost is accuracy, which is worth saying and not worth stopping for.
+ * A **warn**: the product still runs and the budget guard still counts. But the reason this is not
+ * merely cosmetic is that `05` §3.9.2's fallback is only conservative *relative to the table* —
+ * Opus is the dearest model we have prices for, not the dearest model that exists, and a model
+ * dearer than Opus is under-reported. So the copy says the figures are unreliable rather than
+ * promising they are high, which is what it said until the M2 review.
  */
 export const priceCoverageCheck: ModelCheck = {
   id: 'models.prices',
   title: 'Cost estimates',
   run: (context) => {
     const table = context.prices ?? PRICES;
-    const models = [
-      ...new Set(context.bindings.map((binding) => `${binding.provider}/${binding.model}`)),
-    ].toSorted();
+    // `binding.priceId`, not `provider/model`: a host who pinned a dated snapshot and mapped it
+    // with `priceKey` in `models.registryOverrides` has priced it, and this check must agree.
+    const models = [...new Set(context.bindings.map((binding) => binding.priceId))].toSorted();
     const unpriced = models.filter((id) => {
       const row = lookupPrice(id, table);
       return row === undefined || row === null;
@@ -365,10 +367,81 @@ export const priceCoverageCheck: ModelCheck = {
       detail: `${String(unpriced.length)} routed model(s) have no published price: ${unpriced.join(', ')}`,
       fix: {
         text:
-          'Spend for these is estimated at the most expensive model’s rates, so your budget is ' +
-          'protected but the figures on the Costs page will be high. ' +
+          'Spend for these is estimated at the dearest rates we have prices for, so the figures on ' +
+          'the Costs page are a guess — too high for a cheaper model, and too low for one dearer ' +
+          'than any we know. ' +
           `Updating ${BRAND.displayName} usually brings a newer price table.`,
         command: `${BRAND.cliName} update`,
+      },
+    };
+  },
+};
+
+/**
+ * `models.registry` — is any routed model running on a provider family's guessed limits?
+ *
+ * The registry carries `openai/*`, `google/*` and `local/*` wildcard rows so a host can point at a
+ * model we have never catalogued without editing anything (`05` §3.5.2's stated purpose for the
+ * mechanism). The cost is that `lookupCapabilities` can no longer answer "I do not know this
+ * model" for those three providers — a typo like `openai/gpt-6-astraa` resolves through the family
+ * row and inherits its `contextWindow` and `maxOutput`.
+ *
+ * The M2 independent review found that this made `resolveRoutes`' `unknown_model` problem
+ * unreachable for the three wildcard providers while its own `fix` text warned about exactly the
+ * consequence — "routing to a model whose limits are unknown is how a reply gets truncated at an
+ * unpredictable length". That is what happens, silently, and nothing said so.
+ *
+ * A **warn** rather than a failure: inheriting the family's limits is the wildcard working as
+ * designed, and a host using a real model we have not catalogued should boot. What they must not
+ * get is silence, because the symptom — replies truncated at an unpredictable length — looks like
+ * the bot being unreliable rather than like a number that needs correcting.
+ *
+ * `local/*` is excluded and says why: the local probe (`M2-T12`) measures the real context window
+ * at runtime, and `models.context` reports what it found. Guessing is only unobserved on the cloud
+ * providers, where there is no probe that can tell us.
+ */
+export const registryCoverageCheck: ModelCheck = {
+  id: 'models.registry',
+  title: 'Model limits',
+  run: (context) => {
+    const byModel = new Map(
+      context.bindings
+        // Keyed on `capabilityKey`, which is the registry-side fact: it is `<prefix>/*` exactly
+        // when the family row answered. Not on `binding.provider`, which is a **different
+        // namespace** — the resolver sets it from the registry id's prefix (`local`) while the
+        // adapter labels the same provider `openai-compatible` in spans and metrics. Either
+        // string would work here today; the registry key is the one this check is actually about.
+        .filter(
+          (binding) => binding.capabilityKey.endsWith('/*') && binding.capabilityKey !== 'local/*',
+        )
+        .map((binding) => [`${binding.provider}/${binding.model}`, binding] as const),
+    );
+    if (byModel.size === 0) {
+      return {
+        status: 'pass',
+        detail:
+          context.bindings.length === 0
+            ? 'no routes are configured'
+            : `every routed cloud model has its own registry entry (${String(context.bindings.length)} route(s))`,
+      };
+    }
+    const lines = [...byModel.entries()]
+      .toSorted(([a], [b]) => (a < b ? -1 : 1))
+      .map(
+        ([id, binding]) =>
+          `${id} → ${binding.capabilityKey} (context ${String(binding.capabilities.contextWindow)}, ` +
+          `max output ${String(binding.maxOutputTokens)})`,
+      );
+    return {
+      status: 'warn',
+      detail: `${String(byModel.size)} routed model(s) are using their provider family's limits: ${lines.join('; ')}`,
+      fix: {
+        text:
+          'These numbers are a guess. If they are too high, a long reply is cut off mid-sentence; ' +
+          'if too low, context is trimmed that would have fitted. Check the model name for a typo ' +
+          'first — a misspelled id lands here rather than being rejected. If the name is right, ' +
+          'set the real limits in models.registryOverrides.',
+        docs: 'configuration/models#registryoverrides',
       },
     };
   },
@@ -436,6 +509,7 @@ export const MODEL_CHECKS: readonly ModelCheck[] = Object.freeze([
   localLevelCheck,
   contextCheck,
   priceCoverageCheck,
+  registryCoverageCheck,
   estimatorCheck,
 ]);
 

@@ -343,7 +343,12 @@ export function createAnthropicGateway(deps: AnthropicAdapterDeps): ModelGateway
       ),
     routeInfo: (route: ModelRoute, variant?: RouteVariant): RouteInfo => {
       const binding = deps.bindingFor(route, variant);
-      return { provider: binding.provider, model: binding.model, supports: binding.features };
+      return {
+        provider: binding.provider,
+        providerId: ANTHROPIC_PROVIDER,
+        model: binding.model,
+        supports: binding.features,
+      };
     },
   };
 }

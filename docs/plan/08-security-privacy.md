@@ -718,7 +718,11 @@ Rules:
 > **Implemented at `M2-T16`** as `packages/models/src/egress-manifest.ts`, and **as data**: the
 > wizard, `doctor`, the dashboard and the privacy disclosure all render from one list, so a row
 > that drifted cannot tell four surfaces the same wrong thing.
-> `test/plan/egress-manifest.test.ts` parses this table out of the plan and compares it row by row.
+> `test/plan/egress-manifest.test.ts` parses this table out of the plan and compares **every
+> row's three data columns** against the manifest's own text, by word overlap, so a row that
+> stopped naming the same data fails. It also asserts that no manifest row reads as an absence,
+> because no row of this table is one — every row here names data that is sent, the opt-ins
+> included.
 >
 > **One deliberate addition**: `extract` is **two** rows there — group and DM. §3.11.2 moves DM
 > extraction onto the local model in Hybrid and leaves group extraction in the cloud, so one row

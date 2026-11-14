@@ -349,6 +349,16 @@ export function isIncomplete(stop: StopInfo): boolean {
 export type UsageIterationKind = 'message' | 'fallback_message' | 'compaction' | 'advisor_message';
 
 export interface UsageIteration {
+  /**
+   * The model that answered, spelled as the **provider** spells it — `claude-opus-5-5`,
+   * `gpt-6-astra`, `gemini-4-argon` — because that is what every adapter reads off the response
+   * (`message.model`, `response.model`, `response.modelVersion`). It carries no `<provider>/`
+   * prefix: that prefix is ours, from `05` §3.5.2's registry ids.
+   *
+   * Written down because leaving it implicit cost real money on paper: the price tables are keyed
+   * by the prefixed id, so `lookupPrice` saw a miss for every iteration and costed all of them at
+   * the unknown-model fallback. Found at the M2 review; `lookupPrice` now resolves both spellings.
+   */
   readonly model: string;
   readonly kind: UsageIterationKind;
   readonly input: number;
@@ -580,7 +590,24 @@ export interface ModelFeatureSet {
 
 /** What a route resolves to, for `doctor` and for a trace. */
 export interface RouteInfo {
+  /**
+   * The provider as a **host writes it**: the registry id's prefix, so `anthropic`, `openai`,
+   * `google`, `local`, or anything else a host put in front of a slash. This is the key for
+   * `models.baseUrls.<provider>` and the string `doctor` prints, and it is deliberately open —
+   * `05` §3.5.2's wildcard rows exist so a host can name a model this build has never heard of.
+   */
   readonly provider: string;
+  /**
+   * Which **adapter** serves this route.
+   *
+   * A second field because the two are different namespaces and only look alike: a local route's
+   * `provider` is `local` (what the host wrote) while its adapter is `openai-compatible` (what
+   * speaks the protocol). For the three cloud providers they coincide, which is why the middleware
+   * read `provider` where it needed this one and nothing failed — a `ProviderId` cast silenced the
+   * mismatch, so a local route's circuit breaker, spans and metrics were filed under `local` while
+   * every error from the same adapter said `openai-compatible`. Found at the M2 review.
+   */
+  readonly providerId: ProviderId;
   readonly model: string;
   readonly supports: ModelFeatureSet;
 }

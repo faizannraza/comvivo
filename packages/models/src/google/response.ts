@@ -91,6 +91,22 @@ export function partsOf(response: GenerateContentResponse): readonly Part[] {
  * so a reader that looked at `finishReason` would see `undefined` and report a finished turn with
  * no text.
  */
+/** Whether the wire's `finishReason` is a member of the enum this build maps. */
+function isKnownFinishReason(value: unknown): value is FinishReason {
+  return typeof value === 'string' && Object.hasOwn(FINISH_REASON_MAP, value);
+}
+
+/**
+ * A wire value, as a short string safe to put in a trace.
+ *
+ * `String(unknown)` gives `[object Object]` for anything structured and the linter rightly refuses
+ * it. Reporting the **type** of a non-string is more useful than that anyway: a host reading
+ * `raw: "object"` learns the provider sent a shape where a string was documented.
+ */
+function describeWire(value: unknown): string {
+  return typeof value === 'string' ? value : typeof value;
+}
+
 export function readStop(response: GenerateContentResponse): StopInfo {
   const blocked = response.promptFeedback?.blockReason;
   if (blocked !== undefined) {
@@ -104,12 +120,27 @@ export function readStop(response: GenerateContentResponse): StopInfo {
   }
 
   const candidate = firstCandidate(response);
-  const finish = candidate?.finishReason;
-  if (finish === undefined) {
+  const wire: unknown = candidate?.finishReason;
+  if (wire === undefined || wire === null) {
     // No candidate and no block reason. Not a finished turn, and not something to report as one.
     return { reason: 'other', raw: 'no_candidate' };
   }
+  if (!isKnownFinishReason(wire)) {
+    // A `FinishReason` this build has never heard of. `FINISH_REASON_MAP` is total over the twenty
+    // members `@google/genai` 3.0.0 publishes — which makes *adding* a member a compile error,
+    // the point of writing it as a `Record` — and does nothing about the wire carrying a
+    // twenty-first. The lookup then yielded `undefined`, the switch below matched nothing, and
+    // `readStop` returned `undefined` as a `StopInfo`. Measured at the M2 review, here and in the
+    // three other adapters.
+    //
+    // Checked against the map's own keys, so the list cannot drift from the map, and narrowed
+    // before the switch rather than handled in a `default`: a `default` on a switch the compiler
+    // believes is exhaustive is a lint error *and* a worse description. The openness belongs in
+    // the type of what came off the wire, which is `unknown`.
+    return { reason: 'other', raw: describeWire(wire) };
+  }
 
+  const finish = wire;
   const mapped = FINISH_REASON_MAP[finish];
   const raw: string = finish;
   switch (mapped) {

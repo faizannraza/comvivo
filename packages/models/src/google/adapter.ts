@@ -187,7 +187,12 @@ export function createGoogleGateway(deps: GoogleAdapterDeps): ModelGateway {
     },
     routeInfo: (route: ModelRoute, variant?: RouteVariant): RouteInfo => {
       const binding = deps.bindingFor(route, variant);
-      return { provider: binding.provider, model: binding.model, supports: binding.features };
+      return {
+        provider: binding.provider,
+        providerId: GOOGLE_PROVIDER,
+        model: binding.model,
+        supports: binding.features,
+      };
     },
   };
 }

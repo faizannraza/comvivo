@@ -11,8 +11,11 @@
  *  - **No mid-conversation system messages.** Many chat templates reject a system message that is
  *    not the first one, and a rejected template is a 400 with no useful text. So turn notes travel
  *    inside the **user** message as an escaped operator tag.
- *  - **`temperature` is omitted** unless a registry override sets it, which is both `01` §2.1's ban
- *    and the right default — a local model's sampler defaults are tuned by whoever packaged it.
+ *  - **`temperature` is never sent.** `01` §2.1 bans it with no exception, and it is the right
+ *    default anyway: a local model's sampler settings are tuned by whoever packaged the GGUF, and
+ *    overriding them from here would be guessing against the packager. An earlier version of this
+ *    adapter had a `temperatureOverride` option for a registry field, which contradicted §2.1 while
+ *    citing it; the M2 review caught that and it was removed (no caller ever set it).
  *  - **`reasoning_effort` is sent only if the probe accepted it.** Not "if the model looks like a
  *    reasoning model": the field is rejected outright by servers that do not know it.
  *
@@ -42,7 +45,13 @@ type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
  * worth distinguishing: the other three are `01` §2.1's ban, and this one is Ollama's limitation.
  * Both end in the same assertion.
  */
-export const FORBIDDEN_REQUEST_KEYS: readonly string[] = ['top_p', 'top_k', 'tool_choice', 'user'];
+export const FORBIDDEN_REQUEST_KEYS: readonly string[] = [
+  'temperature',
+  'top_p',
+  'top_k',
+  'tool_choice',
+  'user',
+];
 
 export class WireInvariantError extends Error {
   readonly violations: readonly string[];
@@ -59,8 +68,6 @@ export interface BuildLocalOptions {
   readonly level: LadderLevel;
   /** From the probe. When false, `reasoning_effort` is omitted (`05` §3.5.6). */
   readonly reasoningEffortAccepted: boolean;
-  /** A registry override's `temperature`, which is the only way one is ever sent. */
-  readonly temperatureOverride?: number;
 }
 
 export interface BuiltLocalRequest {
@@ -314,12 +321,9 @@ export function buildLocalRequest(
       : {}),
     ...(behaviour.tools === 'envelope' ? envelopeFormat(req, behaviour.structured) : {}),
     ...(options.reasoningEffortAccepted ? { reasoning_effort: effortFor(req.effort) } : {}),
-    ...(options.temperatureOverride === undefined
-      ? {}
-      : { temperature: options.temperatureOverride }),
   };
 
-  assertWireInvariants(params, options);
+  assertWireInvariants(params);
   return { params, transformations, envelope: behaviour.tools === 'envelope' };
 }
 
@@ -358,10 +362,7 @@ function effortFor(effort: ModelTurnRequest['effort']): 'low' | 'medium' | 'high
 }
 
 /** Assert `01` §2.1 and `05` §3.5.6's compatibility rules over a built request. */
-export function assertWireInvariants(
-  params: ChatParams,
-  options: Pick<BuildLocalOptions, 'temperatureOverride'>,
-): void {
+export function assertWireInvariants(params: ChatParams): void {
   const violations: string[] = [];
   const bag = params as Readonly<Record<string, unknown>>;
 
@@ -372,13 +373,6 @@ export function assertWireInvariants(
         ? '`tool_choice` must be omitted: Ollama does not support it (05 §3.5.6)'
         : `"${key}" must never be sent (01 §2.1)`,
     );
-  }
-
-  // `temperature` is allowed **only** when a registry override asked for it. Checked against the
-  // option rather than merely allowed, so a stray `temperature` from some other path is still a
-  // violation of `01` §2.1.
-  if (params.temperature !== undefined && options.temperatureOverride === undefined) {
-    violations.push('`temperature` is only sent when a registry override sets it (01 §2.1)');
   }
 
   // Exactly one system message, in position zero. `05` §3.5.6: many chat templates reject any

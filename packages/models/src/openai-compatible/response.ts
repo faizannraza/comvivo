@@ -46,8 +46,51 @@ function firstChoice(completion: Completion): Completion['choices'][number] | un
  * that omit it, and reading a missing field as a successful completion is how a truncated answer
  * gets shown to a group as a finished one.
  */
+/**
+ * A wire value, as a short string safe to put in a trace.
+ *
+ * `String(unknown)` gives `[object Object]`, and reporting the **type** of a non-string is more
+ * useful: a host reading `raw: "object"` learns their server sent a shape where a string belongs,
+ * which on this adapter is a real possibility — four implementations, one loose contract.
+ */
+function describeWire(value: unknown): string {
+  return typeof value === 'string' ? value : typeof value;
+}
+
+/** Every member of Chat Completions' `finish_reason`, measured against `openai` 7.55.0. */
+type FinishReason = NonNullable<NonNullable<Completion['choices'][number]>['finish_reason']>;
+
+/**
+ * The members, as values, with completeness enforced by `satisfies` rather than by a comment.
+ *
+ * A member added to the SDK's union breaks the build here, which is where somebody has to decide
+ * what the new reason means for a turn.
+ */
+const KNOWN_FINISH_REASONS = Object.freeze({
+  stop: true,
+  length: true,
+  tool_calls: true,
+  content_filter: true,
+  function_call: true,
+} satisfies Record<FinishReason, true>);
+
+/** Whether the wire's `finish_reason` is one this build knows. `undefined` counts: it is handled. */
+function isKnownFinishReason(value: unknown): value is FinishReason | undefined {
+  if (value === undefined) return true;
+  return typeof value === 'string' && Object.hasOwn(KNOWN_FINISH_REASONS, value);
+}
+
 export function readStop(completion: Completion): StopInfo {
-  const reason = firstChoice(completion)?.finish_reason;
+  const wire: unknown = firstChoice(completion)?.finish_reason;
+  if (!isKnownFinishReason(wire)) {
+    // A `finish_reason` this build has never heard of — and on this adapter that is the *likely*
+    // case, not the unlikely one: four different servers implement this field (Ollama, LM Studio,
+    // llama.cpp, vLLM) and none of them is bound by OpenAI's union. Before this branch the switch
+    // below was exhaustive to TypeScript and returned `undefined` at run time. Found at the M2
+    // review, here and in the three other adapters.
+    return { reason: 'other', raw: wire === null ? 'null' : describeWire(wire) };
+  }
+  const reason = wire;
   switch (reason) {
     case 'stop':
       return { reason: 'end_turn', raw: reason };

@@ -44,6 +44,15 @@ export interface UsageContext {
   readonly provider: ProviderId;
   /** The model the route asked for, which `05` §3.9.2 prices separately from the served one. */
   readonly requestedModel: string;
+  /**
+   * The price-table row to charge the requested model against (`RouteBinding.priceId`).
+   *
+   * Only consulted when the **served** model is the requested one, because a refusal fallback
+   * answered on a different model and that model's own rates are what were charged. Supplied by
+   * whoever resolved the route; omitted, the served id prices itself, which is the normal case
+   * (`priceKey` is `null` for every registry row we ship).
+   */
+  readonly priceId?: string;
   readonly effort?: string;
   readonly via?: UsageVia;
   readonly groupId?: NewUsageRecord['groupId'];
@@ -73,7 +82,7 @@ export function usageRecordFor(
   context: UsageContext,
   iteration: UsageIteration,
 ): NewUsageRecord {
-  const cost = costIteration(iteration, deps.prices);
+  const cost = costIteration(pricedAs(context, iteration), deps.prices);
   return {
     id: deps.ids.next('use'),
     ...(context.groupId === undefined ? {} : { groupId: context.groupId }),
@@ -141,4 +150,18 @@ export function recordUsage(
       });
     }
   }
+}
+
+/**
+ * The iteration as the price table should see it.
+ *
+ * `UsageIteration.model` is the provider's **own** id for the model that answered, which is what
+ * `lookupPrice` resolves. A registry `priceKey` redirects it — but only for the requested model: an
+ * iteration served by the refusal fallback ran on a different model, and charging it against the
+ * requested model's price row would bill a group for a call that never happened at those rates.
+ */
+function pricedAs(context: UsageContext, iteration: UsageIteration): UsageIteration {
+  const priceId = context.priceId;
+  if (priceId === undefined || iteration.model !== context.requestedModel) return iteration;
+  return { ...iteration, model: priceId };
 }

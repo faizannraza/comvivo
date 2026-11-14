@@ -28,6 +28,7 @@ import { staticHintsFor } from './hints.js';
 import { hostPortOf, identifyServer } from './identify.js';
 import type { LadderLevel } from './ladder.js';
 import { type LocalProbeTransport, runProbes } from './probe.js';
+import { LOCAL_PROVIDER } from './response.js';
 import {
   LOCAL_MODEL,
   localBinding,
@@ -544,6 +545,21 @@ describe('the gateway', () => {
     const chatOnly = createLocalGateway((await harness({ level: 'L4' })).deps);
     // A caller asking `supports.tools` before building a catalogue must not be told `probe`.
     expect(chatOnly.routeInfo('chat').supports).toMatchObject({ structured: 'none' });
+  });
+
+  it('reports the host’s provider name and the adapter’s id, which differ only here', async () => {
+    const gateway = createLocalGateway((await harness()).deps);
+    const info = gateway.routeInfo('chat');
+    // What the host wrote in `models.routes.chat: local/…`, and the key for `models.baseUrls.local`.
+    expect(info.provider).toBe('local');
+    // Which adapter speaks the protocol — the same string every error, span and metric from this
+    // adapter carries. Before the M2 review the gateway reported only `provider`, and the
+    // middleware used it as a `ProviderId` through an `as never` cast: this route's circuit
+    // breaker, spans and metrics were filed under `local` while its failures said
+    // `openai-compatible`, so the breaker counted one provider's failures under a name nothing
+    // else used. The two must stay pinned together, which is what this asserts.
+    expect(info.providerId).toBe(LOCAL_PROVIDER);
+    expect(info.providerId).not.toBe(info.provider);
   });
 
   it('declares none of the members no local server offers', async () => {

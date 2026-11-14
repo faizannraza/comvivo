@@ -8,8 +8,12 @@
  *
  * `CLAUDE.md` §8: a `--fake` run is **not** a live result, and nothing here claims it is.
  */
+import { spawnSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import type { ModelGateway, ModelRoute, ModelTurnRequest } from '@comvivo/core';
 import { bindingFor, FakeModelGateway, type ReplyBuilder } from '@comvivo/models/testing';
+import { BRAND } from '@comvivo/shared';
 import { VirtualClock } from '@comvivo/shared/testing';
 import { describe, expect, it } from 'vitest';
 import { SMOKE_CAP_MICROS } from '../budget/index.js';
@@ -175,7 +179,12 @@ describe('running the smoke offline', () => {
         ),
       structured: () => Promise.reject(new Error('no')),
       embed: () => Promise.reject(new Error('no')),
-      routeInfo: () => ({ provider: 'fake', model: 'm', supports: {} as never }),
+      routeInfo: () => ({
+        provider: 'fake',
+        providerId: 'fake',
+        model: 'm',
+        supports: {} as never,
+      }),
     };
     const report = await runSmoke({
       gateway,
@@ -238,5 +247,100 @@ describe('the cache-read comparison', () => {
     };
     expect(cacheReadImproved(first, { ...first, cacheReadTokens: 900 })).toBe(true);
     expect(cacheReadImproved(first, first)).toBe(false);
+  });
+});
+
+describe('the CLI, invoked exactly as live-smoke.yml invokes it', () => {
+  /**
+   * Run the CLI as a child process with a given argv.
+   *
+   * A child process rather than importing `main`: the bug this guards against was in **argv
+   * parsing**, and `parseArgs` reads `process.argv` — so a test that called a function with an
+   * array would have passed while the workflow's command crashed. The M2 independent review found
+   * exactly that, by running the workflow's line.
+   */
+  function runCli(
+    args: readonly string[],
+    env: Readonly<Record<string, string>> = {},
+  ): {
+    readonly status: number | null;
+    readonly output: string;
+  } {
+    // `shell: true` because `pnpm` is a shim and `spawnSync` reports `ENOEXEC` without one — and
+    // going **through pnpm** is the point: the bug was pnpm forwarding a literal `--` into argv,
+    // which spawning `node` directly would not reproduce. Every argument here is a literal in this
+    // file, so there is nothing untrusted to interpolate.
+    const result = spawnSync(
+      ['pnpm', '--filter', `@${BRAND.slug}/evals`, 'smoke:live', ...args].join(' '),
+      {
+        cwd: fileURLToPath(new URL('../../../..', import.meta.url)),
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+        timeout: 120_000,
+        shell: true,
+      },
+    );
+    return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+  }
+
+  it('parses --providers without a `--` separator, as the workflow passes it', () => {
+    // `live-smoke.yml`'s step runs `pnpm --filter … smoke:live --providers "$PROVIDERS"`. pnpm 12
+    // forwards a literal `--` into argv, where it terminates option parsing and `--providers`
+    // arrives as a positional — `ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL`, thrown before the command
+    // reaches a provider. The workflow's only command crashed until the M2 review ran that line.
+    const result = runCli(['--providers', 'anthropic'], { ANTHROPIC_API_KEY: '' });
+    expect(result.output).not.toContain('ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL');
+    // With no key it refuses, which is correct and proves parsing got that far.
+    expect(result.output).toContain('no key for anthropic');
+    expect(result.status).toBe(1);
+  });
+
+  it('refuses, naming the ask, rather than passing when a key is missing', () => {
+    // A smoke that reported success for having nothing to do is the worst available outcome.
+    const result = runCli(['--providers', 'anthropic'], { ANTHROPIC_API_KEY: '' });
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain('H-2');
+  });
+
+  it('rejects an unknown provider by name', () => {
+    const result = runCli(['--providers', 'not-a-provider']);
+    // Non-zero, not `2`: **pnpm normalises a script's exit code to 1** (measured — the CLI exits
+    // 2 when run directly). Asserting 2 here would be asserting a number the workflow never sees,
+    // and the workflow only distinguishes success from failure.
+    expect(result.status).not.toBe(0);
+    expect(result.output).toContain('not-a-provider');
+  });
+
+  it('accepts ollama, which both the workflow and STATUS say runs locally', () => {
+    // The review found `ollama` absent from `PROVIDERS` while two documents claimed it ran. A
+    // substitution that is stated and unavailable is worse than one that is absent. It needs no
+    // key, so it reaches the gateway and fails on connection rather than on validation.
+    const result = runCli(['--providers', 'ollama']);
+    expect(result.output).not.toContain('unknown provider');
+    expect(result.output).not.toContain('no key for');
+  });
+
+  it('runs the real scenarios under --fake and says it is not a live result', () => {
+    const result = runCli(['--fake']);
+    expect(result.status).toBe(0);
+    // All five, not a pointer to the unit suite — which is what this printed before the review.
+    for (const scenario of SMOKE_SCENARIOS) {
+      expect(result.output, scenario.id).toContain(scenario.id);
+    }
+    // And it cannot be mistaken for a live run (`CLAUDE.md` §8).
+    expect(result.output).toContain('NOT A LIVE RESULT');
+  });
+
+  it('writes the artifact live-smoke.yml uploads, at the repository root', () => {
+    runCli(['--fake']);
+    // The upload step pointed at a directory nothing created, so it always warn-and-passed on an
+    // empty artifact — and the `01` §11.7 care in `smoke.ts` rested on a file never produced.
+    // `pnpm --filter` also sets cwd to the package, so a relative path wrote it to the wrong tree.
+    const path = fileURLToPath(
+      new URL('../../../../results/live-smoke/fake.json', import.meta.url),
+    );
+    const report = JSON.parse(readFileSync(path, 'utf8')) as { live: boolean; green: boolean };
+    expect(report.live).toBe(false);
+    expect(report.green).toBe(true);
   });
 });

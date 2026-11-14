@@ -839,15 +839,28 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
       "thinking": "adaptive_always", "tools": "native_strict", "structured": "native", "parallelTools": true, "forcedToolChoice": false,
       "midConversationSystem": true, "perMessageEffort": true, "turnScopedSystem": true, "serverFallback": "default",
       "promptCaching": "explicit", "minCacheableTokens": 512, "maxBreakpoints": 4, "vision": true, "pdf": true,
-      "batches": true, "countTokens": true, "sampling": "forbidden", "prefill": false, "preservedThinking": true, "priceKey": "anthropic/claude-opus-5-5" },
+      "batches": true, "countTokens": true, "prefill": false, "preservedThinking": true, "priceKey": "anthropic/claude-opus-5-5" },
     "anthropic/claude-sonnet-5-5": { "…": "same as Opus 5.5 except", "defaultEffort": "high", "serverFallback": "default" },
     "anthropic/claude-haiku-5-5":  { "…": "same except", "defaultEffort": "medium", "serverFallback": "none", "forcedToolChoice": true },
     "openai/<model>":   { "tools": "native_strict", "structured": "native", "midConversationSystem": "developer_role", "promptCaching": "automatic", "thinking": "reasoning_items", "…": "…" },
     "google/<model>":   { "tools": "native", "structured": "native", "midConversationSystem": false, "promptCaching": "implicit", "thinking": "thought_signatures", "…": "…" },
-    "local/*":          { "tools": "probe", "structured": "probe", "midConversationSystem": false, "promptCaching": "server_prefix", "sampling": "allowed", "…": "…" }
+    "local/*":          { "tools": "probe", "structured": "probe", "midConversationSystem": false, "promptCaching": "server_prefix", "…": "…" }
   }
 }
 ```
+
+> **Amended 2026-11-14 (`M2-T16` review): `sampling` is gone.** The field recorded whether a server
+> *would* accept sampling parameters, which `01` §2.1 forbids us from sending to any provider with
+> no exception — so nothing read it, and its presence invited the misreading it got: the local
+> adapter grew a `temperatureOverride` for a "registry override" the field never authorised. A row
+> whose only possible consumer would break a non-negotiable is better deleted than documented.
+>
+> **`priceKey` stayed and now has a reader.** It was in the same condition — written by every row,
+> read by nothing — but its purpose is real: a host who pins a dated snapshot through
+> `models.registryOverrides` needs it to point at a price row, because the price tables carry exact
+> ids and no `openai/*` family. It is read through `RouteBinding.priceId`, by `doctor`'s
+> `models.prices` check and by the usage hook, which ignores it for an iteration a refusal fallback
+> served (that model's own rates were charged).
 
 **Presets** (`registry/presets.json`; spine §2.1). Each preset fills `{chat, chatEconomy, route, extract, declassify, guard, consolidate}`:
 
@@ -1152,7 +1165,15 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 - `tool_choice` is **omitted**, since Ollama doesn't support it [R18].
 - `max_tokens` is set — and **not** `max_completion_tokens`, which OpenAI now prefers and has deprecated the older name for. Verified at `M2-T12`: `max_tokens` is the field all four servers implement, and sending the newer name would leave the output limit silently unenforced on the servers that ignore an unknown field and 400 on the ones that do not. The deprecation is on OpenAI's own surface, where this adapter never points; the lint suppression carries that reason.
 - `reasoning_effort` is sent only if the probe says it is accepted.
-- `temperature` is omitted unless set by a registry override.
+- `temperature` is **never sent**. `01` §2.1 bans sampling parameters with no exception, and an
+  earlier version of this section said "omitted unless set by a registry override" — which
+  contradicted §2.1 in the same sentence that cited it, and the adapter grew a
+  `temperatureOverride` option to match. The M2 independent review caught both. **Amended
+  2026-11-14 (`M2-T16` review):** no override exists, nothing ever set one, and `temperature`
+  joins `top_p`, `top_k`, `tool_choice` and `user` in this adapter's `FORBIDDEN_REQUEST_KEYS`,
+  asserted over the **built** request so a value arriving from any future path is a violation.
+  It is also the right default: a local model's sampler settings are tuned by whoever packaged
+  the weights, and overriding them from here would be guessing against the packager.
 
 > **Re-measured at `M2-T12` (2026-11-13).** All four identification endpoints verified. Three of
 > them report **more** than this section says, and the probes reach the network through
@@ -1577,7 +1598,17 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
 - **Corrected at `M2-T3`** against the published table (2026-11-12): Sonnet 5.5's cache read is **$0.10**, not the $0.20 this row carried. Cache hits on Opus 5.5 and Sonnet 5.5 are 0.05× base input, and 0.05 × $2 is $0.10. The error was in the quiet direction: cache reads are most of a warm conversation, so a doubled rate inflates the cheapest part of a family's traffic and would have had the budget guard degrade a group that had not spent its budget. The shipped table is `pricing/prices.2026-11-12.json` and `cost.test.ts` pins every rate.
 - **Units.** Prices are USD per million tokens [R1]. `costMicros = Σ round(tokens × pricePerMTok)`: dollars per MTok × tokens equals micro-USD exactly. `batchMultiplier` is applied for Batches.
 - **Haiku tier.** Chosen by total prompt tokens (input + cache read + cache write) [R1].
-- **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates, so it is conservative) and `doctor` warns.
+- **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates) and `doctor` warns.
+  **Amended 2026-11-14 (`M2-T16` review):** this said "so it is conservative", which is true only
+  relative to the table. Opus is the dearest model we publish prices for, not the dearest model
+  that can exist — `openai/gpt-6-astra` is 2.5× Opus on the same tokens — so a model dearer than
+  Opus that falls through is **under**-reported, the dangerous direction for a budget. The
+  fallback is a floor on visibility, not a ceiling on spend. What keeps a group safe is that
+  models do not fall through: `lookupPrice` resolves a provider's **bare** model id, which is how
+  every adapter reports the served model (`message.model` is `claude-opus-5-5`, never
+  `anthropic/claude-opus-5-5`) — until `M2-T16` it did not, so **every** priced iteration fell
+  through to the fallback and only coincided with the truth for Opus itself. `doctor`'s
+  `models.prices` and `models.registry` checks say so out loud when one still does.
 - **Overrides.** Hosts may set `models.pricing.overridesFile`.
 - **Updates.** New files ship with releases. The newest `version ≤ today` wins.
 

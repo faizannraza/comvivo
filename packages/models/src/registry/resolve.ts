@@ -75,6 +75,16 @@ export interface RouteBinding {
   readonly model: string;
   /** The registry key this resolved through — the exact id, or the `<provider>/*` family. */
   readonly capabilityKey: string;
+  /**
+   * The price-table row to charge this route against.
+   *
+   * `capabilities.priceKey` when the registry sets one, else `<provider>/<model>` — which is what
+   * `lookupPrice` would have been given anyway, so the normal case is unchanged. The indirection
+   * matters for a host who pins a dated snapshot through `models.registryOverrides`: the registry
+   * answers through the provider family, the price table has no row for the dated id, and without
+   * this the spend would be estimated at the fallback's rates (see `priceKey`'s doc comment).
+   */
+  readonly priceId: string;
   readonly capabilities: ModelCapabilities;
   readonly features: ModelFeatureSet;
   readonly effortDefault: Effort;
@@ -319,6 +329,7 @@ function resolveSlot(
       provider,
       model,
       capabilityKey: exact ? id : `${provider}/*`,
+      priceId: capabilities.priceKey ?? `${provider}/${model}`,
       capabilities,
       features: toFeatureSet(capabilities),
       effortDefault: capabilities.defaultEffort,

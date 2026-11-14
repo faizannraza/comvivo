@@ -74,8 +74,6 @@ export interface LocalAdapterDeps {
   readonly level: LadderLevel;
   /** From the probe. When false, `reasoning_effort` is omitted (`05` §3.5.6). */
   readonly reasoningEffortAccepted: boolean;
-  /** A registry override's temperature, the only way one is ever sent. */
-  readonly temperatureOverride?: number;
   /** Most local servers need no key; LM Studio and a proxied vLLM may. */
   readonly apiKey?: SecretString;
   /** Injected in tests. */
@@ -143,9 +141,6 @@ export async function runChat(
     binding,
     level: deps.level,
     reasoningEffortAccepted: deps.reasoningEffortAccepted,
-    ...(deps.temperatureOverride === undefined
-      ? {}
-      : { temperatureOverride: deps.temperatureOverride }),
   });
 
   const client = createLocalClient(deps);
@@ -268,9 +263,6 @@ export async function runStructured<T>(
     binding,
     level: deps.level,
     reasoningEffortAccepted: deps.reasoningEffortAccepted,
-    ...(deps.temperatureOverride === undefined
-      ? {}
-      : { temperatureOverride: deps.temperatureOverride }),
   });
   const client = createLocalClient(deps);
   const completions: OpenAI.Chat.Completions.ChatCompletion[] = [];
@@ -337,7 +329,11 @@ export function createLocalGateway(deps: LocalAdapterDeps): ModelGateway {
     routeInfo: (route: ModelRoute, variant?: RouteVariant): RouteInfo => {
       const binding = deps.bindingFor(route, variant);
       return {
+        // What the host wrote (`local`) and which adapter serves it (`openai-compatible`). These
+        // differ only here, and conflating them filed this route's breaker, spans and metrics
+        // under a name no other part of the model layer uses.
         provider: binding.provider,
+        providerId: LOCAL_PROVIDER,
         model: binding.model,
         supports: {
           ...binding.features,

@@ -22,11 +22,17 @@ export function localCapabilities(): ModelCapabilities {
 
 export function localBinding(overrides: Partial<RouteBinding> = {}): RouteBinding {
   const capabilities = overrides.capabilities ?? localCapabilities();
-  return {
+  // Annotated, or the literals widen to `string` and the spread below stops being a
+  // `RouteBinding`. `priceId` is omitted because it is derived from this.
+  const base: Omit<RouteBinding, 'priceId'> = {
     route: 'chat',
     variant: 'default',
     slot: 'chat',
-    provider: 'openai-compatible',
+    // What `resolveRoutes` actually produces: the provider is the **registry id's prefix**, so a
+    // `local/qwen3` route gives `local`, not the adapter's `openai-compatible`. This fixture said
+    // `openai-compatible` until the M2 review, which made it the one place where the two
+    // namespaces looked identical and hid that the middleware was conflating them.
+    provider: 'local',
     model: LOCAL_MODEL,
     capabilityKey: 'local/*',
     capabilities,
@@ -36,6 +42,14 @@ export function localBinding(overrides: Partial<RouteBinding> = {}): RouteBindin
     attemptTimeoutMs: 30_000,
     maxRetries: 0,
     ...overrides,
+  };
+  // Derived after the overrides, exactly as `resolveRoutes` derives it — `capabilities.priceKey`
+  // when the registry sets one, else `<provider>/<model>`. A fixed literal here would have made
+  // every `bindingFor({ model: … })` test price against the default model, which is the
+  // fixture-versus-production gap the M2 review found in this file's `provider` field.
+  return {
+    ...base,
+    priceId: overrides.priceId ?? base.capabilities.priceKey ?? `local/${base.model}`,
   };
 }
 

@@ -89,21 +89,27 @@ const PURE_PACKAGES =
  * `shared/net`'s `safeFetch`, which is what makes invariant **I5 (guarded egress)** structural
  * rather than a convention — and `--allow-net` cannot do it, being all-or-nothing (`01` §14 A31).
  *
- * `^packages/evals/src/chaos/` is the last entry and is **not** a widening of I5. The rule's
- * purpose is that no module opens an unguarded path *out*; `FakeProviderServer` (`M2-T10`) opens
- * one *in*, binding a loopback server so an adapter's real SDK retry paths can be exercised against
- * 429s, overloads and streams cut mid-response (`11` Q21: "Kill -9 requires the platform and the
- * model to live outside the process"). dependency-cruiser cannot tell `createServer` from
- * `connect`, so direction has to be expressed as a path. Two things keep it honest: the directory
- * imports `node:http` and nothing else — no `net`, `tls` or `dns` — and the server binds
- * `127.0.0.1` with a test asserting the bound address is loopback. The `fetch` global stays banned
- * there by `comvivo/guarded-egress`, which does not exempt this path.
+ * Every entry here is a module that genuinely imports one of the banned core modules. The M2
+ * review found two that did not: `^packages/models/src/providers/` (the adapters live at
+ * `src/{anthropic,openai,google,openai-compatible}/` and reach the network through their SDKs and
+ * `safeFetch`, never a socket) and `^packages/evals/src/chaos/` (`FakeProviderServer` moved to
+ * `@comvivo/models/testing` at `M2-T14`). Both were removed. A dead exemption is worse than none:
+ * it reads as a reviewed decision that something there needs a socket, and the next person widens
+ * the real rule to match the fiction.
  *
- * `channels/simulator` is already covered by the same reasoning through
- * `^packages/channels/[^/]+/src/`: it is a fake platform, not an egress path.
+ * `FakeProviderServer` still opens a loopback server — it binds one so an adapter's real SDK retry
+ * paths can be exercised against 429s, overloads and streams cut mid-response (`11` Q21). It is
+ * exempt because it is **test-shaped** (`/testing/`), not because of a path listed here, and that
+ * is the honest description: `TEST_SHAPED` lets any test open a socket. Acceptable, because a test
+ * is not an egress path a group's data flows through, and narrowed in practice by the file itself —
+ * it imports `node:http` and nothing else, and binds `127.0.0.1` with a test asserting the bound
+ * address is loopback. The `fetch` global stays banned there by `comvivo/guarded-egress`.
+ *
+ * `channels/simulator` is covered by `^packages/channels/[^/]+/src/`: it is a fake platform, not an
+ * egress path.
  */
 const NET_ALLOWED =
-  '(^packages/shared/src/net/|^packages/models/src/providers/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/|^packages/evals/src/chaos/)';
+  '(^packages/shared/src/net/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/)';
 
 /** Where cryptography may be implemented (`08` PSC-8 → A11). */
 const CRYPTO_ALLOWED = '(^packages/shared/src/crypto/|^packages/storage/src/crypto/)';

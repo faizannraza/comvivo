@@ -181,7 +181,8 @@ export const EGRESS_MANIFEST: readonly EgressRow[] = Object.freeze([
   Object.freeze({
     surface: 'embed',
     label: 'Search indexing',
-    sends: 'Nothing by default. If a host configures an API: memory texts, including private ones',
+    sends:
+      'Local by default: embedding runs on this host. If a host configures an API: memory texts, including private ones',
     whose: 'All members',
     localAlternative: 'Already the default',
     byDefault: 'local',
@@ -190,7 +191,8 @@ export const EGRESS_MANIFEST: readonly EgressRow[] = Object.freeze([
   Object.freeze({
     surface: 'transcribe',
     label: 'Voice notes',
-    sends: 'Nothing by default. If a host configures an API: the audio of a voice note',
+    sends:
+      'Local by default: transcription runs on this host. If a host configures an API: the audio of a voice note',
     whose: 'The sender',
     localAlternative: 'Already the default',
     byDefault: 'local',

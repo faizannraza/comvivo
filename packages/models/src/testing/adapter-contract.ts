@@ -22,10 +22,15 @@
  * **lens** — small, declarative functions that find the thing in a captured body.
  *
  * A wrong lens is the failure mode that matters: `toolsOf` returning `[]` would make the
- * strict-tools assertion pass for an adapter that sent no `strict` at all. So every subject must
- * also declare what its lens is expected to **find**, and `assertLensIsHonest` fails when a lens
- * comes back empty on a request that demonstrably contained the thing. The rules are only as good
- * as the lens, and the lens is checked before the rules run.
+ * strict-tools assertion pass for an adapter that sent no `strict` at all. So the suite opens with
+ * **two `it` blocks of its own** — "has an honest lens: it finds the tools a request demonstrably
+ * carried" and the same for a replayed assistant turn and a tool result — which run a request that
+ * provably contains the thing and fail if the lens comes back empty. The rules are only as good as
+ * the lens, and the lens is checked before the rules run.
+ *
+ * (An earlier version of this paragraph described a function called `assertLensIsHonest`. There has
+ * never been one; the guards are the two `it` blocks below. Corrected at the M2 review, which found
+ * it while looking for the function.)
  *
  * ## One rule that cannot be literal on all four
  *

@@ -23,7 +23,6 @@
       "pdf": true,
       "batches": true,
       "countTokens": true,
-      "sampling": "forbidden",
       "prefill": false,
       "preservedThinking": true,
       "priceKey": "anthropic/claude-opus-5-5"
@@ -49,7 +48,6 @@
       "pdf": true,
       "batches": true,
       "countTokens": true,
-      "sampling": "forbidden",
       "prefill": false,
       "preservedThinking": true,
       "priceKey": "anthropic/claude-sonnet-5-5"
@@ -75,7 +73,6 @@
       "pdf": true,
       "batches": true,
       "countTokens": true,
-      "sampling": "forbidden",
       "prefill": false,
       "preservedThinking": true,
       "priceKey": "anthropic/claude-haiku-5-5"
@@ -101,7 +98,6 @@
       "pdf": true,
       "batches": false,
       "countTokens": false,
-      "sampling": "allowed",
       "prefill": false,
       "preservedThinking": false,
       "priceKey": null
@@ -127,7 +123,6 @@
       "pdf": true,
       "batches": false,
       "countTokens": true,
-      "sampling": "allowed",
       "prefill": false,
       "preservedThinking": true,
       "priceKey": null
@@ -153,7 +148,6 @@
       "pdf": false,
       "batches": false,
       "countTokens": false,
-      "sampling": "allowed",
       "prefill": true,
       "preservedThinking": false,
       "priceKey": null

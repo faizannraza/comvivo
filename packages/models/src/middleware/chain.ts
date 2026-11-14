@@ -102,7 +102,7 @@ export interface ModelTelemetryOptions extends ModelTelemetryDeps {
 export function withMiddleware(deps: ChainDeps): ModelGateway {
   const run = async (req: ModelTurnRequest, signal: AbortSignal): Promise<ModelTurnResult> => {
     const info = deps.inner.routeInfo(req.route, req.variant);
-    const breaker = deps.breakers.for(info.provider as never);
+    const breaker = deps.breakers.for(info.providerId);
     const requestHash = await hashTurnRequest(req);
     const context = {
       route: req.route,
@@ -142,7 +142,7 @@ export function withMiddleware(deps: ChainDeps): ModelGateway {
     signal: AbortSignal,
   ): Promise<StructuredResult<T>> => {
     const info = deps.inner.routeInfo(req.route, req.variant);
-    const breaker = deps.breakers.for(info.provider as never);
+    const breaker = deps.breakers.for(info.providerId);
     // The hash is computed even when no trace is emitted, because it is cheap and a structured
     // call's identity is what a cassette replay keys on.
     await hashStructuredRequest(req);
@@ -212,11 +212,15 @@ function spanContextFor(
   maxOutputTokens: number,
   shape: { readonly outputType: 'text' | 'json'; readonly stream: boolean },
 ): ModelSpanContext {
+  // These two are keyed by the **host's** provider name, because what they look up is
+  // configuration: `models.baseUrls.local` and the local server's flavour.
   const baseUrl = telemetry.endpointFor?.(info.provider);
   const flavour = telemetry.flavourFor?.(info.provider);
   return {
     route,
-    provider: info.provider,
+    // The span's provider is the **adapter's** id, so the chain's spans and the adapter's own
+    // carry one name for one provider. `11` §3.10.2's attribute is about which API was called.
+    provider: info.providerId,
     requestedModel: info.model,
     effort,
     maxOutputTokens,

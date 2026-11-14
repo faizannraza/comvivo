@@ -86,9 +86,60 @@ export function servedByFallback(message: Message): boolean {
  * `01` §11.3's rule, and far better than falling through to `other` and turning a new API behaviour
  * into "the model said nothing".
  */
+/**
+ * Every member of `BetaStopReason`, as a value.
+ *
+ * `satisfies` makes the list's **completeness** a compile error rather than a comment: the
+ * `Record` below is keyed by the union, so a member added to the SDK breaks the build here, which
+ * is where somebody has to decide what the new reason means. Measured against
+ * `@anthropic-ai/sdk` 1.7.0.
+ */
+const KNOWN_STOP_REASONS = Object.freeze({
+  end_turn: true,
+  max_tokens: true,
+  stop_sequence: true,
+  tool_use: true,
+  pause_turn: true,
+  compaction: true,
+  refusal: true,
+  model_context_window_exceeded: true,
+} satisfies Record<StopReason, true>);
+
+/**
+ * A wire value, as a short string safe to put in a trace.
+ *
+ * `String(unknown)` gives `[object Object]` for anything structured, and reporting the **type** of
+ * a non-string is more useful anyway: a host reading `raw: "object"` learns the provider sent a
+ * shape where a string was documented.
+ */
+function describeWire(value: unknown): string {
+  return typeof value === 'string' ? value : typeof value;
+}
+
+/** Whether the wire's `stop_reason` is one this build knows. `null` counts: it is documented. */
+function isKnownStopReason(value: unknown): value is StopReason | null {
+  if (value === null) return true;
+  return typeof value === 'string' && Object.hasOwn(KNOWN_STOP_REASONS, value);
+}
+
 export function readStop(message: Message): StopInfo {
-  const reason: StopReason | null = message.stop_reason;
-  const raw = reason ?? 'null';
+  const wire: unknown = message.stop_reason;
+  const raw = wire === null || wire === undefined ? 'null' : describeWire(wire);
+  if (!isKnownStopReason(wire)) {
+    // **A reason this build has never heard of.** `BetaStopReason` is a closed union at compile
+    // time and an open string on the wire: `compaction` and `model_context_window_exceeded` were
+    // both added to it while this project was being written, so the next addition is a matter of
+    // when. Before this branch existed the switch below was exhaustive to TypeScript and fell off
+    // the end at run time, returning `undefined` as a `StopInfo` — measured at the M2 review —
+    // which the engine reads `.reason` from on the next line.
+    //
+    // Narrowed here rather than handled in a `default`, because a `default` on a switch the
+    // compiler believes is exhaustive is both a lint error and a worse description: the openness
+    // belongs in the *type* of what came off the wire, which is `unknown`, and the switch stays
+    // honestly exhaustive over the union it does cover.
+    return { reason: 'other', raw };
+  }
+  const reason: StopReason | null = wire;
   switch (reason) {
     case 'end_turn':
       return { reason: 'end_turn', raw };

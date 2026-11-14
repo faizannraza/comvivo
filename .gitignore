@@ -35,6 +35,13 @@ packages/storage/.dev/
 coverage/
 # `pnpm bench` output. The results that matter are the ones CI uploads (`11` §3.9.3).
 .bench/
+# `pnpm smoke:live` reports (`M2-T19`). The live run's report is the gate evidence and belongs in
+# the workflow's artifact, not the repository: it names models, costs and rejection kinds for one
+# moment, so a committed copy would be read as current long after it stopped being true. `--fake`
+# writes here too, which is exactly why this is ignored rather than committed — a file that says
+# "NOT A LIVE RESULT" in a tree is one screenshot away from being quoted as one.
+results/
+
 # What `scripts/bench/pi.sh` leaves behind for the owner to paste back (ask H-10): a Pi session
 # should not hand them a dirty tree to explain.
 pi-storage.json

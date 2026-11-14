@@ -297,6 +297,7 @@ describe('the gateway interface', () => {
       embed: () => Promise.resolve([]),
       routeInfo: () => ({
         provider: 'fake',
+        providerId: 'fake',
         model: 'fake-1',
         supports: {
           contextWindow: 1_000_000,

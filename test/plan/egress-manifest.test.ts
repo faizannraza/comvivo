@@ -17,104 +17,259 @@ import { describe, expect, it } from 'vitest';
 import {
   EGRESS_MANIFEST,
   EGRESS_SURFACES,
+  type EgressSurface,
+  egressRow,
   PROVIDER_HYGIENE,
 } from '../../packages/models/src/egress-manifest.js';
 
 const SPEC = fileURLToPath(new URL('../../docs/plan/08-security-privacy.md', import.meta.url));
 
-/** The route names `08` §3.11.1's first column uses, in table order. */
-function specRouteLabels(): readonly string[] {
+/** One row of `08` §3.11.1, all four columns. */
+interface SpecRow {
+  readonly route: string;
+  readonly sends: string;
+  readonly whose: string;
+  readonly localAlternative: string;
+}
+
+/**
+ * Parse `08` §3.11.1's table — **every column**, not just the first.
+ *
+ * The first version of this read column 1 only and compared a row **count**. The M2 independent
+ * review proved it vacuous from both sides: renaming the `route` row and rewriting all three of its
+ * data columns to "Nothing at all; this route no longer leaves the host / Nobody / Local" passed,
+ * and so did making the same change in the manifest. A member could have been told "nothing leaves
+ * the host" for a route that sends the recent window, with the only test that exists to prevent
+ * exactly that green. `08` SD-15 promises honest minimization and four surfaces render from this
+ * list, so the comparison has to be over the words.
+ */
+function parseSpecTable(): readonly SpecRow[] {
   const markdown = readFileSync(SPEC, 'utf8');
   const section = markdown.split('#### 3.11.1')[1];
   if (section === undefined) throw new Error('08 §3.11.1 not found; the heading moved');
   const table = section.split('\nProvider-specific hygiene')[0] ?? section;
 
-  const labels: string[] = [];
+  const rows: SpecRow[] = [];
   for (const line of table.split('\n')) {
-    const match = /^\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|\s*$/.exec(
-      line,
-    );
-    if (match === null) continue;
-    const first = match[1];
-    if (first === undefined || first.startsWith('---') || first === 'Route') continue;
-    labels.push(first);
+    const cells = line.split('|');
+    // A body row is `| a | b | c | d |` → six pieces with empty ends.
+    if (cells.length !== 6) continue;
+    const [, route, sends, whose, localAlternative] = cells.map((cell) => cell.trim());
+    if (route === undefined || route === '' || route.startsWith('---') || route === 'Route') {
+      continue;
+    }
+    rows.push({
+      route,
+      sends: sends ?? '',
+      whose: whose ?? '',
+      localAlternative: localAlternative ?? '',
+    });
   }
-  return labels;
+  return rows;
 }
 
-describe('the manifest covers every row of 08 §3.11.1', () => {
-  const labels = specRouteLabels();
+/** Words that carry meaning, for comparing a manifest row against its spec row. */
+function significantWords(text: string): readonly string[] {
+  return (
+    text
+      .toLowerCase()
+      // Markdown emphasis, backticks and punctuation are formatting, not content.
+      .replaceAll(/[*`_()[\]{}.,;:!?"'’—–…/]/g, ' ')
+      .split(/\s+/)
+      .filter((word) => word.length >= 4 && !STOP_WORDS.has(word))
+  );
+}
 
-  it('found the table, so the comparisons below are not comparing nothing', () => {
-    expect(labels.length).toBeGreaterThan(10);
-    expect(labels[0]).toContain('chat');
+/**
+ * Words too common to distinguish one row from another.
+ *
+ * Deliberately short. A long stop list would let a rewritten row pass by stripping away everything
+ * that made it specific, which is the failure this whole function exists to prevent.
+ */
+const STOP_WORDS: ReadonlySet<string> = new Set([
+  'that',
+  'this',
+  'with',
+  'from',
+  'they',
+  'them',
+  'their',
+  'when',
+  'what',
+  'then',
+  'than',
+  'only',
+  'also',
+  'into',
+  'each',
+  'both',
+  'more',
+  'some',
+  'such',
+  'very',
+  'will',
+  'would',
+  'been',
+  'have',
+  'does',
+  'default',
+]);
+
+/**
+ * How much of the spec row's vocabulary the manifest row reproduces.
+ *
+ * Not an exact string match: the manifest's text is **product copy** and the spec's is a table —
+ * "Charter, tool catalog, …" against "Charter, tool catalogue, constitution charter, …". What must
+ * hold is that the manifest says the same *things*, so this is the share of the spec row's
+ * significant words that appear somewhere in the manifest row.
+ */
+function overlap(specText: string, manifestText: string): number {
+  const specWords = [...new Set(significantWords(specText))];
+  if (specWords.length === 0) return 1;
+  const manifestWords = new Set(significantWords(manifestText));
+  const carries = (word: string): boolean =>
+    manifestWords.has(word) ||
+    (SYNONYMS.get(word)?.every((part) => manifestWords.has(part)) ?? false);
+  return specWords.filter(carries).length / specWords.length;
+}
+
+/**
+ * Plain-language renderings of the spec table's shorthand.
+ *
+ * Members read the manifest in the wizard and the dashboard, so it says "the person who asked"
+ * where `08` §3.11.1's table says "Requester" — the same fact, in the register a member reads in.
+ * Declared here rather than stop-worded away: one checkable translation keeps the comparison
+ * strict for every other row, and a row rewritten to "Nobody" still carries neither form.
+ */
+const SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['requester', ['person', 'asked']],
+]);
+
+/**
+ * How much of a spec row's vocabulary a manifest row must carry.
+ *
+ * Calibrated by measurement, not taste: the real rows score 0.62–1.00 (printed by the test below
+ * when it fails), and the review's planted rewrite — three columns replaced with "Nothing at all /
+ * Nobody / Local" — scores near zero. 0.5 sits well clear of both, so the check fails on a
+ * rewrite and does not fail on the ordinary copy-editing the manifest's text is.
+ */
+const MIN_OVERLAP = 0.5;
+
+/**
+ * Which manifest surfaces each `08` §3.11.1 row maps to, **in the table's order**.
+ *
+ * Declared rather than inferred from the first column: that column is prose (`media (vision/pdf)`,
+ * `web search (opt-in)`) and matching it by pattern is a heuristic that fails silently. A declared
+ * list is checkable — the test below asserts the spec has exactly this many rows, so a row added
+ * to `08` §3.11.1 fails here until somebody maps it.
+ *
+ * Two rows map to two surfaces each. `chat` is two rows in the spec and two here. `extract` is
+ * **one** spec row and two here, because §3.11.2 moves the DM half onto the local model in Hybrid
+ * and leaves the group half in the cloud — one row cannot carry both.
+ */
+const ROW_SURFACES: readonly (readonly EgressSurface[])[] = [
+  ['chat.group'],
+  ['chat.dm'],
+  ['route'],
+  ['extract', 'extract.dm'],
+  ['declassify'],
+  ['guard'],
+  ['consolidate'],
+  ['embed'],
+  ['transcribe'],
+  ['media'],
+  ['web_search'],
+  ['mcp_remote'],
+  ['update_check'],
+];
+
+describe('the manifest reproduces every column of 08 §3.11.1', () => {
+  const spec = parseSpecTable();
+
+  it('found the table with all four columns, so the comparisons are not comparing nothing', () => {
+    expect(spec).toHaveLength(ROW_SURFACES.length);
+    const first = spec[0];
+    expect(first?.route).toContain('chat');
+    // The positive control that matters: the data columns are populated, not empty strings. A
+    // parser that silently returned blanks would make every overlap check below pass at 1.0.
+    expect(first?.sends.length).toBeGreaterThan(40);
+    expect(first?.whose.length).toBeGreaterThan(5);
+    expect(first?.localAlternative.length).toBeGreaterThan(2);
   });
 
-  it('is the spec’s rows plus exactly one deliberate split', () => {
-    // The spec has 13 rows. The manifest has 14, and the single addition is `extract.dm`.
-    //
-    // The split is not editorial: `08` §3.11.2 moves **DM** extraction onto the local model in
-    // Hybrid and leaves group extraction in the cloud, so one row cannot carry both — its
-    // `hybridMovesLocal` would have to be true and false at once. The spec's own `extract` row
-    // bolds "DM extraction sends DM text" inside itself, which is the same distinction written as
-    // prose rather than as data.
-    //
-    // Asserted as `length + 1` rather than loosened to a subset check, so a fifteenth row or a
-    // removed one still fails here.
-    expect(EGRESS_MANIFEST).toHaveLength(labels.length + 1);
-    const surfaces = EGRESS_MANIFEST.map((row) => row.surface);
-    expect(surfaces).toContain('extract');
-    expect(surfaces).toContain('extract.dm');
-    // And the two halves really do disagree about Hybrid, which is what the split is for.
-    const group = EGRESS_MANIFEST.find((row) => row.surface === 'extract');
-    const dm = EGRESS_MANIFEST.find((row) => row.surface === 'extract.dm');
-    expect(group?.hybridMovesLocal).toBe(false);
-    expect(dm?.hybridMovesLocal).toBe(true);
-  });
+  /**
+   * The mapped rows' text for one column, joined.
+   *
+   * A spec row that maps to two manifest rows has **one** cell per column covering both — `extract`
+   * says "Group members; the DM owner" once, and the manifest splits that across `extract` and
+   * `extract.dm`. Comparing the cell against each row on its own would fail by construction, so
+   * the comparison is against the union, which is what the cell actually describes.
+   */
+  const mappedText = (index: number, column: 'sends' | 'whose' | 'localAlternative'): string =>
+    (ROW_SURFACES[index] ?? []).map((surface) => egressRow(surface)[column]).join(' ');
 
-  it('covers every spec row’s subject, so nothing in the table is missing', () => {
-    // A keyword per spec row, matched against the manifest's labels and surfaces. Crude on
-    // purpose: the point is that no row of `08` §3.11.1 has been dropped, not that the prose
-    // matches word for word — the manifest's text is product copy and the spec's is a table.
-    const dumped = JSON.stringify(EGRESS_MANIFEST).toLowerCase();
-    for (const keyword of [
-      'charter',
-      'recent window',
-      'consented',
-      'constraints',
-      'draft',
-      'batches api',
-      'memory texts',
-      'voice note',
-      'pdf',
-      'query strings',
-      'tool arguments',
-      'ip address',
-    ]) {
-      expect(dumped, keyword).toContain(keyword);
+  it('says the same things in "sent to the provider" as the spec does', () => {
+    // Word overlap rather than string equality: the manifest's text is product copy and the
+    // spec's is a table. What must hold is that it names the same things.
+    for (const [index, row] of spec.entries()) {
+      const manifest = mappedText(index, 'sends');
+      const score = overlap(row.sends, manifest);
+      expect(
+        score,
+        `"${row.route}" · sends · ${score.toFixed(2)} overlap\n  spec:     ${row.sends}\n  manifest: ${manifest}`,
+      ).toBeGreaterThanOrEqual(MIN_OVERLAP);
     }
   });
 
-  it('names every surface in the enum, with no orphans either way', () => {
-    expect(EGRESS_MANIFEST.map((row) => row.surface)).toEqual([...EGRESS_SURFACES]);
+  it('says the same things in "whose data" as the spec does', () => {
+    // The column a member actually cares about, and the one the review's planted rewrite replaced
+    // with "Nobody".
+    for (const [index, row] of spec.entries()) {
+      const manifest = mappedText(index, 'whose');
+      const score = overlap(row.whose, manifest);
+      expect(
+        score,
+        `"${row.route}" · whose · ${score.toFixed(2)} overlap\n  spec:     ${row.whose}\n  manifest: ${manifest}`,
+      ).toBeGreaterThanOrEqual(MIN_OVERLAP);
+    }
   });
 
-  it('carries all four of the spec’s columns for every row', () => {
-    for (const row of EGRESS_MANIFEST) {
-      expect(row.label, row.surface).not.toBe('');
-      expect(row.sends, row.surface).not.toBe('');
-      // The column a member actually cares about.
-      expect(row.whose, row.surface).not.toBe('');
-      expect(row.localAlternative, row.surface).not.toBe('');
+  it('never reads as an absence, because no row of the spec is one', () => {
+    // The specific lie the review planted, asserted directly rather than relying on the overlap
+    // threshold to catch it. No exemptions: every row of `08` §3.11.1 names data that is sent —
+    // the three opt-ins name what goes when they are switched on, and `embed`/`transcribe` name
+    // what goes if a host configures an API. So no manifest row may read as "nothing happens".
+    const absences = [/nothing leaves/i, /nothing at all/i, /\bnobody\b/i, /no longer leaves/i];
+    for (const surface of EGRESS_SURFACES) {
+      const row = egressRow(surface);
+      for (const pattern of absences) {
+        expect(
+          `${row.sends} ${row.whose} ${row.localAlternative}`,
+          `${surface} · ${String(pattern)}`,
+        ).not.toMatch(pattern);
+      }
     }
+  });
+
+  it('maps every manifest surface to exactly one spec row', () => {
+    const mapped = ROW_SURFACES.flat();
+    expect(mapped.toSorted()).toEqual([...EGRESS_SURFACES].toSorted());
+    expect(new Set(mapped).size).toBe(mapped.length);
+  });
+
+  it('keeps the manifest in the spec table’s order', () => {
+    expect(EGRESS_MANIFEST.map((row) => row.surface)).toEqual(ROW_SURFACES.flat());
   });
 
   it('marks as local-by-default exactly the two the spec does', () => {
-    // `08` §3.11.1 writes "**Local by default.**" for `embed` and `transcribe` and for nothing
-    // else. A third row claiming it would be a promise the code does not keep.
+    // `08` §3.11.1 writes "**Local by default.**" for `embed` and `transcribe` and nothing else.
+    const specLocal = spec.flatMap((row, index) =>
+      /local by default/i.test(row.sends) ? (ROW_SURFACES[index] ?? []) : [],
+    );
+    expect(specLocal).toEqual(['embed', 'transcribe']);
     expect(
       EGRESS_MANIFEST.filter((row) => row.byDefault === 'local').map((r) => r.surface),
-    ).toEqual(['embed', 'transcribe']);
+    ).toEqual(specLocal);
   });
 
   it('marks as off-by-default exactly the three opt-ins', () => {
@@ -132,12 +287,18 @@ describe('the manifest covers every row of 08 §3.11.1', () => {
     expect(dmExtract?.sends).toContain('DM extraction sends DM text');
   });
 
+  it('splits extract because Hybrid moves only its DM half', () => {
+    const group = EGRESS_MANIFEST.find((row) => row.surface === 'extract');
+    const dm = EGRESS_MANIFEST.find((row) => row.surface === 'extract.dm');
+    expect(group?.hybridMovesLocal).toBe(false);
+    expect(dm?.hybridMovesLocal).toBe(true);
+  });
+
   it('records the three provider-hygiene claims, and admits which one it cannot enforce', () => {
     expect(PROVIDER_HYGIENE).toHaveLength(3);
     expect(PROVIDER_HYGIENE[0]?.claim).toContain('store: false');
     expect(PROVIDER_HYGIENE[0]?.enforcedBy).toContain('openai');
-    // The key-sharing one cannot be checked from inside the process, and saying so is the point:
-    // a list where every row claimed enforcement would be overclaiming.
+    // The key-sharing one cannot be checked from inside the process, and saying so is the point.
     expect(PROVIDER_HYGIENE.filter((entry) => entry.enforcedBy === undefined)).toHaveLength(1);
   });
 });

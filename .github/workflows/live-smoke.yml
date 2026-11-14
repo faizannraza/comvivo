@@ -41,7 +41,7 @@ on:
   workflow_dispatch:
     inputs:
       providers:
-        description: "Which providers to smoke, comma-separated: anthropic,openai"
+        description: "Which providers to smoke, comma-separated: anthropic,openai,ollama"
         required: false
         default: anthropic
         type: string
@@ -73,7 +73,14 @@ jobs:
       - uses: ./.github/actions/setup
 
       - name: Smoke
-        run: pnpm --filter @comvivo/evals smoke:live -- --providers "${PROVIDERS}"
+        # **No `--`.** pnpm 12 forwards the literal separator into `process.argv`, where it
+        # terminates option parsing and `--providers` arrives as a positional — which
+        # `parseArgs({ allowPositionals: false })` rejects with
+        # `ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL` before the command reaches a provider. Found by
+        # the M2 independent review, which ran this line as written; `actionlint` and the workflow
+        # hygiene check are both green because it is a runtime bug, not a YAML one. A test now
+        # drives the CLI's argv exactly as this step does.
+        run: pnpm --filter @comvivo/evals smoke:live --providers "${PROVIDERS}"
         env:
           PROVIDERS: ${{ inputs.providers }}
           # Separate keys from the production ones, scoped to a dedicated workspace with its own

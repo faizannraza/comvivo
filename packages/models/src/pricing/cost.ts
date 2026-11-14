@@ -26,6 +26,16 @@
  * conservative". The failure that choice avoids is the quiet one: a model with no price row billed
  * at zero runs a group's budget to its limit while the guard reports nothing spent. Costing it too
  * high degrades a group early, which is visible and reversible; costing it at zero is neither.
+ *
+ * **"Conservative" is relative, not absolute**, and the M2 review found the plan and this package
+ * both stating it as absolute. Opus is the dearest model *in the table*; it is not the dearest
+ * model that can exist. `openai/gpt-6-astra` costs 15 000 micro-USD on the same tokens Opus costs
+ * 6 000 — so an `openai/gpt-6-astra` that fell through to the fallback would be under-reported by
+ * 60 %, which is the dangerous direction for a budget. The fallback is a floor on *visibility*,
+ * never a ceiling on spend, so what keeps a group safe is that models do not fall through: see
+ * `lookupPrice`, which resolves a provider's bare model id (the bug that made every iteration fall
+ * through), and `models.registry` / `models.prices` in `doctor`, which say so out loud when one
+ * still does.
  */
 import type { UsageIteration } from '@comvivo/core';
 import { batchMultiplierFor, PRICES, type PriceTable, type PriceTier, ratesFor } from './prices.js';
@@ -69,7 +79,30 @@ function micros(tokens: number, dollarsPerMTok: number): number {
  * short tier and understate it fivefold.
  */
 export function promptTokensOf(iteration: UsageIteration): number {
-  return iteration.input + iteration.cacheRead + iteration.cacheWrite5m + iteration.cacheWrite1h;
+  return (
+    tokens(iteration.input) +
+    tokens(iteration.cacheRead) +
+    tokens(iteration.cacheWrite5m) +
+    tokens(iteration.cacheWrite1h)
+  );
+}
+
+/**
+ * A token count the arithmetic below can rely on.
+ *
+ * `UsageIteration`'s numbers come off a provider's JSON, and the adapters read them through the
+ * SDKs' *compile-time* types. A field that arrived as a string, an object or `NaN` would make every
+ * sum here `NaN`, and that is the one wrong answer with no symptom: `NaN > limit` is `false`, so a
+ * budget guard fed one `NaN` stops enforcing the budget and reports nothing unusual. Every other
+ * wrong number at least shows up as a wrong number.
+ *
+ * So a value that is not a finite, non-negative number is read as `0` and the iteration is costed
+ * on what remains. Zero is the honest reading of "the provider did not tell us", and the loud
+ * half is already covered: `doctor`'s `models.prices` reports an unpriced model, and a turn whose
+ * usage object is unparseable produces `estimated` cost against the fallback.
+ */
+function tokens(value: number): number {
+  return Number.isFinite(value) && value > 0 ? value : 0;
 }
 
 /** Cost one iteration. */
@@ -99,15 +132,17 @@ export function costIteration(
       : batchMultiplierFor(iteration.model, table)
     : 1;
 
+  // Every count goes through `tokens` for the reason its comment gives: one `NaN` from a provider
+  // would make the total `NaN`, and a `NaN` total is the only wrong cost a budget guard cannot see.
   const breakdown = {
-    input: micros(iteration.input, rates.in * multiplier),
-    cacheRead: micros(iteration.cacheRead, rates.cacheRead * multiplier),
-    cacheWrite5m: micros(iteration.cacheWrite5m, rates.cacheWrite5m * multiplier),
-    cacheWrite1h: micros(iteration.cacheWrite1h, rates.cacheWrite1h * multiplier),
+    input: micros(tokens(iteration.input), rates.in * multiplier),
+    cacheRead: micros(tokens(iteration.cacheRead), rates.cacheRead * multiplier),
+    cacheWrite5m: micros(tokens(iteration.cacheWrite5m), rates.cacheWrite5m * multiplier),
+    cacheWrite1h: micros(tokens(iteration.cacheWrite1h), rates.cacheWrite1h * multiplier),
     // Reasoning tokens are output tokens and are billed as such — they are not a separate
     // category on the wire, and `UsageIteration.reasoning` is reported *within* `output` for
     // observability. Adding it again here would double-bill thinking.
-    output: micros(iteration.output, rates.out * multiplier),
+    output: micros(tokens(iteration.output), rates.out * multiplier),
   };
 
   return {

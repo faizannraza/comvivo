@@ -19,7 +19,9 @@ export function googleCapabilities(): ModelCapabilities {
 
 export function googleBinding(overrides: Partial<RouteBinding> = {}): RouteBinding {
   const capabilities = overrides.capabilities ?? googleCapabilities();
-  return {
+  // Annotated, or the literals widen to `string` and the spread below stops being a
+  // `RouteBinding`. `priceId` is omitted because it is derived from this.
+  const base: Omit<RouteBinding, 'priceId'> = {
     route: 'chat',
     variant: 'default',
     slot: 'chat',
@@ -33,6 +35,14 @@ export function googleBinding(overrides: Partial<RouteBinding> = {}): RouteBindi
     attemptTimeoutMs: 30_000,
     maxRetries: 0,
     ...overrides,
+  };
+  // Derived after the overrides, exactly as `resolveRoutes` derives it — `capabilities.priceKey`
+  // when the registry sets one, else `<provider>/<model>`. A fixed literal here would have made
+  // every `bindingFor({ model: … })` test price against the default model, which is the
+  // fixture-versus-production gap the M2 review found in this file's `provider` field.
+  return {
+    ...base,
+    priceId: overrides.priceId ?? base.capabilities.priceKey ?? `google/${base.model}`,
   };
 }
 

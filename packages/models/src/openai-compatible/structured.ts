@@ -25,7 +25,6 @@ export interface BuildLocalStructuredOptions {
   readonly binding: RouteBinding;
   readonly level: LadderLevel;
   readonly reasoningEffortAccepted: boolean;
-  readonly temperatureOverride?: number;
 }
 
 export interface BuiltLocalStructuredRequest {
@@ -91,12 +90,9 @@ export function buildLocalStructuredRequest(
             req.effort === 'low' ? 'low' : req.effort === 'medium' ? 'medium' : 'high',
         }
       : {}),
-    ...(options.temperatureOverride === undefined
-      ? {}
-      : { temperature: options.temperatureOverride }),
   };
 
-  assertWireInvariants(baseParams, options);
+  assertWireInvariants(baseParams);
 
   return {
     params: baseParams,
@@ -113,7 +109,7 @@ export function buildLocalStructuredRequest(
           { role: 'user', content: operatorBlock(invalidOutputEvent(issues)) },
         ],
       };
-      assertWireInvariants(repaired, options);
+      assertWireInvariants(repaired);
       return repaired;
     },
   };

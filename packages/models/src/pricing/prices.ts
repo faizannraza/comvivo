@@ -164,16 +164,43 @@ export function ratesFor(
   return row.tiers.at(-1);
 }
 
-/** A model's row, falling back to its provider family (`local/*`). */
+/**
+ * A model's row, by `<provider>/<model>`, by the provider family (`local/*`), or by the provider's
+ * **own** bare model id.
+ *
+ * That third case is the one that matters, and it was missing. Every adapter reports the served
+ * model exactly as the provider does — `message.model` is `claude-opus-5-5`, `response.model` is
+ * `gpt-6-astra`, `response.modelVersion` is `gemini-4-argon` — all without a `<provider>/` prefix,
+ * because that prefix is **ours**: it is how `05` §3.5.2's registry ids are spelled, not how any
+ * provider names its models. So `UsageIteration.model` is always bare, and until this function
+ * understood that, **every** priced iteration missed the table and fell through to
+ * `UNKNOWN_MODEL_FALLBACK`.
+ *
+ * Measured at the M2 review: `claude-opus-5-5` costed 6 000 micro-USD against the fallback's
+ * 6 000, which is why nothing looked wrong — the fallback *is* Opus. `gpt-6-astra` costed the same
+ * 6 000 where its real rate is 15 000. `05` §3.9.2 describes the fallback as conservative,
+ * "over-reports rather than under-reports", and for any model dearer than Opus the opposite was
+ * true: a group's budget guard saw 40 % of what it was spending.
+ *
+ * The bare form is resolved by a **suffix match**, which is a well-defined function only while no
+ * two providers publish the same bare name. `prices.unambiguous.test.ts` asserts that for every
+ * shipped table, and an ambiguous name returns `undefined` here rather than picking one — a wrong
+ * row silently is worse than the fallback loudly.
+ */
 export function lookupPrice(
   modelId: string,
   table: PriceTable = PRICES,
 ): ModelPrice | null | undefined {
   if (modelId in table.models) return table.models[modelId];
   const slash = modelId.indexOf('/');
-  if (slash <= 0) return undefined;
-  const family = `${modelId.slice(0, slash)}/*`;
-  return family in table.models ? table.models[family] : undefined;
+  if (slash > 0) {
+    const family = `${modelId.slice(0, slash)}/*`;
+    return family in table.models ? table.models[family] : undefined;
+  }
+  // A bare provider model id. Exactly one key may end in `/<modelId>`, or this is a miss.
+  const matches = Object.keys(table.models).filter((key) => key.endsWith(`/${modelId}`));
+  const only = matches.length === 1 ? matches[0] : undefined;
+  return only === undefined ? undefined : table.models[only];
 }
 
 /** The batch multiplier for a model, defaulting to 1 (no discount) when unknown. */

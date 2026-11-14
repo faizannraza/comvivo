@@ -56,6 +56,7 @@ const ITERATION: UsageIteration = {
 
 const INFO: RouteInfo = {
   provider: 'anthropic',
+  providerId: 'anthropic',
   model: 'claude-opus-5-5',
   supports: {
     contextWindow: 200_000,

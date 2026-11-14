@@ -25,10 +25,12 @@ import {
   localLevelCheck,
   MODEL_CHECKS,
   priceCoverageCheck,
+  registryCoverageCheck,
   runModelChecks,
   summarise,
   worstStatus,
 } from './diagnostics.js';
+import { openaiBinding } from './openai/testing/fixtures.js';
 import type { LocalProbeResult } from './openai-compatible/probe.js';
 import { localBinding } from './openai-compatible/testing/fixtures.js';
 
@@ -229,15 +231,74 @@ describe('models.prices', () => {
     expect(result.detail).toContain('priced');
   });
 
-  it('warns — not fails — for an unpriced model, because the fallback is conservative', () => {
-    // `05` §3.9.2 costs an unknown model at Opus rates, so the budget guard over-reports. What is
-    // lost is accuracy, which is worth saying and not worth stopping for.
+  it('warns — not fails — for an unpriced model, and does not promise the estimate is high', () => {
+    // `05` §3.9.2 costs an unknown model at Opus rates. The copy used to say "your budget is
+    // protected but the figures will be high", which is true only while no model costs more than
+    // Opus — and `openai/gpt-6-astra` costs 2.5× Opus on the same tokens, so for a model dearer
+    // than any we price the estimate is **low**. Corrected at the M2 review; the wording now says
+    // the figures are a guess in both directions, which is what a host can act on.
     const result = priceCoverageCheck.run(
-      context({ bindings: [bindingFor({ model: 'claude-not-a-real-model' })] }),
+      // `priceId` explicitly, not just `model`: the fixture derives `priceId` the way
+      // `resolveRoutes` does, and the Anthropic registry rows set `priceKey`, so overriding only
+      // the model would keep Opus's price row — which is also what production would do, because a
+      // model id the registry does not know never gets Opus's capabilities in the first place.
+      context({
+        bindings: [
+          bindingFor({
+            model: 'claude-not-a-real-model',
+            priceId: 'anthropic/claude-not-a-real-model',
+          }),
+        ],
+      }),
     );
     expect(result.status).toBe('warn');
     expect(result.detail).toContain('claude-not-a-real-model');
-    expect(result.fix?.text).toContain('budget is protected');
+    expect(result.fix?.text).toContain('too low for one dearer');
+    expect(result.fix?.text).not.toContain('budget is protected');
+  });
+});
+
+describe('models.registry', () => {
+  it('passes when every routed cloud model has its own registry entry', () => {
+    // `bindingFor()` is Anthropic's Opus row — an exact `capabilityKey`, not a family.
+    const result = registryCoverageCheck.run(context());
+    expect(result.status).toBe('pass');
+    expect(result.detail).toContain('own registry entry');
+  });
+
+  it('warns, naming the inherited numbers, when a model resolved through a family row', () => {
+    // The gap the M2 review found: `openai/*` means `lookupCapabilities` never returns undefined
+    // for an `openai/` id, so `resolveRoutes` cannot report `unknown_model` and the host is given
+    // the family's `contextWindow` and `maxOutput` with no indication that they are a guess.
+    const result = registryCoverageCheck.run(context({ bindings: [openaiBinding()] }));
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('openai/*');
+    // The actual numbers, because "check your limits" is not actionable and these are.
+    expect(result.detail).toMatch(/max output 8000/);
+    // And the first thing to check, since a misspelled id lands here instead of being rejected.
+    expect(result.fix?.text).toContain('typo');
+  });
+
+  it('says nothing about a local model, because the probe measures it', () => {
+    // `local/*` is a family row too, but `M2-T12`'s probe proves the real context window at
+    // runtime and `models.context` reports it. Warning here as well would be two lines about one
+    // thing, one of which is wrong.
+    const result = registryCoverageCheck.run(context({ bindings: [localBinding()] }));
+    expect(result.status).toBe('pass');
+  });
+
+  it('reports one line per model, not one per route', () => {
+    const chat = openaiBinding();
+    const route = openaiBinding({ route: 'route', slot: 'route' });
+    const result = registryCoverageCheck.run(context({ bindings: [chat, route] }));
+    expect(result.status).toBe('warn');
+    expect(result.detail).toContain('1 routed model(s)');
+  });
+
+  it('passes with no routes at all rather than claiming coverage it did not check', () => {
+    const result = registryCoverageCheck.run(context({ bindings: [] }));
+    expect(result.status).toBe('pass');
+    expect(result.detail).toBe('no routes are configured');
   });
 });
 
@@ -266,13 +327,18 @@ describe('models.estimator', () => {
 });
 
 describe('the registry', () => {
-  it('registers the six checks the AC names, in reading order', () => {
+  it('registers the AC’s six checks plus models.registry, in reading order', () => {
+    // `models.registry` is the seventh, added at the M2 review: `05` §3.5.2's wildcard rows made
+    // `resolveRoutes`' `unknown_model` unreachable for openai/google/local, so a typo'd model id
+    // inherited the family's limits in silence. The AC named six because the seventh gap had not
+    // been found yet; `14` M2-T18 is amended to seven.
     expect(MODEL_CHECKS.map((check) => check.id)).toEqual([
       'models.key',
       'models.betas',
       'models.local',
       'models.context',
       'models.prices',
+      'models.registry',
       'models.estimator',
     ]);
   });
