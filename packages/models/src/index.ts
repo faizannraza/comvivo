@@ -77,6 +77,28 @@ export {
   WireInvariantError,
   withRepairTurn,
 } from './anthropic/index.js';
+// --- The model layer's doctor checks (05 §3.5, 09 §3.11.6; M2-T18) ----------------------------
+export {
+  betasCheck,
+  type CalibrationReading,
+  type CheckFix,
+  type CheckResult,
+  type CheckStatus,
+  contextCheck,
+  type DiagnosticsContext,
+  ESTIMATOR_MAX_CHARS_PER_TOKEN,
+  ESTIMATOR_MIN_CHARS_PER_TOKEN,
+  estimatorCheck,
+  type KeyVerdict,
+  keyCheck,
+  localLevelCheck,
+  MODEL_CHECKS,
+  type ModelCheck,
+  priceCoverageCheck,
+  runModelChecks,
+  summarise,
+  worstStatus,
+} from './diagnostics.js';
 // --- The egress manifest and the privacy modes (08 §3.11.1-§3.11.2; M2-T16) -------------------
 export {
   assertPrivacyOrThrow,

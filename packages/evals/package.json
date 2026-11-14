@@ -27,7 +27,8 @@
     "build": "tsc -b",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('.turbo',{recursive:true,force:true})\"",
     "evals:smoke": "node ../../scripts/pending.mjs \"pnpm evals:smoke\" M3-T48 \"run the deterministic PR-tier scenario suite with the fake model gateway\" \"pnpm test, which runs the unit and property suites\"",
-    "test": "pnpm -w exec vitest run packages/evals"
+    "test": "pnpm -w exec vitest run packages/evals",
+    "smoke:live": "tsx --tsconfig ../../tsconfig.runtime.json src/live/cli.ts"
   },
   "dependencies": {
     "@comvivo/core": "workspace:*",

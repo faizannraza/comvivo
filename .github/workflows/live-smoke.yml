@@ -1,0 +1,91 @@
+# Live model smoke (`11` §3.8.4–§3.8.5; `M2-T19`).
+#
+# Five scenarios against the **real** providers, to prove the adapters can talk to them. This is
+# not a quality eval: the nightly matrix in `11` §3.8.4 does that and costs an order of magnitude
+# more. This answers one question — does a real key, a real endpoint and a real model produce a
+# turn our adapter can read — which no fake can answer, and which is the only thing standing
+# between "the contract tests pass" and "it works".
+#
+# ## Why manual-only, and why an environment
+#
+# `11` §3.8.5: live workflows never trigger on `pull_request` or `pull_request_target`, because a
+# fork PR would then run attacker-authored code with the keys. `workflow_dispatch` on an in-repo
+# branch is the only trigger, and it runs under `evals-live-manual`, which requires a reviewer and
+# has self-review prevented — because the code being dispatched runs with the keys and has not
+# necessarily been reviewed yet.
+#
+# ## Ollama is not in this workflow
+#
+# `11` §3.8.4 says the CI Ollama leg is feasible on a hosted runner with `ai-action/setup-ollama`,
+# and §3.8.5 requires every third-party action pinned to a **full commit SHA**. That SHA cannot be
+# verified from here, and a fabricated one is worse than an omitted step — it would be a pin that
+# looks reviewed and is not. So the Ollama leg runs **locally** (`pnpm --filter @comvivo/evals
+# smoke:live -- --providers ollama` against a reachable server), and the hosted leg lands with
+# `M8-T22`'s nightly matrix, which owns the CI Ollama setup and can pin the SHA with the owner.
+#
+# ## Spend
+#
+# Bounded twice. `EvalBudgetGuard` stops scheduling at `SMOKE_CAP_MICROS` ($0.50), and the
+# provider-side workspace limit backs it up (`11` §3.8.4). Five scenarios at `low` effort is cents;
+# the cap is set at a figure that is unmistakably an accident if it is ever reached.
+#
+# ## Status
+#
+# **Not yet run.** It needs the owner's API key (`H-2`) and budget approval (`H-1`). Until then the
+# adapters are covered by `M2-T14`'s contract suite against a real loopback socket, which is the
+# strongest available substitute and is stated as a substitute in `STATUS.md` rather than counted
+# as a live result.
+name: live-smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      providers:
+        description: "Which providers to smoke, comma-separated: anthropic,openai"
+        required: false
+        default: anthropic
+        type: string
+
+# `11` §3.8.5's hardening, as this repo's hygiene check requires it: **nothing** at the top level,
+# granted per job. A top-level `contents: read` still inherits more than nothing on a repository
+# whose default is write, and a job added later would quietly acquire it.
+permissions: {}
+
+concurrency:
+  # One live run at a time. Two concurrent runs would each see their own budget and spend twice it.
+  group: live-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    name: live smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # Required reviewers, self-review prevented, `main` plus in-repo branches (`11` §3.8.5).
+    environment: evals-live-manual
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # `11` §3.8.5: the job must not be able to push with the checkout token.
+          persist-credentials: false
+      - uses: ./.github/actions/setup
+
+      - name: Smoke
+        run: pnpm --filter @comvivo/evals smoke:live -- --providers "${PROVIDERS}"
+        env:
+          PROVIDERS: ${{ inputs.providers }}
+          # Separate keys from the production ones, scoped to a dedicated workspace with its own
+          # monthly limit (`11` §3.8.4–§3.8.5).
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY_EVALS }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY_EVALS }}
+
+      - name: Result
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: live-smoke-result
+          path: results/live-smoke/
+          retention-days: 90
+          if-no-files-found: warn
