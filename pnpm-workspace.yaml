@@ -74,6 +74,19 @@ allowBuilds:
   # This entry is an addition to `08` §3.15's original list — see STATUS → Plan changes.
   esbuild: true
 
+  # DENIED, and it costs nothing. Arrives transitively through `@google/genai` (the Google
+  # adapter, `M2-T13`). Its `postinstall` is `node scripts/postinstall`, which was read before
+  # this entry was written: it loads its own `package.json`, returns immediately unless a
+  # `versionScheme` field is present, and otherwise prints a **warning** if a dependent pinned it
+  # with the wrong range operator. It writes nothing, downloads nothing and produces no artefact
+  # the package needs.
+  #
+  # Declared rather than left unlisted because `strictDepBuilds` is on (`01` §14 A31): an
+  # undeclared install script is a hard install failure, which is the behaviour `08` §3.15 wants —
+  # it surfaced on CI as `ERR_PNPM_IGNORED_BUILDS` the first time the lockfile was regenerated
+  # after `@google/genai` landed, which is exactly when a human should have to look at it.
+  protobufjs: false
+
   # NOT listed, deliberately, because they need no build script:
   #   better-sqlite3-multiple-ciphers  ships bundled N-API prebuilds for every target
   #   sqlite-vec                        a loadable extension, ABI-free, per-platform optional deps

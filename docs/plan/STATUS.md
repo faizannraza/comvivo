@@ -1544,6 +1544,86 @@ _Not written yet._
 
 Status: not started · Tasks: 0/57 · Gate: —
 
+#### Execution note (written 2026-11-14, per `CLAUDE.md` §1.2.4)
+
+**Shape of the milestone.** 57 tasks — the largest in the plan, and the first that produces
+something a family can use. `14` M3's goal is the vertical slice: a real Telegram group where
+Comvivo answers when mentioned, replied to or named, through ingestion → group actor → router →
+turn engine → outbox → channel.
+
+**Entry criteria, checked.**
+- *M2 gate green* — pending the owner's H-1/H-2 (see below). Everything M3 depends on from M2 is
+  landed. Measured from the Deps column rather than assumed: M3 depends on exactly **seven** M2
+  tasks — `M2-T1` (the port), `M2-T3` (pricing), `M2-T4` (strict JSON Schema), `M2-T7` (the fakes),
+  `M2-T9` (middleware), `M2-T17` (catalogue hash), `M2-T18` (diagnostics) — all of them landed, and
+  neither of the two open ones (`M2-T19`'s live run, `M2-T20`'s spike) appears anywhere in M3's
+  dependency graph. So the owner's H-1/H-2 gate M2's *closure*, not M3's *start*.
+- *§0.7 items blocking `M3-T2`, `M3-T10`, `M3-T18`, `M3-T21`* — all four are **Resolved** in §0.7:
+  `06` §4.1's `linkPreviewControl`/`massMentionTokens`/`isBot` (T2, T10), reaction persistence and
+  the claim/link counters (T18), and the `01` spine wording applied on 2026-11-01 (T21).
+- *Spikes* — none for M3.
+- *Owner informed of D-1's interim behaviour* — in the ask below.
+
+**Only one task is credential-blocked.** `M3-T56` (the real-group exit check) is marked `[cred]`
+`[human]` and needs a Telegram bot token and a test group. Everything else — the Telegram adapter
+itself (`M3-T32`–`M3-T35`, `M3-T47`) included — is built against `06` §3.25's conformance kit and
+recorded fixtures, so 56 of 57 tasks run offline. Per `CLAUDE.md` §5 the milestone proceeds and
+`M3-T56` waits.
+
+**Order.** Dependency-topological, in five bands. Within a band, order is by what unblocks the most.
+
+1. **Foundations** (no M3 dependencies): `M3-T1` channel tables · `M3-T2` channel SDK contract ·
+   `M3-T12` ids/clock/rng wiring · `M3-T13` key handling · `M3-T14` HTTP server + health ·
+   `M3-T20` read models · `M3-T30` model wiring.
+2. **The channel SDK** (the longest chain, and the one every adapter depends on): `M3-T3` RichText
+   AST → `M3-T4` renderers → `M3-T5` splitter; `M3-T6` interactions and `M3-T7` rate limiting in
+   parallel off `M3-T2`; `M3-T8` typing; then `M3-T9` the conformance kit (needs T2–T8) and
+   `M3-T10` renderer/callback safety, `M3-T11` the simulator adapter.
+3. **Ingestion and the actor**: `M3-T15` → `M3-T16` → `M3-T17` → `M3-T18`, then `M3-T21` router
+   core → `M3-T22`, and the turn engine `M3-T23` → `M3-T24` → `M3-T25`/`M3-T26` → `M3-T27` →
+   `M3-T28`/`M3-T29`, `M3-T31`.
+4. **Telegram and onboarding**: `M3-T32` → `M3-T33`, with `M3-T34`/`M3-T35`/`M3-T47` in parallel;
+   `M3-T36` → `M3-T37` → `M3-T38`; `M3-T39` web channel; `M3-T40` the composition root.
+5. **CLI, packaging, docs, gate**: `M3-T41` → `M3-T42`; `M3-T43` → `M3-T44` → `M3-T48` (which is
+   when `pnpm evals:smoke` stops being a notice and starts carrying evidence — every milestone
+   report before now has had to say so); `M3-T45` → `M3-T46`; `M3-T49` perf; `M3-T50` → `M3-T51`/
+   `M3-T52`; `M3-T53` → `M3-T55`; `M3-T54`; then `M3-T56` `[human]` and `M3-T57`.
+
+**To sub-agents, in separate worktrees** (`CLAUDE.md` §1.5). All fifteen `‖` tasks, none of which
+touch `packages/core`'s policy/IFC code or a migration: `M3-T6`, `M3-T7`, `M3-T12`, `M3-T13`,
+`M3-T19`, `M3-T20`, `M3-T22`, `M3-T34`, `M3-T35`, `M3-T39`, `M3-T47`, `M3-T49`, `M3-T53`, `M3-T54`,
+`M3-T57`. `M3-T1` is a migration and `M3-T23`'s context builder touches IFC-adjacent code, so both
+run serially in the main tree — `scripts/plan/trace.py` enforces that and will fail the gate if a
+`‖` claim is wrong.
+
+**Risks I expect to hit.**
+1. **`06` §3.5's RichText chain is the long pole** (T3 → T4 → T5 → T9, strictly serial, with a
+   ≥ 150-case golden corpus and 1 000-run fast-check properties). Escaping bugs here surface as
+   garbled messages in a real group, which is the most visible failure the product has. Budget time
+   for the corpus rather than the code.
+2. **The outbox's exactly-once guarantee (I6/I7)** is asserted by `M3-T45`/`M3-T46` with crash
+   points. M1's `outbox.crash.test` already runs five kill-points at ~15 s each; adding Telegram's
+   real retry semantics on top is where a duplicate message would hide.
+3. **`M3-T42`'s wizard is the "install to first useful answer in under 5 minutes" promise**
+   (`CLAUDE.md` §8). It needs a human on a clean machine to be believed; the automated substitute
+   is `M3-T52`'s container selftest, and the gap will be stated in the milestone report.
+4. **D-1 is still interim.** `M3-T42` ships the interim behaviour and the ADR records it.
+
+**What I need from the owner — batched, and nothing else until the M3 gate.**
+
+- **H-1 — budget.** A monthly ceiling for live model spend. Proposed: **$40/month**, broken down as
+  M2-T19's live smoke ≈ $0.50/run × 10 runs, M2-T20's SP-4/SP-5 spike ≈ $8 one-off, M3's live
+  evals ≈ $15, and ~$12 of headroom for the real-chat smoke tests. Spend is tracked in STATUS.
+- **H-2 — `ANTHROPIC_API_KEY`.** Needed by `M2-T19`'s live smoke and `M2-T20`'s spike, which are
+  M2's last two tasks. Set it as a repository secret named `ANTHROPIC_API_KEY_EVALS` in the
+  `evals-live-manual` environment (the workflow is `workflow_dispatch`-only and reads nothing
+  else), and locally in `.env` for the spike.
+- **H-3 — a Telegram test bot and a test group.** For `M3-T56` only. BotFather steps are in
+  `06` §3.23.1; it takes about two minutes. I need the token and for the bot to be added to a
+  small test group with privacy mode off.
+
+Everything else proceeds without them.
+
 - [ ] M3-T1 Channel & onboarding tables
 - [ ] M3-T2 Channel SDK contract, schemas, profiles
 - [ ] M3-T3 RichText AST & parser
