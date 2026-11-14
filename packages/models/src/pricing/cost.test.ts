@@ -180,14 +180,30 @@ describe('the Batch discount', () => {
 });
 
 describe('an unknown model', () => {
-  it('is costed at the Opus fallback and flagged as estimated', () => {
+  it('is costed at the dearest rate in the table, and flagged as estimated', () => {
     // `05` §3.9.2: conservative on purpose. The failure this avoids is the quiet one — a model with
     // no price row billed at zero runs a group's budget to its limit while the guard reports
     // nothing spent.
+    //
+    // Asserted as a **property of the table**, not as a hardcoded model. §3.9.2 names Opus "so it
+    // is conservative", and the M2 review measured that Opus is not the dearest row we ship:
+    // `openai/gpt-6-astra` is 2.5× Opus, so a pinned snapshot that missed the table was
+    // under-reported by 60% — the one direction a budget guard cannot afford, because
+    // `spent < limit` stays true while the money goes.
     const cost = costIteration(iteration({ model: 'openai/gpt-x', input: 1_000_000 }));
     expect(cost.estimated).toBe(true);
-    expect(cost.micros).toBe(4_000_000);
-    expect(cost.micros).toBe(
+
+    const everyRate = Object.values(PRICES.models).flatMap((row) =>
+      row === null || row === undefined
+        ? []
+        : 'tiers' in row
+          ? row.tiers.map((t) => t.in)
+          : [row.in],
+    );
+    const dearest = Math.max(...everyRate);
+    expect(cost.micros).toBe(1_000_000 * dearest);
+    // And it really is dearer than the old hardcoded fallback, or this change bought nothing.
+    expect(cost.micros).toBeGreaterThan(
       costIteration(iteration({ model: UNKNOWN_MODEL_FALLBACK, input: 1_000_000 })).micros,
     );
   });
@@ -195,10 +211,30 @@ describe('an unknown model', () => {
   it('does not apply a discount it cannot verify', () => {
     // An unknown model's batch multiplier is unknown too, so it stays at 1 — conservative in the
     // same direction as the rates.
+    const plain = costIteration(iteration({ model: 'openai/gpt-x', input: 1_000_000 }));
     const batched = costIteration(
       iteration({ model: 'openai/gpt-x', input: 1_000_000, batch: true }),
     );
-    expect(batched.micros).toBe(4_000_000);
+    expect(batched.micros).toBe(plain.micros);
+  });
+
+  it('prices a local model at zero, by the model id a local server actually reports', () => {
+    // The M2 review's third finding. A local server reports its own bare name — `llama3.2:3b` from
+    // Ollama, `meta-llama/Llama-3.1-8B-Instruct` from vLLM — and the free row is the **family**
+    // `local/*`, which no bare name matches. So the fallback applied and a family running a model
+    // on their own hardware was billed at the dearest cloud rate we know: four dollars, now ten,
+    // for a million input tokens that cost them electricity. `RouteInfo.priceId` carries the
+    // prefix now; this asserts the arithmetic on the other side of it.
+    for (const id of ['local/llama3.2:3b', 'local/meta-llama/Llama-3.1-8B-Instruct']) {
+      const cost = costIteration(iteration({ model: id, input: 1_000_000, output: 100_000 }));
+      expect(cost.micros, id).toBe(0);
+      expect(cost.estimated, id).toBe(false);
+    }
+    // And the bare form, which is what reaches here if the prefix is ever dropped again, is NOT
+    // free — so this test would not quietly pass a regression.
+    expect(costIteration(iteration({ model: 'llama3.2:3b', input: 1_000_000 })).estimated).toBe(
+      true,
+    );
   });
 
   it('is flagged on the turn, so doctor and the dashboard can say so', () => {

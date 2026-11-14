@@ -468,25 +468,73 @@ describe('usageRecordFor (05 §3.9.1)', () => {
 
   it('charges a model with no price row of its own against the registry’s `priceKey`', () => {
     // The whole point of `priceKey` (`05` §3.5.2), and until the M2 review nothing read it: a host
-    // pins a dated snapshot, the registry answers through `openai/*`, the price table has only
-    // exact ids — so without this the spend is estimated at the unknown-model fallback. Measured
-    // against the real table: `gpt-6-astra` is 15 000 micro-USD on these tokens where the fallback
-    // (Opus) is 6 000, so the difference is the assertion.
+    // pins a dated snapshot, the registry answers through the provider family, the price table
+    // carries only exact ids — so without the key the spend is estimated at the fallback.
+    //
+    // A **cheap** model deliberately. What `priceKey` buys is accuracy, and which direction the
+    // error runs depends on which row happens to be dearest. This test first used
+    // `openai/gpt-6-astra`, which turns out to *be* the dearest row we publish — so once the
+    // fallback was computed from the table rather than hardcoded to Opus, the two figures
+    // coincided and "greater than" proved nothing. Haiku is nowhere near the top, so the
+    // comparison has a direction that will stay true.
     const dated = {
       ...CONTEXT,
-      provider: 'openai' as const,
-      requestedModel: 'gpt-6-astra-2027-03-01',
-      priceId: 'openai/gpt-6-astra',
+      requestedModel: 'claude-haiku-5-5-2027-03-01',
+      priceId: 'anthropic/claude-haiku-5-5',
     };
-    const iteration = { ...ITERATION, model: 'gpt-6-astra-2027-03-01' };
+    const iteration = { ...ITERATION, model: 'claude-haiku-5-5-2027-03-01' };
     const withKey = usageRecordFor({ ids, clock, prices: TABLE }, dated, iteration);
     // The key is **omitted**, not set to `undefined`: `exactOptionalPropertyTypes` makes those
     // different, and the case being compared is a caller that never supplied a `priceId`.
     const { priceId: _omitted, ...noKey } = dated;
     const withoutKey = usageRecordFor({ ids, clock, prices: TABLE }, noKey, iteration);
-    expect(withKey.costMicros).toBeGreaterThan(withoutKey.costMicros);
+
+    // With the key, Haiku's own rates — identical to pricing the real id directly.
+    const direct = usageRecordFor(
+      { ids, clock, prices: TABLE },
+      { ...CONTEXT, requestedModel: 'anthropic/claude-haiku-5-5' },
+      { ...ITERATION, model: 'anthropic/claude-haiku-5-5' },
+    );
+    expect(withKey.costMicros).toBe(direct.costMicros);
+    // Without it, the dated id misses the table and is estimated at the dearest rate we publish,
+    // which for a Haiku route is far too high — accurate in the safe direction, and still wrong.
+    expect(withoutKey.costMicros).toBeGreaterThan(withKey.costMicros);
     // And the row still records what actually ran, not the row it was priced against.
-    expect(withKey.servedModel).toBe('gpt-6-astra-2027-03-01');
+    expect(withKey.servedModel).toBe('claude-haiku-5-5-2027-03-01');
+  });
+
+  it('charges a local model nothing, with the price id the chain supplies', () => {
+    // The M2 review's third finding, at the layer that fixes it. A local server reports its own
+    // bare model name and the free price row is the family `local/*`, so before `RouteInfo`
+    // carried `priceId` the cost path had no way to learn the namespace: a household running a
+    // model on its own hardware was billed at the dearest cloud rate in the table.
+    //
+    // `withMiddleware` fills `priceId` from the route lookup rather than leaving it to the caller
+    // that builds the rest of the context — a ninth field a composition root has to remember,
+    // whose only symptom when forgotten is a wrong number on the Costs page, is a field that gets
+    // forgotten.
+    const local = {
+      ...CONTEXT,
+      provider: 'openai-compatible' as const,
+      requestedModel: 'llama3.2:3b',
+      priceId: 'local/llama3.2:3b',
+    };
+    const record = usageRecordFor({ ids, clock, prices: TABLE }, local, {
+      ...ITERATION,
+      model: 'llama3.2:3b',
+    });
+    expect(record.costMicros).toBe(0);
+    // The row still records what ran, in the provider's own spelling.
+    expect(record.servedModel).toBe('llama3.2:3b');
+
+    // Without the price id — the state the review found — the same turn is billed at the
+    // fallback's rates. This is the number that was wrong, asserted so the regression is visible.
+    const { priceId: _none, ...noPriceId } = local;
+    const unpriced = usageRecordFor({ ids, clock, prices: TABLE }, noPriceId, {
+      ...ITERATION,
+      model: 'llama3.2:3b',
+    });
+    expect(unpriced.costMicros).toBeGreaterThan(0);
   });
 
   it('ignores `priceKey` for an iteration a fallback served', () => {

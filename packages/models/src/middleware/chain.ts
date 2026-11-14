@@ -131,7 +131,7 @@ export function withMiddleware(deps: ChainDeps): ModelGateway {
       breaker.run(async () => {
         const emit = deps.emitTrace;
         const result = emit === undefined ? await call() : await withTrace({ emit }, context, call);
-        recordIf(deps, req, result.usage);
+        recordIf(deps, req, info, result.usage);
         return result;
       }),
     );
@@ -164,7 +164,7 @@ export function withMiddleware(deps: ChainDeps): ModelGateway {
     return deps.limiter.run(req.route, () =>
       breaker.run(async () => {
         const result = await call();
-        recordIf(deps, req, result.usage);
+        recordIf(deps, req, info, result.usage);
         return result;
       }),
     );
@@ -240,10 +240,16 @@ function spanContextFor(
 function recordIf(
   deps: ChainDeps,
   req: ModelTurnRequest | StructuredRequest<unknown>,
+  info: RouteInfo,
   iterations: Parameters<typeof recordUsage>[2],
 ): void {
   const usage = deps.usage;
   const context = deps.usageContextFor?.(req);
   if (usage === undefined || context === undefined) return;
-  recordUsage(usage, context, iterations);
+  // `priceId` is filled in **here**, from the route lookup, rather than left to the caller that
+  // builds the rest of the context. The caller is a composition root assembling eight fields; a
+  // ninth it has to remember, whose only symptom when forgotten is a wrong number on the Costs
+  // page, is a field that will be forgotten. The layer that knows the route fills it, and a
+  // caller that set one deliberately still wins.
+  recordUsage(usage, { priceId: info.priceId, ...context }, iterations);
 }

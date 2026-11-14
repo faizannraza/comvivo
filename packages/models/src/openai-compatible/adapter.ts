@@ -30,6 +30,7 @@ import type {
   SchemaLike,
   StructuredRequest,
   StructuredResult,
+  ToolSpec,
 } from '@comvivo/core';
 import { ModelCallError } from '@comvivo/core';
 import type { Clock, Logger, SecretString } from '@comvivo/shared';
@@ -165,7 +166,11 @@ export async function runChat(
   const blocked = stop.reason === 'refusal' || stop.reason === 'max_tokens';
 
   if (built.envelope) {
-    return envelopeResult(deps, { binding, completion, built, stop, blocked, totalMs }, options);
+    return envelopeResult(
+      deps,
+      { binding, completion, built, stop, blocked, totalMs, tools: req.tools },
+      options,
+    );
   }
 
   const calls = blocked ? [] : nativeToolCalls(completion);
@@ -202,11 +207,13 @@ function envelopeResult(
     readonly stop: ReturnType<typeof readStop>;
     readonly blocked: boolean;
     readonly totalMs: number;
+    /** The request's own tool list — what a call's name is checked against. */
+    readonly tools: readonly ToolSpec[];
   },
   options: { readonly step?: number; readonly schemas?: ReadonlyMap<string, SchemaLike<unknown>> },
 ): ModelTurnResult {
   const { binding, completion, built, blocked, totalMs } = context;
-  const read = readEnvelope(completion, options.schemas ?? new Map(), options.step ?? 0);
+  const read = readEnvelope(completion, context.tools, options.step ?? 0, options.schemas);
 
   const malformed = read.malformed !== undefined;
   if (malformed) {
@@ -335,6 +342,7 @@ export function createLocalGateway(deps: LocalAdapterDeps): ModelGateway {
         provider: binding.provider,
         providerId: LOCAL_PROVIDER,
         model: binding.model,
+        priceId: binding.priceId,
         supports: {
           ...binding.features,
           // The ladder is the truth about this server, not the registry's wildcard row. A caller

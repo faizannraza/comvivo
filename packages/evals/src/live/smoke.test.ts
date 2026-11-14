@@ -183,6 +183,7 @@ describe('running the smoke offline', () => {
         provider: 'fake',
         providerId: 'fake',
         model: 'm',
+        priceId: 'fake/m',
         supports: {} as never,
       }),
     };

@@ -299,6 +299,7 @@ describe('the gateway interface', () => {
         provider: 'fake',
         providerId: 'fake',
         model: 'fake-1',
+        priceId: 'fake/fake-1',
         supports: {
           contextWindow: 1_000_000,
           maxOutput: 128_000,

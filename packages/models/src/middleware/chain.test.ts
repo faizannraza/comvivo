@@ -58,6 +58,7 @@ const INFO: RouteInfo = {
   provider: 'anthropic',
   providerId: 'anthropic',
   model: 'claude-opus-5-5',
+  priceId: 'anthropic/claude-opus-5-5',
   supports: {
     contextWindow: 200_000,
     maxOutput: 64_000,

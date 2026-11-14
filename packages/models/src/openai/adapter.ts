@@ -238,6 +238,7 @@ export function createOpenAiGateway(deps: OpenAiAdapterDeps): ModelGateway {
         provider: binding.provider,
         providerId: OPENAI_PROVIDER,
         model: binding.model,
+        priceId: binding.priceId,
         supports: binding.features,
       };
     },

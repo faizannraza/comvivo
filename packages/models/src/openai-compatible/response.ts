@@ -17,6 +17,7 @@ import type {
   AssistantPart,
   SchemaLike,
   StopInfo,
+  ToolSpec,
   UsageIteration,
 } from '@comvivo/core';
 import type OpenAI from 'openai';
@@ -162,15 +163,16 @@ export interface EnvelopeRead {
  */
 export function readEnvelope(
   completion: Completion,
-  schemas: ReadonlyMap<string, SchemaLike<unknown>>,
+  tools: readonly ToolSpec[],
   step: number,
+  schemas: ReadonlyMap<string, SchemaLike<unknown>> = new Map(),
 ): EnvelopeRead {
   const outcome = parseEnvelope(visibleText(completion));
   if (outcome.kind === 'malformed') {
     return { reply: '', calls: [], rejected: [], malformed: outcome.issue };
   }
 
-  const validated = validateCalls(outcome.envelope.toolCalls, schemas);
+  const validated = validateCalls(outcome.envelope.toolCalls, tools, schemas);
   const calls: ParsedToolCall[] = [];
   const rejected: { id: string; name: string; issue: string }[] = [];
   for (const [index, entry] of validated.entries()) {
@@ -237,8 +239,13 @@ export function assistantMessageOf(
  *    four providers up in one table.
  *
  * There is no cache-**write** category on any of the four: a KV prefix cache is not billed, and a
- * local model is not billed at all. Both write columns are zero, and the price table carries no
- * `local/*` row, so `costIteration` falls back conservatively.
+ * local model is not billed at all. Both write columns are zero, and the price table carries a
+ * **`local/*` row at zero** — which the M2 review caught this comment denying: it said "the price
+ * table carries no `local/*` row, so `costIteration` falls back conservatively", and the row is in
+ * all three shipped tables. The denial was not harmless. The free row is reachable only through
+ * the `local/` prefix, and the served model this function reports is bare (`llama3.2:3b`), so
+ * until `RouteInfo.priceId` carried the prefix a host's own hardware was billed at the
+ * unknown-model fallback's rates.
  */
 export function usageIterationOf(
   completion: Completion,

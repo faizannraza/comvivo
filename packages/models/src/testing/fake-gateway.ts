@@ -337,6 +337,7 @@ export class FakeModelGateway implements ModelGateway {
       // is one the registry has no provider for.
       providerId: providerIdOf(binding.provider),
       model: binding.model,
+      priceId: binding.priceId,
       supports: binding.features,
     };
   }

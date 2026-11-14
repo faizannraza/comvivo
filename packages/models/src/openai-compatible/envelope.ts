@@ -242,17 +242,34 @@ export type ValidatedCall =
  */
 export function validateCalls(
   calls: readonly EnvelopeCall[],
-  schemas: ReadonlyMap<string, SchemaLike<unknown>>,
+  tools: readonly ToolSpec[],
+  schemas: ReadonlyMap<string, SchemaLike<unknown>> = new Map(),
 ): readonly ValidatedCall[] {
+  const known = new Set(tools.map((tool) => tool.name));
   return calls.map((call): ValidatedCall => {
-    const schema = schemas.get(call.name);
-    if (schema === undefined) {
+    if (!known.has(call.name)) {
       return {
         kind: 'rejected',
         name: call.name,
         issue: `there is no tool called "${call.name}"`,
       };
     }
+    // A zod schema is **optional** here, and the names come from the request rather than from a
+    // map a caller has to remember to build. That is the whole of the M2 review's first finding:
+    // `createLocalGateway`'s `run` called `runChat` with no options, so `schemas` was empty, so
+    // every envelope call was rejected as "there is no tool called …" — and `rejected` is only
+    // counted, never returned. On llama.cpp without `--jinja`, or any model whose template emits
+    // no native tool calls, a member asked for a reminder, the model produced a correct envelope
+    // call, and the turn came back `end_turn` with reply text and **zero tool calls**: no tool
+    // run, no `is_error` back to the model, and nothing logged above `debug`.
+    //
+    // Rejecting an unknown **name** is this function's essential job, because a hallucinated tool
+    // must not reach the executor. Validating the **input** is the tool boundary's job
+    // (`10` §3.2.3), which validates every argument against the tool's own schema before running
+    // it — so a caller that has zod schemas to hand may pass them and get the check twice, and a
+    // caller that does not still gets correct tool calls instead of silence.
+    const schema = schemas.get(call.name);
+    if (schema === undefined) return { kind: 'ok', name: call.name, input: call.input };
     const result = schema.safeParse(call.input);
     return result.success
       ? { kind: 'ok', name: call.name, input: result.data }

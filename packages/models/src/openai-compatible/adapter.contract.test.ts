@@ -547,6 +547,56 @@ describe('the gateway', () => {
     expect(chatOnly.routeInfo('chat').supports).toMatchObject({ structured: 'none' });
   });
 
+  it('returns the envelope’s tool calls through the port, with no schemas supplied', async () => {
+    // The M2 review's first finding, asserted where it actually bit: **through
+    // `createLocalGateway`**, not through `runChat` with a hand-built schemas map. `run` was
+    // `(req, signal) => runChat(deps, req, signal)` — no options — so `schemas` was empty and
+    // `validateCalls` rejected every call as "there is no tool called …". `rejected` is only
+    // counted, so the turn came back `end_turn` with reply text and zero tool calls.
+    //
+    // What that is in a family's house: on llama.cpp without `--jinja`, or any model whose
+    // template emits no native tool calls, somebody asks for a reminder, the model produces a
+    // correct envelope call, and nothing happens. No tool runs, no `is_error` goes back to the
+    // model so it cannot retry, and nothing is logged above `debug`. Every L2/L3 test that passed
+    // called `runChat` directly and passed the map the port never had.
+    const h = await harness({ level: 'L2' });
+    h.server.script({
+      kind: 'reply',
+      text: '{"reply":null,"tool_calls":[{"name":"reminder_create","input":{"text":"milk"}}]}',
+    });
+    const gateway = createLocalGateway(h.deps);
+    const result = await gateway.run(
+      localTurnRequest({ tools: [localToolSpec('reminder_create')] }),
+      AbortSignal.timeout(10_000),
+    );
+
+    expect(result.toolCalls).toHaveLength(1);
+    expect(result.toolCalls[0]).toMatchObject({
+      name: 'reminder_create',
+      input: { text: 'milk' },
+    });
+    // And the stop reason says a tool round trip, so the engine's loop continues rather than
+    // showing the reply as a finished turn.
+    expect(result.stop.reason).toBe('tool_use');
+  });
+
+  it('still refuses a tool the request never offered', async () => {
+    // The other half, so the fix above is not just "accept everything": a hallucinated name must
+    // not reach the executor, and it is counted as a transformation so the trace shows it.
+    const h = await harness({ level: 'L2' });
+    h.server.script({
+      kind: 'reply',
+      text: '{"reply":null,"tool_calls":[{"name":"transfer_money","input":{}}]}',
+    });
+    const gateway = createLocalGateway(h.deps);
+    const result = await gateway.run(
+      localTurnRequest({ tools: [localToolSpec('reminder_create')] }),
+      AbortSignal.timeout(10_000),
+    );
+    expect(result.toolCalls).toHaveLength(0);
+    expect(result.diagnostics.inputTransformations).toBeGreaterThan(0);
+  });
+
   it('reports the host’s provider name and the adapter’s id, which differ only here', async () => {
     const gateway = createLocalGateway((await harness()).deps);
     const info = gateway.routeInfo('chat');

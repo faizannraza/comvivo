@@ -309,6 +309,7 @@ describe('the envelope protocol', () => {
   it('validates each input against its own tool schema', () => {
     // Rule 2: the envelope schema can only say "`input` is an object". zod gets it to the right
     // value.
+    const tools = [localToolSpec('reminder_create')];
     const schemas = new Map([['reminder_create', OK_SCHEMA]]);
     const validated = validateCalls(
       [
@@ -316,6 +317,7 @@ describe('the envelope protocol', () => {
         { name: 'reminder_create', input: { text: 'milk' } },
         { name: 'not_a_tool', input: {} },
       ],
+      tools,
       schemas,
     );
     expect(validated[0]).toMatchObject({ kind: 'ok', name: 'reminder_create' });
@@ -323,6 +325,27 @@ describe('the envelope protocol', () => {
     // Rejected rather than dropped: it should be unreachable because the enum refused it, and
     // unreachable-by-construction is still worth a branch when the construction is a local model.
     expect(validated[2]).toMatchObject({ kind: 'rejected', name: 'not_a_tool' });
+  });
+
+  it('accepts a call to a real tool when the caller supplied no zod schema', () => {
+    // The M2 review's first finding, asserted at the unit it happened: the schema map is optional,
+    // and the **names** come from the request. Before this, a caller with no map — which is every
+    // caller, because `createLocalGateway` passed none — had every call rejected as "there is no
+    // tool called …". Validating the input is the tool boundary's job (`10` §3.2.3); refusing a
+    // name nobody offered is this function's.
+    const validated = validateCalls(
+      [
+        { name: 'reminder_create', input: { text: 'milk' } },
+        { name: 'not_a_tool', input: {} },
+      ],
+      [localToolSpec('reminder_create')],
+    );
+    expect(validated[0]).toMatchObject({
+      kind: 'ok',
+      name: 'reminder_create',
+      input: { text: 'milk' },
+    });
+    expect(validated[1]).toMatchObject({ kind: 'rejected', name: 'not_a_tool' });
   });
 
   it('gives each call a positional id that cannot repeat across steps', () => {
@@ -337,8 +360,9 @@ describe('the envelope protocol', () => {
       answering(
         '{"reply":null,"tool_calls":[{"name":"reminder_create","input":{"text":"Maria’s recital"}}]}',
       ),
-      new Map([['reminder_create', OK_SCHEMA]]),
+      [localToolSpec('reminder_create')],
       0,
+      new Map([['reminder_create', OK_SCHEMA]]),
     );
     expect(read.rejected).toHaveLength(1);
     const results = rejectionResults(read.rejected);

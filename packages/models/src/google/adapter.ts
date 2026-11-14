@@ -191,6 +191,7 @@ export function createGoogleGateway(deps: GoogleAdapterDeps): ModelGateway {
         provider: binding.provider,
         providerId: GOOGLE_PROVIDER,
         model: binding.model,
+        priceId: binding.priceId,
         supports: binding.features,
       };
     },

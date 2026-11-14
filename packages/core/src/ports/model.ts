@@ -609,6 +609,19 @@ export interface RouteInfo {
    */
   readonly providerId: ProviderId;
   readonly model: string;
+  /**
+   * The price-table row this route is charged against (`RouteBinding.priceId`).
+   *
+   * Here because this is the **only** route lookup the middleware has, and without it the cost
+   * path had no way to learn a route's price namespace. The M2 review measured what that cost: a
+   * local model's served name is bare and in its *own* namespace — `llama3.2:3b` from Ollama,
+   * `meta-llama/Llama-3.1-8B-Instruct` from vLLM — and the price table's free row is the
+   * **family** `local/*`, which no bare name matches. So `lookupPrice('llama3.2:3b')` missed,
+   * the unknown-model fallback applied, and a family running a model on their own hardware for
+   * nothing was billed at Opus rates: 4 000 000 micro-USD for a million input tokens that cost
+   * them electricity.
+   */
+  readonly priceId: string;
   readonly supports: ModelFeatureSet;
 }
 

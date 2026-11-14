@@ -40,8 +40,43 @@
 import type { UsageIteration } from '@comvivo/core';
 import { batchMultiplierFor, PRICES, type PriceTable, type PriceTier, ratesFor } from './prices.js';
 
-/** `05` §3.9.2's fallback for a model with no price row. */
+/**
+ * `05` §3.9.2's fallback for a model with no price row: the **dearest row in the table**.
+ *
+ * Named in the spec as Opus, "so it is conservative" — and the M2 review measured that Opus is not
+ * the dearest row we ship. `openai/gpt-6-astra` costs 15 000 micro-USD on the tokens Opus costs
+ * 6 000, so a pinned OpenAI snapshot that missed the table was under-reported by 60%: the one
+ * direction a budget guard cannot afford, since `spent < limit` stays true while the money goes.
+ *
+ * So the fallback is computed rather than hardcoded. "Conservative" is then a property of the
+ * table instead of a claim about one row, and it stays true when a dearer model is added — which
+ * is exactly when a hardcoded name would quietly stop being conservative and nothing would fail.
+ */
 export const UNKNOWN_MODEL_FALLBACK = 'anthropic/claude-opus-5-5';
+
+/**
+ * The id of the dearest row in a table, by input rate.
+ *
+ * Input rather than a blend of all five rates: it is the one category every row has, and prompt
+ * tokens dominate every route this product runs (`11` §8 measures ~60% cache reads on a warm
+ * conversation, and a cache read is priced off the input rate). A family row (`local/*`) is
+ * eligible like any other — if it were ever the dearest, that would be the honest fallback too.
+ */
+function dearestModel(table: PriceTable): string {
+  let best = UNKNOWN_MODEL_FALLBACK;
+  let bestRate = -1;
+  for (const [id, row] of Object.entries(table.models)) {
+    // A `null` row is "priced per deployment" (`05` §3.9.2), not free — it simply has no rate to
+    // compare, so it cannot be the dearest.
+    if (row === null) continue;
+    const rate = 'tiers' in row ? Math.max(...row.tiers.map((tier) => tier.in)) : row.in;
+    if (rate > bestRate) {
+      bestRate = rate;
+      best = id;
+    }
+  }
+  return best;
+}
 
 /** What one iteration cost, and whether we actually knew its prices. */
 export interface IterationCost {
@@ -113,13 +148,14 @@ export function costIteration(
   const promptTokens = promptTokensOf(iteration);
   const own = ratesFor(iteration.model, promptTokens, table);
   const estimated = own === undefined;
-  const rates: PriceTier | undefined = own ?? ratesFor(UNKNOWN_MODEL_FALLBACK, promptTokens, table);
+  const fallbackId = estimated ? dearestModel(table) : UNKNOWN_MODEL_FALLBACK;
+  const rates: PriceTier | undefined = own ?? ratesFor(fallbackId, promptTokens, table);
   if (rates === undefined) {
     // The fallback model has no row either, which means the table itself is broken. Throwing beats
     // returning zero: a budget guard that reports nothing spent is worse than a loud failure.
     throw new Error(
       `the price table has no row for "${iteration.model}" and none for the ` +
-        `${UNKNOWN_MODEL_FALLBACK} fallback either (table ${table.version})`,
+        `${fallbackId} fallback either (table ${table.version})`,
     );
   }
 

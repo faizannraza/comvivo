@@ -347,6 +347,7 @@ export function createAnthropicGateway(deps: AnthropicAdapterDeps): ModelGateway
         provider: binding.provider,
         providerId: ANTHROPIC_PROVIDER,
         model: binding.model,
+        priceId: binding.priceId,
         supports: binding.features,
       };
     },

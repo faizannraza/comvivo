@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import {
   EGRESS_MANIFEST,
   EGRESS_SURFACES,
+  type EgressRow,
   type EgressSurface,
   egressRow,
   PROVIDER_HYGIENE,
@@ -116,12 +117,11 @@ const STOP_WORDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * How much of the spec row's vocabulary the manifest row reproduces.
+ * How much of a spec **item**'s vocabulary a manifest row reproduces.
  *
- * Not an exact string match: the manifest's text is **product copy** and the spec's is a table —
- * "Charter, tool catalog, …" against "Charter, tool catalogue, constitution charter, …". What must
- * hold is that the manifest says the same *things*, so this is the share of the spec row's
- * significant words that appear somewhere in the manifest row.
+ * Not an exact string match: the manifest's text is product copy and the spec's is a table, so
+ * "Charter, tool catalog, …" has to match "Charter, tool catalogue, constitution charter, …".
+ * What must hold is that the manifest names the same things.
  */
 function overlap(specText: string, manifestText: string): number {
   const specWords = [...new Set(significantWords(specText))];
@@ -145,15 +145,78 @@ const SYNONYMS: ReadonlyMap<string, readonly string[]> = new Map([
   ['requester', ['person', 'asked']],
 ]);
 
+/** How much of one spec item a manifest row must carry for that item to count as named. */
+const MIN_ITEM_OVERLAP = 0.5;
+
 /**
- * How much of a spec row's vocabulary a manifest row must carry.
+ * The things a spec cell names, one per item.
  *
- * Calibrated by measurement, not taste: the real rows score 0.62–1.00 (printed by the test below
- * when it fails), and the review's planted rewrite — three columns replaced with "Nothing at all /
- * Nobody / Local" — scores near zero. 0.5 sits well clear of both, so the check fails on a
- * rewrite and does not fail on the ordinary copy-editing the manifest's text is.
+ * The first version of this check compared a whole cell at once, and the M2 second-pass review
+ * showed that lets **half a row's named items be deleted**: dropping "audience-readable memories"
+ * from `chat.group` left the rest of a long cell scoring well over the threshold. A cell is a
+ * list, so it is compared as a list — each item on its own, against its own floor.
+ *
+ * Split on `;`, `,` and `+`, which is how the table punctuates. Parenthesised asides stay with
+ * their item ("Recent window (≤ 12 messages)"), and an item too short to carry meaning is dropped
+ * rather than matched loosely.
  */
-const MIN_OVERLAP = 0.5;
+function specItems(cell: string): readonly string[] {
+  return cell
+    .split(/[;,+]|\band\b/)
+    .map((part) => part.trim())
+    .filter((part) => significantWords(part).length > 0);
+}
+
+/**
+ * Phrases that turn a statement of what is sent into a statement that nothing is.
+ *
+ * The hole this closes is the one the second-pass review walked through four times: `overlap()` is
+ * **one-directional**, so a row rewritten to "The recent window and the trigger **are never
+ * sent**; this decision is made on your own machine" keeps every word the spec uses and scores
+ * 1.00. Word overlap cannot see a negation, and a privacy manifest is exactly the document where
+ * a negation is the lie somebody would tell.
+ *
+ * So negation is banned outright in `sends` and `whose` — not scored. `08` §3.11.1 has **no** row
+ * that says nothing is sent: the three opt-ins say what goes when they are switched on, and
+ * `embed`/`transcribe` say what goes if a host configures an API. A manifest row that reads as an
+ * absence is therefore wrong whatever its vocabulary.
+ *
+ * This list is a denylist and a denylist is never complete — a determined rewrite in words nobody
+ * thought of would still pass. What makes the check hard to defeat is the pairing: every spec item
+ * must be *named* (below), and nothing may read as an absence (here). Saying less is caught by the
+ * first and saying the opposite by the second.
+ */
+/**
+ * Everything after a row's first sentence or colon.
+ *
+ * For an off-by-default or local-by-default row, the first clause is the absence a member should
+ * read first ("Nothing unless switched on.", "Local by default: embedding runs on this host.") and
+ * the rest is what actually goes. Only the rest is held to the negation ban.
+ */
+function afterOpeningClause(text: string): string {
+  const cut = text.search(/[.:]/);
+  return cut === -1 ? text : text.slice(cut + 1);
+}
+
+const NEGATIONS: readonly RegExp[] = [
+  /\bnever\b/i,
+  /\bnot sent\b/i,
+  /\bno longer\b/i,
+  // Not `\bnothing\b` alone: "reveals this machine's IP address **and nothing else**" is a
+  // *limitation* on what goes, which is the reassurance a member wants after being told what does.
+  // "Nothing leaves the host" and "Nothing at all" still match.
+  /\bnothing\b(?!\s+else)/i,
+  /\bnobody\b/i,
+  /\bnone of\b/i,
+  /\bare not\b/i,
+  /\bis not\b/i,
+  /\bstripped\b/i,
+  /\bredacted\b/i,
+  /\banonymi[sz]ed\b/i,
+  /\bonly a count\b/i,
+  /\bno [a-z]+ (?:data|members|memories|messages|text) /i,
+  /^\s*(?:no|none)\b/i,
+];
 
 /**
  * Which manifest surfaces each `08` §3.11.1 row maps to, **in the table's order**.
@@ -197,57 +260,150 @@ describe('the manifest reproduces every column of 08 §3.11.1', () => {
     expect(first?.localAlternative.length).toBeGreaterThan(2);
   });
 
-  /**
-   * The mapped rows' text for one column, joined.
-   *
-   * A spec row that maps to two manifest rows has **one** cell per column covering both — `extract`
-   * says "Group members; the DM owner" once, and the manifest splits that across `extract` and
-   * `extract.dm`. Comparing the cell against each row on its own would fail by construction, so
-   * the comparison is against the union, which is what the cell actually describes.
-   */
-  const mappedText = (index: number, column: 'sends' | 'whose' | 'localAlternative'): string =>
-    (ROW_SURFACES[index] ?? []).map((surface) => egressRow(surface)[column]).join(' ');
+  /** The manifest rows a spec row maps to. */
+  const mappedRows = (index: number) => (ROW_SURFACES[index] ?? []).map((s) => egressRow(s));
 
-  it('says the same things in "sent to the provider" as the spec does', () => {
-    // Word overlap rather than string equality: the manifest's text is product copy and the
-    // spec's is a table. What must hold is that it names the same things.
-    for (const [index, row] of spec.entries()) {
-      const manifest = mappedText(index, 'sends');
-      const score = overlap(row.sends, manifest);
+  /**
+   * Every item of a spec cell is named by **one** of the rows it maps to — and every row names at
+   * least one item.
+   *
+   * Two halves, and the second is the one the second-pass review needed. A spec row that maps to
+   * two manifest rows has one cell covering both — `extract`'s "Group members; the DM owner" is
+   * split across `extract` and `extract.dm` — so an item has to be allowed to land in either. But
+   * comparing against the *union* alone means one half can say anything at all while the other
+   * carries the vocabulary: the review rewrote `extract.sends` to "Only a count of how many
+   * messages there were" and all thirteen tests passed. Requiring each row to carry at least one
+   * item closes that.
+   */
+  /** Which mapped row names a spec item best, and how well. */
+  const bestMatch = (
+    rows: readonly EgressRow[],
+    column: 'sends' | 'whose',
+    item: string,
+  ): { surface: EgressSurface; score: number } | undefined =>
+    rows
+      .map((row) => ({ surface: row.surface, score: overlap(item, row[column]) }))
+      .toSorted((a, b) => b.score - a.score)[0];
+
+  /**
+   * A spec cell that carries no checkable vocabulary — `embed`'s "All", `update_check`'s "—".
+   *
+   * What *is* checkable is whether the two documents agree there is nothing to say: a dash on one
+   * side must mean a dash on the other. The structural checks below carry these two rows.
+   */
+  const assertNothingToMatch = (
+    specCell: string,
+    route: string,
+    column: 'sends' | 'whose',
+    rows: readonly EgressRow[],
+  ): void => {
+    const specIsDash = /^[—–-]$/.test(specCell.trim());
+    for (const row of rows) {
       expect(
-        score,
-        `"${row.route}" · sends · ${score.toFixed(2)} overlap\n  spec:     ${row.sends}\n  manifest: ${manifest}`,
-      ).toBeGreaterThanOrEqual(MIN_OVERLAP);
+        /^[—–-]$/.test(row[column].trim()),
+        `"${route}" · ${column} · the spec says "${specCell}" and ${row.surface} says "${row[column]}"`,
+      ).toBe(specIsDash);
+      expect(row[column].trim().length).toBeGreaterThan(0);
     }
+  };
+
+  /**
+   * Every item of a spec cell is named by **one** of the rows it maps to — and every row names at
+   * least one item.
+   *
+   * Two halves, and the second is the one the second-pass review needed. A spec row that maps to
+   * two manifest rows has one cell covering both — `extract`'s "Group members; the DM owner" is
+   * split across `extract` and `extract.dm` — so an item has to be allowed to land in either. But
+   * comparing against the *union* alone means one half can say anything at all while the other
+   * carries the vocabulary: the review rewrote `extract.sends` to "Only a count of how many
+   * messages there were" and all thirteen tests passed. Requiring each row to carry at least one
+   * item closes that.
+   */
+  const assertItemsNamed = (column: 'sends' | 'whose'): void => {
+    for (const [index, specRow] of spec.entries()) {
+      const rows = mappedRows(index);
+      const items = specItems(specRow[column]);
+      if (items.length === 0) {
+        assertNothingToMatch(specRow[column], specRow.route, column, rows);
+        continue;
+      }
+
+      const naming = new Set<string>();
+      for (const item of items) {
+        const best = bestMatch(rows, column, item);
+        expect(
+          best?.score ?? 0,
+          `"${specRow.route}" · ${column} · the spec names "${item}" and no mapped row does` +
+            ` (best ${best?.surface ?? 'none'} at ${(best?.score ?? 0).toFixed(2)})\n` +
+            rows.map((row) => `  ${row.surface}: ${row[column]}`).join('\n'),
+        ).toBeGreaterThanOrEqual(MIN_ITEM_OVERLAP);
+        if (best !== undefined) naming.add(best.surface);
+      }
+
+      // Every row earns its place. A split row whose other half carries all the vocabulary must
+      // still say something the spec says.
+      for (const row of rows) {
+        expect(
+          naming.has(row.surface),
+          `"${specRow.route}" · ${column} · ${row.surface} names none of the spec's ` +
+            `${String(items.length)} item(s)\n  it says: ${row[column]}`,
+        ).toBe(true);
+      }
+    }
+  };
+
+  it('names every thing the spec says is sent, item by item', () => {
+    assertItemsNamed('sends');
   });
 
-  it('says the same things in "whose data" as the spec does', () => {
-    // The column a member actually cares about, and the one the review's planted rewrite replaced
-    // with "Nobody".
-    for (const [index, row] of spec.entries()) {
-      const manifest = mappedText(index, 'whose');
-      const score = overlap(row.whose, manifest);
-      expect(
-        score,
-        `"${row.route}" · whose · ${score.toFixed(2)} overlap\n  spec:     ${row.whose}\n  manifest: ${manifest}`,
-      ).toBeGreaterThanOrEqual(MIN_OVERLAP);
-    }
+  it('names every one of the people the spec says can be included', () => {
+    assertItemsNamed('whose');
   });
 
   it('never reads as an absence, because no row of the spec is one', () => {
-    // The specific lie the review planted, asserted directly rather than relying on the overlap
-    // threshold to catch it. No exemptions: every row of `08` §3.11.1 names data that is sent —
-    // the three opt-ins name what goes when they are switched on, and `embed`/`transcribe` name
-    // what goes if a host configures an API. So no manifest row may read as "nothing happens".
-    const absences = [/nothing leaves/i, /nothing at all/i, /\bnobody\b/i, /no longer leaves/i];
+    // The hole word overlap cannot see. `overlap()` scores how much of the **spec's** vocabulary a
+    // row reproduces, so "The recent window and the trigger **are never sent**; this decision is
+    // made on your own machine" keeps every word and scores 1.00 while saying the opposite. The
+    // second-pass review passed four such rewrites through the previous version of this file.
+    //
+    // No exemptions: `08` §3.11.1 has no row that says nothing is sent. The three opt-ins say what
+    // goes when they are switched on, and `embed`/`transcribe` say what goes if a host configures
+    // an API — so a manifest row reading as an absence is wrong whatever its vocabulary.
     for (const surface of EGRESS_SURFACES) {
       const row = egressRow(surface);
-      for (const pattern of absences) {
+      // A row that is **off or local by default** may truthfully open with an absence —
+      // `web_search` says "Nothing unless switched on. Then: the query strings", which is both
+      // accurate and the right thing for a member to read first. So for those rows the opening
+      // clause is set aside and the ban applies to what follows, which is where a lie about what
+      // goes when the route *is* active would live. For a row that is on by default there is no
+      // such clause and no exemption: those are the nine surfaces a group's data flows through
+      // today, and they are where this check has to be absolute.
+      const exempt = row.byDefault !== 'cloud';
+      const sends = exempt ? afterOpeningClause(row.sends) : row.sends;
+      for (const pattern of NEGATIONS) {
         expect(
-          `${row.sends} ${row.whose} ${row.localAlternative}`,
-          `${surface} · ${String(pattern)}`,
+          `${sends} ${row.whose}`,
+          `${surface} · reads as an absence · ${String(pattern)}\n  sends: ${sends}\n  whose: ${row.whose}`,
         ).not.toMatch(pattern);
       }
+    }
+  });
+
+  it('would catch a negation, which is the control for the rule above', () => {
+    // The denylist is only worth what it matches, and a denylist nobody probes is the shape of
+    // guard this whole file exists because of. These are the exact rewrites the review planted.
+    const planted = [
+      'The recent window (at most 12 messages) and the trigger **are never sent**; this decision is made on your own machine',
+      '**No** group members are identifiable; everything is stripped first',
+      'Only a count of how many messages there were',
+      'Nothing leaves the host for this route',
+      'Nobody',
+    ];
+    for (const text of planted) {
+      expect(
+        NEGATIONS.some((pattern) => pattern.test(text)),
+        `nothing in NEGATIONS matches: ${text}`,
+      ).toBe(true);
     }
   });
 
