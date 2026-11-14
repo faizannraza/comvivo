@@ -745,15 +745,38 @@ commit that closes it, or strike it through with a dated line saying why it stop
   synchronous path at twice the price without being told. Either implement the Responses batch path
   or split the capability into "provider offers" and "adapter implements"; the second is the honest
   shape and is a `05` §3.5.2 change.
-- **`vitest run` has segfaulted twice** (2026-11-13 at `M2-T11`'s gate, 2026-11-14 at `M2-T19`'s;
-  **investigate before the M2 exit gate**). Exit 139 partway through the unit tier both times, no
-  failing test, no pattern in which files had run, and the immediately following run green both
-  times (5,156 and 5,513 tests). Two occurrences in two days is not a one-off, so the watch is now
-  a task: a flaky worker crash makes every gate measurement a coin flip, and "it passed on the
-  retry" is not a gate result. Where to start: the native modules under test (better-sqlite3,
-  libsodium-wrappers) in a worker pool, and `pool`/`poolOptions` in `vitest.config.ts` — Vitest 5's
-  default forks pool plus a native addon is the usual cause. Reproduce with
-  `--pool=forks --no-file-parallelism` and bisect from there.
+- **`vitest run` segfaulted twice** (2026-11-13 at `M2-T11`'s gate, 2026-11-14 at `M2-T19`'s).
+  Exit 139 and exit 138 partway through the unit tier, no failing test, no pattern in which files
+  had run, and the immediately following run green both times (5,156 and 5,513 tests).
+  **Investigated 2026-11-14. Not reproduced, and the stated hypothesis was wrong.** Still a watch
+  item, with a trigger — see below.
+
+  The hypothesis recorded here was "native modules (better-sqlite3, libsodium-wrappers) in a worker
+  pool… Vitest 5's default forks pool plus a native addon". Measured, it is wrong twice over. The
+  unit tier ran on **`threads`**, not forks. And it loads **no native addon**: the only
+  `better-sqlite3` mentions in a unit-tier test are *strings* in `storage/src/pins.test.ts`'s pin
+  table, and `libsodium-wrappers` is WASM, not a `.node` addon. So the one mechanism named here
+  could not have been the cause.
+
+  What the investigation did find is a **false justification** on the risky setting.
+  `vitest.config.ts`'s unit project carried `pool: 'threads'` with the comment "`core` and
+  `shared` are pure, and Stryker requires them". Both halves are false: the project's own
+  `include` is every package, app, script and tool plus `test/`, not two pure packages; and Stryker
+  does not use this project at all — `packages/core/stryker.config.json` points at
+  `packages/core/vitest.mutation.config.ts` and sets `"pool": "forks"` itself, the opposite of what
+  the comment claimed. The unit tier is now **forks**, which removes the one difference between it
+  and the other four projects that had no reason behind it. Measured: +1.3 s on 3 979 tests (+9%),
+  `pnpm verify` exit 0, and `pnpm mutation` still green at a 70.93 score against its 60 threshold —
+  so the Stryker claim was not merely unsupported, it was backwards.
+
+  **This is not a claimed fix.** 10 dedicated runs of the unit project and three full `pnpm verify`
+  runs on Node 26.13.0 are all clean, which is consistent with the 13 clean runs recorded after the
+  first occurrence — so the pool change removed an unjustified risk, not a proven cause.
+  **Trigger: if it recurs, capture the full `vitest` output before re-running** (which worker died,
+  which file was last reported) and record the Node version from `node -v` in the same shell. Two
+  more occurrences, or one with a reproducible file, promotes this to a blocking task. Until then,
+  a gate measurement that crashes is re-run **and the crash recorded**, because "it passed on the
+  retry" is not a gate result.
 - **No standalone fixture-generation CLI** (deferred at `M1-T33`, 2026-11-11, to `M13-T22`).
   `02` §3.16.5 specifies `pnpm --filter @comvivo/storage seed --profile stress-50k-1m [--out path]`.
   Nothing calls it: `pnpm bench` and `bench/sizes.ts` both read `COMVIVO_BENCH_PROFILE` and build
