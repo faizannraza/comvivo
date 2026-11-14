@@ -9,8 +9,6 @@
  * truncation detection has nothing to find.
  */
 
-import { performance } from 'node:perf_hooks';
-
 import { StorageError } from '@comvivo/shared';
 import {
   AAD,
@@ -247,7 +245,29 @@ describe('round trips at 02 §9.1`s chunk boundaries', () => {
  * quadratic version was run against this assertion to check that it does.
  */
 const LINEAR_READ_BYTES = 1024 * 1024;
-const LINEAR_READ_BUDGET_MS = 2_000;
+
+/**
+ * How many times the file's own size the framer may `memcpy`, reading it one byte at a time.
+ *
+ * A **byte count, not a clock.** This was a 2 000 ms budget, and that made the gate depend on
+ * which half of `pnpm verify` you read: `pnpm test` passed and `pnpm coverage` failed the same
+ * commit on the same machine, because coverage instruments every call and this test makes
+ * 1 048 576 of them. Measured on Node 26.13.0 — the pinned primary, which this machine has at
+ * `~/.local/node/v26.13.0` — 2 316 ms under coverage against ~900 ms without. A test that passes
+ * in one half of the gate and fails in the other is not evidence of anything.
+ *
+ * A timing **ratio** was the first replacement and was worse: scale-free, but blind to the
+ * regression that is easiest to introduce. Measured — making the compaction in `#append`
+ * unconditional, so every append recopies the pending window, is a large constant-factor blowup
+ * and leaves the doubling ratio at a perfectly linear 2.0. The ratio test passed it.
+ *
+ * The byte count catches both, and is deterministic besides: no machine, no instrumentation and no
+ * CI load in the number. It checks the invariant `stream-format.ts`'s header states in words —
+ * every byte copied once on the way in, plus at most one chunk per capacity-worth of input. The
+ * capacity is the head plus two chunks, so compaction adds at most one chunk per chunk of input:
+ * 2× is the bound, and 3× leaves room for the head and the held-back tail.
+ */
+const LINEAR_COPY_FACTOR = 3;
 
 describe('cost is linear in the bytes, not in the number of reads', () => {
   /**
@@ -260,25 +280,40 @@ describe('cost is linear in the bytes, not in the number of reads', () => {
    * measured number in the message, rather than as "timed out in 5000ms" — which says nothing
    * about what got slower.
    */
-  it(`opens ${String(LINEAR_READ_BYTES / 1024)} KiB in one-byte reads`, async () => {
+  it(`copies ${String(LINEAR_READ_BYTES / 1024)} KiB about once, however small the reads`, async () => {
     const plaintext = plaintextOf(LINEAR_READ_BYTES);
     const { file } = await seal(plaintext);
 
-    const startedAt = performance.now();
-    const opened = await open(file, inPieces(file, 1));
-    const elapsedMs = performance.now() - startedAt;
+    let copied = -1;
+    const out: Uint8Array[] = [];
+    for await (const piece of openBlob({
+      stream: wrappersSecretStream,
+      dek: DEK,
+      additionalData: AD,
+      source: inPieces(file, 1),
+      onBytesCopied: (total) => {
+        copied = total;
+      },
+    })) {
+      out.push(piece);
+    }
+    const opened = Buffer.concat(out);
 
-    // Correctness first: a framer that produced the wrong bytes quickly is not the thing being
-    // asserted here.
+    // Correctness first: a framer that produced the wrong bytes cheaply is not the thing being
+    // asserted here. And `copied` must have been set, or the assertion below compares nothing —
+    // `-1` would sail under any ceiling.
     expect(opened.length).toBe(plaintext.length);
     expect(opened.subarray(0, 64)).toEqual(plaintext.subarray(0, 64));
+    expect(copied).toBeGreaterThan(LINEAR_READ_BYTES);
+
     expect(
-      elapsedMs,
-      `${String(LINEAR_READ_BYTES)} bytes in one-byte reads took ${elapsedMs.toFixed(0)} ms, ` +
-        `over the ${String(LINEAR_READ_BUDGET_MS)} ms budget. The framer is copying its pending ` +
-        'bytes again on every read.',
-    ).toBeLessThan(LINEAR_READ_BUDGET_MS);
-  }, 60_000);
+      copied,
+      `${String(LINEAR_READ_BYTES)} bytes arriving one at a time cost ${String(copied)} bytes of ` +
+        `memcpy (${(copied / LINEAR_READ_BYTES).toFixed(2)}× the file), over the ` +
+        `${String(LINEAR_COPY_FACTOR)}× ceiling. The framer is copying its pending bytes again on ` +
+        'every read.',
+    ).toBeLessThan(LINEAR_READ_BYTES * LINEAR_COPY_FACTOR);
+  }, 120_000);
 });
 
 describe('tamper and truncation (02 §9.3)', () => {

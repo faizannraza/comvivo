@@ -167,6 +167,8 @@ export interface OpenBlobOptions {
   readonly additionalData: Uint8Array;
   /** The file's bytes, in order. Chunk-sized pieces are not required. */
   readonly source: AsyncIterable<Uint8Array>;
+  /** Passed through to `openFramed`; see `OpenFramedOptions.onBytesCopied`. */
+  readonly onBytesCopied?: (bytes: number) => void;
 }
 
 /**
@@ -183,6 +185,7 @@ export async function* openBlob(options: OpenBlobOptions): AsyncGenerator<Uint8A
     dek: options.dek,
     additionalData: options.additionalData,
     source: options.source,
+    ...(options.onBytesCopied === undefined ? {} : { onBytesCopied: options.onBytesCopied }),
     maxHeadBytes: BLOB_HEAD_BYTES,
     formatName: 'blob',
     // The head is fixed-length, so "enough bytes" is a length check — but it still goes through
