@@ -160,7 +160,7 @@ export async function runChat(
       { signal, timeout: binding.attemptTimeoutMs, maxRetries: 0 },
     );
   } catch (error) {
-    const mapped = toModelCallError(error, deps.clock.now().epochMilliseconds);
+    const mapped = toModelCallError(error, deps.clock.now().epochMilliseconds, LOCAL_PROVIDER);
     logFailure(deps, req.route, mapped);
     throw mapped;
   }
@@ -284,7 +284,7 @@ export async function runStructured<T>(
         { signal, timeout: binding.attemptTimeoutMs, maxRetries: 0 },
       );
     } catch (error) {
-      const mapped = toModelCallError(error, deps.clock.now().epochMilliseconds);
+      const mapped = toModelCallError(error, deps.clock.now().epochMilliseconds, LOCAL_PROVIDER);
       logFailure(deps, req.route, mapped);
       throw mapped;
     }

@@ -216,12 +216,22 @@ export class DeterministicIdGenerator implements IdGenerator {   // valid TypeID
   4. **Capability truthfulness**: every `true` in `ChannelCapabilities` has a test that exercises it.
   5. **Splitting and rendering** at `maxMessageChars`.
 - **Recorder.** `pnpm fixtures:record --channel telegram` is dev-only and needs a test bot. It applies a `ScrubPolicy`: display names become synthetic, platform IDs become stable fakes, phone numbers, emails, tokens and file IDs are replaced. The scrubbed output is reviewed before commit. CI scans fixtures for token-shaped strings (gitleaks rules).
-- **Model providers.** `FakeProviderServer` (`@comvivo/models/testing`) serves a subset of the Anthropic Messages and OpenAI-compatible wire formats (JSON and SSE) and lets each test inject faults. It is a **real loopback HTTP server**, not an in-process mock: Q21's reason is that a kill -9 has to leave the model outside the process, and a mock replaces the SDK retry, backoff and stream-reassembly code whose behaviour is the thing in question. Replies are scripted programmatically (`server.script(...)`); `fixtures/providers/**` arrives with `M2-T14`, which replays captured bodies through the same `raw` turn. Adapter contract tests assert the 01 §2.1 non-negotiables on **every** captured request:
+- **Model providers.** `FakeProviderServer` (`@comvivo/models/testing`) serves a subset of the Anthropic Messages and OpenAI-compatible wire formats (JSON and SSE) and lets each test inject faults. It is a **real loopback HTTP server**, not an in-process mock: Q21's reason is that a kill -9 has to leave the model outside the process, and a mock replaces the SDK retry, backoff and stream-reassembly code whose behaviour is the thing in question. Replies are scripted programmatically (`server.script(...)`); `fixtures/providers/**` arrives with `M2-T14`, which replays captured bodies through the same `raw` turn.
+
+  > **Built at `M2-T14` as one shared suite over four subjects**, not four copies. Four copies of nine rules is thirty-six assertions that can drift, and they drift **silently**: a rule asserted for Anthropic and quietly missing for Google reads exactly like a rule that holds everywhere. The rules live in `packages/models/src/testing/adapter-contract.ts`; each adapter supplies a **subject** under its own `testing/`, so a fifth provider cannot be added without one and a rule added to the kit applies to all four at once.
+  >
+  > **Each subject also supplies a lens** — small declarative functions that find the tools, the tool choice and the tool results in *that* wire format, because the four put the same things in different places (`tools[].input_schema`, `tools[].parameters`, `tools[0].functionDeclarations[].parametersJsonSchema`, `tools[].function.parameters`). A wrong lens is the failure that matters: one returning `[]` would make the strict-tools rule pass for an adapter sending no `strict` at all. So the suite **checks the lens before the rules**, against a request that demonstrably carried two tools — and planting a wrong lens was verified to fail both the guard and the rule it protects.
+  >
+  > **Anthropic's fixtures are the SSE event sequence**, not a final message body: its adapter calls `messages.stream()`, so a stored JSON body is not something its SDK can parse. Replaying the events is the faithful fixture there and the stronger one, because it exercises stream reassembly — where most of that adapter's reading code lives. The fake grew a `raw_sse` turn for it.
+  >
+  > Fixtures are committed with **canonical key order, pretty-printed**: the ordering makes "no diff on a re-run" a real signal rather than a coincidence of insertion order, and the indentation makes a diff reviewable, which is the whole reason the files exist. Expectations are **hand-written per case** (§3.1.10), and a fixture with no expectation fails a test — one that merely proved the adapter did not crash would be worse than none.
+
+  Adapter contract tests assert the 01 §2.1 non-negotiables on **every** captured request:
   - no `temperature`, `top_p` or `top_k`;
   - no trailing assistant prefill;
   - `tool_choice` is `auto` or `none`;
   - tools have `strict: true` and `additionalProperties: false`;
-  - parallel `tool_result`s go back in one user message;
+  - parallel `tool_result`s go back **contiguously** (amended at `M2-T14`: `01` §2.1 says "in one user message", which is Anthropic's and Google's shape — Chat Completions **requires** one `role: 'tool'` message per result and the Responses API one top-level `function_call_output` per result, so the literal wording is unsatisfiable on two of the four. The rule's intent is that results are not split across turns or interleaved with new member content, so contiguity is what is asserted);
   - `response.content` is appended back unchanged, thinking blocks included;
   - `stop_reason` (`refusal`, `max_tokens`, `pause_turn`) is handled;
   - `retry-after` is honored;

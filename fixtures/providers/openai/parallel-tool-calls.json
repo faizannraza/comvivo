@@ -1,0 +1,44 @@
+{
+  "created_at": 1767225600,
+  "id": "resp_fixture_1",
+  "incomplete_details": null,
+  "model": "gpt-6.1-sol",
+  "object": "response",
+  "output": [
+    {
+      "arguments": "{\"q\":\"Lisbon\"}",
+      "call_id": "call_1",
+      "id": "fc_fixture_1_0",
+      "name": "get_forecast",
+      "status": "completed",
+      "type": "function_call"
+    },
+    {
+      "arguments": "{\"q\":\"Porto\"}",
+      "call_id": "call_2",
+      "id": "fc_fixture_1_1",
+      "name": "get_forecast",
+      "status": "completed",
+      "type": "function_call"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "status": "completed",
+  "store": false,
+  "usage": {
+    "input_tokens": 0,
+    "input_tokens_details": {
+      "cache_write_tokens": 0,
+      "cache_write_tokens_details": {
+        "ttl_12h_tokens": 0,
+        "ttl_30m_tokens": 0
+      },
+      "cached_tokens": 0
+    },
+    "output_tokens": 0,
+    "output_tokens_details": {
+      "reasoning_tokens": 0
+    },
+    "total_tokens": 0
+  }
+}

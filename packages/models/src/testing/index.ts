@@ -49,6 +49,18 @@ export {
   toolSpec,
   turnRequest,
 } from '../anthropic/testing/fixtures.js';
+// --- The shared adapter contract suite (11 §3.1.9, 01 §2.1; M2-T14) --------------------------
+export {
+  type ContractFault,
+  type ContractReply,
+  type ContractSubject,
+  FORBIDDEN_SAMPLING_KEYS,
+  runAdapterContract,
+  type ToolResultRun,
+  usageTotals as contractUsageTotals,
+  type WireLens,
+  type WireTool,
+} from './adapter-contract.js';
 export {
   effortsRequested,
   expectNoReadUp,

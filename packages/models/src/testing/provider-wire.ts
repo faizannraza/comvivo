@@ -347,6 +347,12 @@ function anthropicErrorMessage(status: number): string {
 export function openaiFinishReason(reason: FakeStopReason): string {
   if (reason === 'tool_use') return 'tool_calls';
   if (reason === 'max_tokens') return 'length';
+  // `content_filter` is the Chat Completions equivalent of a refusal, and it is in the format's
+  // own spec — vLLM emits it. Mapped at `M2-T14`: this previously returned `stop`, with a comment
+  // saying an equivalent would "let a test pass against a shape no local server produces". That
+  // was true when nothing read the field; the local adapter now maps `content_filter` to a refusal
+  // explicitly (`M2-T12`), so emitting it tests a real path instead of hiding one.
+  if (reason === 'refusal') return 'content_filter';
   return 'stop';
 }
 
@@ -518,7 +524,12 @@ export function openaiResponse(
     });
   }
 
-  const refusal = stopReasonOf(reply) === 'refusal' ? reply.refusal : undefined;
+  // A `refusal` stop reason produces a refusal **whether or not** the reply named a category.
+  // Before `M2-T14` this required `reply.refusal` to be set, so `{ stopReason: 'refusal' }` alone
+  // fell through to the text branch and the fake reported a perfectly normal answer — which made
+  // the "discard a refusal's partial text" rule untestable on this provider.
+  const refusing = stopReasonOf(reply) === 'refusal';
+  const refusal = refusing ? (reply.refusal ?? { category: null }) : undefined;
   if (refusal !== undefined) {
     output.push({
       type: 'message',
@@ -596,14 +607,20 @@ export function googleFinishReason(reason: FakeStopReason): string {
 function googleUsage(usage: FakeUsage): Record<string, unknown> {
   const cacheRead = usage.cacheReadInputTokens ?? 0;
   const thoughts = usage.reasoningTokens ?? 0;
+  // Gemini has no cache-**write** category, so a neutral reply's write counts have nowhere of
+  // their own to go. They are folded into `promptTokenCount` rather than dropped (corrected at
+  // `M2-T14`): those tokens were really in the prompt and a real Gemini request would count them.
+  // Dropping them made the fake report a smaller prompt than it was sent, which is the one
+  // direction a billing fixture must never be wrong in.
+  const writes = (usage.cacheWrite5mInputTokens ?? 0) + (usage.cacheWrite1hInputTokens ?? 0);
   return {
     // Includes the cached tokens, as the API reports it.
-    promptTokenCount: usage.inputTokens + cacheRead,
+    promptTokenCount: usage.inputTokens + cacheRead + writes,
     cachedContentTokenCount: cacheRead,
     // Thoughts are **not** inside this count on Gemini, which is why the adapter adds them.
     candidatesTokenCount: Math.max(0, usage.outputTokens - thoughts),
     ...(thoughts === 0 ? {} : { thoughtsTokenCount: thoughts }),
-    totalTokenCount: usage.inputTokens + cacheRead + usage.outputTokens,
+    totalTokenCount: usage.inputTokens + cacheRead + writes + usage.outputTokens,
   };
 }
 

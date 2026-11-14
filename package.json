@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Comvivo — the open-source AI that belongs to your group, not to one person.",
+  "description": "Comvivo \u2014 the open-source AI that belongs to your group, not to one person.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -75,7 +75,8 @@
     "docs:dev": "pnpm --filter @comvivo/docs dev",
     "prose": "bash scripts/ci/check-prose.sh",
     "brand:rename": "tsx --tsconfig tsconfig.runtime.json scripts/brand/rename.ts",
-    "gate": "pnpm run verify && pnpm run hygiene:check -- --gate"
+    "gate": "pnpm run verify && pnpm run hygiene:check -- --gate",
+    "fixtures:providers": "tsx --tsconfig tsconfig.runtime.json scripts/models/record-fixtures.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.6",

@@ -20,7 +20,7 @@
  *    are mapped explicitly, because falling through to `unknown` would make a truncated structured
  *    output look like a provider outage and trip the breaker.
  */
-import { ModelCallError, type ModelCallErrorKind } from '@comvivo/core';
+import { ModelCallError, type ModelCallErrorKind, type ProviderId } from '@comvivo/core';
 import {
   APIConnectionError,
   APIConnectionTimeoutError,
@@ -71,31 +71,45 @@ function apiErrorFields(error: unknown): {
   return { status, headers, type: code ?? category, requestId };
 }
 
-/** Map any thrown value to a `ModelCallError`. */
-export function toModelCallError(error: unknown, nowMs: number): ModelCallError {
+/**
+ * Map any thrown value to a `ModelCallError`.
+ *
+ * `provider` is a **parameter**, defaulting to `openai`. It has to be: the OpenAI-compatible local
+ * adapter (`M2-T12`) reuses this mapper because it uses the same SDK, and a hard-coded `'openai'`
+ * attributed every local-server failure to OpenAI. That is wrong in three places at once — the
+ * trace, the log line and, worst, the **circuit-breaker registry**, which is keyed by provider: a
+ * local Ollama going down would have opened the *OpenAI* circuit and refused cloud calls that were
+ * perfectly healthy. Found by `M2-T14`'s shared contract suite, which asserts the provider on
+ * every adapter's errors and is the only test that compares the four.
+ */
+export function toModelCallError(
+  error: unknown,
+  nowMs: number,
+  provider: ProviderId = OPENAI_PROVIDER,
+): ModelCallError {
   if (error instanceof ModelCallError) return error;
 
   // Most specific first: `APIConnectionTimeoutError extends APIConnectionError`.
-  if (error instanceof APIUserAbortError) return new ModelCallError('aborted', OPENAI_PROVIDER);
+  if (error instanceof APIUserAbortError) return new ModelCallError('aborted', provider);
   if (error instanceof APIConnectionTimeoutError) {
-    return new ModelCallError('timeout', OPENAI_PROVIDER);
+    return new ModelCallError('timeout', provider);
   }
-  if (error instanceof APIConnectionError) return new ModelCallError('network', OPENAI_PROVIDER);
+  if (error instanceof APIConnectionError) return new ModelCallError('network', provider);
 
   // Raised by the SDK's parsing helpers, not by the transport, so they are not `APIError`s. A
   // truncated structured output reported as `unknown` would trip the breaker on a healthy provider.
   if (error instanceof LengthFinishReasonError) {
-    return new ModelCallError('bad_request', OPENAI_PROVIDER, { type: 'length' });
+    return new ModelCallError('bad_request', provider, { type: 'length' });
   }
   if (error instanceof ContentFilterFinishReasonError) {
-    return new ModelCallError('bad_request', OPENAI_PROVIDER, { type: 'content_filter' });
+    return new ModelCallError('bad_request', provider, { type: 'content_filter' });
   }
 
-  if (!(error instanceof APIError)) return new ModelCallError('unknown', OPENAI_PROVIDER);
+  if (!(error instanceof APIError)) return new ModelCallError('unknown', provider);
 
   const { status, headers, type, requestId } = apiErrorFields(error);
   const wait = retryAfterMs(headers, nowMs);
-  return new ModelCallError(errorKind(error, status), OPENAI_PROVIDER, {
+  return new ModelCallError(errorKind(error, status), provider, {
     ...(status === undefined ? {} : { status }),
     ...(type === undefined ? {} : { type }),
     ...(wait === undefined ? {} : { retryAfterMs: wait }),

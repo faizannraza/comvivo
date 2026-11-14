@@ -338,12 +338,18 @@ describe('openaiCompletion', () => {
     });
   });
 
-  it('maps finish_reason, collapsing the two Anthropic-only reasons', () => {
+  it('maps finish_reason, with a refusal becoming content_filter', () => {
+    // Updated at `M2-T14`. `refusal` used to collapse to `stop` alongside `pause_turn`, with a
+    // comment that an equivalent would "let a test pass against a shape no local server
+    // produces". That was true while nothing read the field; `content_filter` is in the Chat
+    // Completions spec, vLLM emits it, and the local adapter maps it to a refusal explicitly
+    // (`M2-T12`) — so emitting it tests a real path instead of hiding one. `pause_turn` stays
+    // collapsed, because the format genuinely has no equivalent.
     expect(
       (['end_turn', 'tool_use', 'max_tokens', 'refusal', 'pause_turn'] as const).map(
         openaiFinishReason,
       ),
-    ).toEqual(['stop', 'tool_calls', 'length', 'stop', 'stop']);
+    ).toEqual(['stop', 'tool_calls', 'length', 'content_filter', 'stop']);
   });
 });
 

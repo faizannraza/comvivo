@@ -33,6 +33,7 @@ import { toModelCallError } from '../openai/errors.js';
 import type { LocalServerKind } from './identify.js';
 import type { LadderLevel, ProbedCapabilities } from './ladder.js';
 import { levelFor } from './ladder.js';
+import { LOCAL_PROVIDER } from './response.js';
 
 /** `05` §3.5.6: each active probe is capped at 20 s. */
 export const PROBE_TIMEOUT_MS = 20_000;
@@ -222,7 +223,7 @@ export async function probeTools(
     // `debug` with the mapped kind only, because a probe failing is expected on three of four
     // servers and an `info` line per probe would make a boot look broken.
     deps.logger.debug('model.local_probe', {
-      outcome: toModelCallError(error, 0).kind,
+      outcome: toModelCallError(error, 0, LOCAL_PROVIDER).kind,
       detail: { probe: 'tools', server: options.serverKind },
     });
     return { nativeTools: false, parallelTools: false };
@@ -272,7 +273,7 @@ export async function probeStructured(
     jsonSchema = parsesToObject(body);
   } catch (error) {
     deps.logger.debug('model.local_probe', {
-      outcome: toModelCallError(error, 0).kind,
+      outcome: toModelCallError(error, 0, LOCAL_PROVIDER).kind,
       detail: { probe: 'json_schema', server: options.serverKind },
     });
   }
@@ -290,7 +291,7 @@ export async function probeStructured(
     jsonObject = parsesToObject(body);
   } catch (error) {
     deps.logger.debug('model.local_probe', {
-      outcome: toModelCallError(error, 0).kind,
+      outcome: toModelCallError(error, 0, LOCAL_PROVIDER).kind,
       detail: { probe: 'json_object', server: options.serverKind },
     });
   }
@@ -317,7 +318,7 @@ export async function probeReasoningEffort(
     return true;
   } catch (error) {
     deps.logger.debug('model.local_probe', {
-      outcome: toModelCallError(error, 0).kind,
+      outcome: toModelCallError(error, 0, LOCAL_PROVIDER).kind,
       detail: { probe: 'reasoning_effort', server: options.serverKind },
     });
     return false;
@@ -382,7 +383,7 @@ export async function probeContext(
     // A refusal here is usually the server rejecting the prompt length outright, which is also
     // truncation-adjacent and equally actionable.
     deps.logger.debug('model.local_probe', {
-      outcome: toModelCallError(error, 0).kind,
+      outcome: toModelCallError(error, 0, LOCAL_PROVIDER).kind,
       detail: { probe: 'context', server: options.serverKind },
     });
     return { truncates: true };

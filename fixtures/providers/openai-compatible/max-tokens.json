@@ -1,0 +1,25 @@
+{
+  "choices": [
+    {
+      "finish_reason": "length",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "I was about to",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1767225600,
+  "id": "fixture_1",
+  "model": "gemma4:12b",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 0,
+    "prompt_tokens": 0,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 0
+  }
+}

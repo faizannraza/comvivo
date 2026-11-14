@@ -1,0 +1,25 @@
+{
+  "choices": [
+    {
+      "finish_reason": "stop",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": "ok",
+        "role": "assistant"
+      }
+    }
+  ],
+  "created": 1767225600,
+  "id": "fixture_1",
+  "model": "gemma4:12b",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 40,
+    "prompt_tokens": 1080,
+    "prompt_tokens_details": {
+      "cached_tokens": 900
+    },
+    "total_tokens": 1120
+  }
+}

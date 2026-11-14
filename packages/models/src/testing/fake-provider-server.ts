@@ -117,6 +117,16 @@ export type FakeTurn =
    * `raw` JSON body cannot drive it. One line per object, `application/x-ndjson`.
    */
   | (FakeTurnBase & { readonly kind: 'jsonl'; readonly lines: readonly unknown[] })
+  /**
+   * Stored Server-Sent Events, written verbatim (`M2-T14`).
+   *
+   * The streaming counterpart of `raw`. The Anthropic adapter calls `messages.stream()`, so its
+   * real wire input is an **event sequence** rather than a JSON body — a `raw` turn holding a
+   * final message is not something its SDK can parse. Replaying the events is therefore both the
+   * faithful fixture for that provider and the stronger one: it exercises the stream-reassembly
+   * path, which is where most of the adapter's reading code lives.
+   */
+  | (FakeTurnBase & { readonly kind: 'raw_sse'; readonly events: readonly SseEvent[] })
   | (FakeTurnBase & { readonly kind: 'rate_limited'; readonly retryAfterSeconds?: number })
   | (FakeTurnBase & { readonly kind: 'overloaded' })
   | (FakeTurnBase & { readonly kind: 'server_error'; readonly status?: number })
@@ -566,6 +576,11 @@ export async function startFakeProviderServer(
         return;
       case 'raw':
         sendJson(response, turn.status ?? 200, turn.body, turn.headers ?? {});
+        return;
+      case 'raw_sse':
+        openStream(response);
+        writeEvents(response, turn.events);
+        response.end();
         return;
       case 'jsonl':
         response.writeHead(200, {
