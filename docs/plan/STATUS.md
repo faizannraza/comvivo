@@ -1399,9 +1399,11 @@ fixes the first four produced — and found what no test had:
 
 ### M2 — Model gateway
 
-Status: **complete, with three stated substitutions** (2026-11-12 → 2026-11-14) · Tasks: 18/20
-landed, 2 owner-blocked · Gate: **green on every clause that can run without the owner**; the three
-that cannot are substituted under `CLAUDE.md` §8 and named below.
+Status: **complete, with three stated substitutions** (2026-11-12 → 2026-11-14) · Tasks: 18/20 · Gate: **green on every clause that can run without the owner**
+
+The two unticked tasks are `M2-T19`'s live run and `M2-T20`'s live spike, both owner-blocked on
+**H-1** and **H-2**. The three gate clauses that depend on them are substituted under
+`CLAUDE.md` §8 and named below, each with what the substitute does and does not show.
 
 #### M2 exit gate — measured 2026-11-14 on Node **v26.13.0**
 
