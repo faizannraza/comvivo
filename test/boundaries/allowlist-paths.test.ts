@@ -18,7 +18,7 @@
  * pending is stale, and a `PENDING` fragment that has since appeared must be promoted — which is
  * how you find out that a forward-looking exemption went live.
  */
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -79,20 +79,80 @@ const PENDING: ReadonlyMap<string, string> = new Map([
   // matches no files, so it protects nothing yet. It was written at `M2-T5` because that task's
   // AC names the clause. `M7-T6` is the first AC that requires the suite to exist and pass.
   ['packages/plugin-sdk/src/testing', 'the public conformance kit (10 §3.12) — M7-T6'],
+  // The two callers `01` §14 A11 allows to reach memory **search**, and the rule that names them
+  // (`memory-search-restricted-callers`) is what protects invariant **I1 (no read-up)**. Neither
+  // directory exists yet, which makes the rule maximally strict today — nothing can import the
+  // port at all — and that is the safe direction. They arrive with the context builder and the
+  // read models; when they do, this test says so.
+  ['packages/engine/src/context', 'the context builder (05 §3.4) — M5-T12/M5-T18'],
+  ['packages/engine/src/readmodels', 'the read-model layer (09 §3.3) — M9-T9/M9-T10'],
   ['packages/core/src/ports/memory-search', 'already arrived as a file; see the test below'],
 ]);
 
 /**
- * Literal directory fragments inside a `path` regex.
+ * Expand a pattern's alternation groups into the concrete strings they can match.
  *
- * Only fragments with no regex metacharacters are checkable — `^packages/channels/[^/]+/src/`
- * names a shape, not a directory. Those are skipped, and the count below asserts that skipping
- * them still leaves most of the config covered.
+ * `^packages/(models|engine)/src/x/` becomes two fragments. Without this, the M2 second-pass
+ * review's planted exemptions `^packages/(models|engine)/src/totally-made-up/` and
+ * `^scripts/also-made-up/` both passed the check and both widened `node:net` access — the first
+ * because the group made the fragment look like a shape rather than a path, the second because the
+ * extraction only looked under `packages/` and `apps/`.
+ *
+ * Bounded at 64 expansions, because a pattern with many groups multiplies: beyond that, a config
+ * is doing something this check should not pretend to understand, and the count assertion below
+ * would notice the coverage drop.
+ */
+function expandAlternations(pattern: string): readonly string[] {
+  let out = [pattern];
+  for (let depth = 0; depth < 6; depth += 1) {
+    const next: string[] = [];
+    let changed = false;
+    for (const candidate of out) {
+      // An innermost group of plain alternatives — no nested groups, no character classes.
+      const match = /\(([A-Za-z0-9_.@:/|-]+)\)/.exec(candidate);
+      if (match === null) {
+        next.push(candidate);
+        continue;
+      }
+      changed = true;
+      for (const alternative of (match[1] ?? '').split('|')) {
+        next.push(
+          candidate.slice(0, match.index) +
+            alternative +
+            candidate.slice(match.index + match[0].length),
+        );
+      }
+    }
+    out = next.slice(0, 64);
+    if (!changed) break;
+  }
+  return out;
+}
+
+/**
+ * Every top-level entry in the repository, so a fragment's first segment can be recognised.
+ *
+ * Read from disk rather than listed, because a hardcoded list is how the previous version came to
+ * check `packages/` and `apps/` and silently ignore `scripts/`, `test/`, `tools/` and `.github/`.
+ */
+const ROOT_ENTRIES: ReadonlySet<string> = new Set(readdirSync(ROOT));
+
+/**
+ * Literal path fragments inside a `path` regex.
+ *
+ * A fragment is checkable when every alternation has been expanded, nothing else regex-shaped is
+ * left, and its **first segment is a real entry at the repository root** — that last test is what
+ * lets this find a `scripts/…` exemption without hardcoding which roots exist.
+ * `^packages/channels/[^/]+/src/` still names a shape, not a directory, and is skipped.
  */
 function literalFragments(pattern: string): readonly string[] {
-  return [...pattern.matchAll(/\^?((?:packages|apps)\/[^|)^$\\]+)/g)]
+  return expandAlternations(pattern)
+    .flatMap((expanded) => [
+      ...expanded.matchAll(/\^?([A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@:-]+)+\/?)/g),
+    ])
     .map((match) => (match[1] ?? '').replace(/\/$/, ''))
-    .filter((fragment) => !/[[\](){}*+?|\\]/.test(fragment));
+    .filter((fragment) => !/[[\](){}*+?|\\]/.test(fragment))
+    .filter((fragment) => ROOT_ENTRIES.has(fragment.split('/')[0] ?? ''));
 }
 
 /** Every `path`/`pathNot` string on one side of one rule. */

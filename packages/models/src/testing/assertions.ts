@@ -23,9 +23,6 @@ import { canonicalJson } from '@comvivo/shared';
 
 type AnyCall = ModelTurnRequest | StructuredRequest<unknown>;
 
-/** The forbidden request keys (`01` §2.1), checked over the canonical request. */
-const SAMPLING_KEYS: readonly string[] = ['temperature', 'top_p', 'top_k', 'topP', 'topK'];
-
 function turnCallsOf(calls: readonly AnyCall[]): readonly ModelTurnRequest[] {
   return calls.filter((call): call is ModelTurnRequest => 'messages' in call);
 }
@@ -69,17 +66,26 @@ export function expectSystemBytesStable(calls: readonly AnyCall[]): void {
   }
 }
 
-/** No sampling parameter reached the gateway, by any spelling (`01` §2.1). */
-export function expectNoSamplingParams(calls: readonly AnyCall[]): void {
-  for (const [index, call] of calls.entries()) {
-    const serialised = JSON.stringify(call);
-    for (const key of SAMPLING_KEYS) {
-      if (serialised.includes(`"${key}"`)) {
-        fail(index, call, `carries \`${key}\`, which 01 §2.1 forbids`);
-      }
-    }
-  }
-}
+/**
+ * **Removed at the M2 second-pass review**: `expectNoSamplingParams` could only ever lie.
+ *
+ * It scanned `JSON.stringify(call)` for `"temperature"` and friends, over an `AnyCall` — which is a
+ * **port-level** `ModelTurnRequest` or `StructuredRequest`. The port has no field for a sampling
+ * parameter; that is `01` §2.1's first and cheapest guard, and `model.ts`'s header says so. So the
+ * check could not fail for the reason it claimed, and the only thing it could match was a tool's
+ * own JSON. The review reproduced it with `10` §4's own Home Assistant example:
+ *
+ *     tool { name: 'set_temperature', inputSchema: { properties: { temperature: {...} } } }
+ *     → "call #0 (route \"chat\"…): carries `temperature`, which 01 §2.1 forbids"
+ *
+ * A guard that fires on correct code and cannot fire on the fault is worse than none: the first
+ * person to hit it deletes it, and takes the real guards' credibility with it.
+ *
+ * §2.1's runtime enforcement lives where the request is actually built — each adapter's
+ * `assertWireInvariants` over its own params, and `testing/adapter-contract.ts`'s
+ * `forbiddenKeysPresent` lens over bodies captured off the wire by `FakeProviderServer`. Those see
+ * the object that reaches the provider, which is the only object that can carry one.
+ */
 
 /**
  * Every round's `tool_result`s arrive in one user message.

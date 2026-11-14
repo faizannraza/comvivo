@@ -49,6 +49,20 @@ const UNKNOWN = [
     raw: 'brand_new_reason_2027',
   },
   {
+    // OpenAI's second axis. `status: 'incomplete'` is known; the **reason** inside it is its own
+    // union, and it was the one reader of four that both lost the unknown value (it answered
+    // `raw: 'incomplete'`) and let a `case` be deleted without a type error. Found at the M2
+    // second-pass review, which measured exactly this input.
+    provider: 'openai (incomplete_details.reason)',
+    read: () =>
+      readOpenAiStop({
+        status: 'incomplete',
+        incomplete_details: { reason: 'brand_new_reason_2027' },
+        output: [],
+      } as never),
+    raw: 'incomplete:brand_new_reason_2027',
+  },
+  {
     provider: 'openai-compatible',
     read: () =>
       readLocalStop({
@@ -82,6 +96,7 @@ describe('readStop, given a reason this build has never heard of', () => {
       'anthropic',
       'google',
       'openai',
+      'openai (incomplete_details.reason)',
       'openai-compatible',
     ]);
   });

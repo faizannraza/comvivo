@@ -125,7 +125,19 @@ function providerIdOf(provider: CatalogProvider): string {
   return provider.kind === 'builtin' ? '' : provider.id;
 }
 
-/** Bytewise, so the catalogue does not hash differently depending on the host's locale. */
+/**
+ * Bytewise, so the catalogue does not hash differently depending on the host's locale.
+ *
+ * `localeCompare` reorders punctuation and case: `t0x` sorts **before** `t_x` by bytes and
+ * **after** it in every locale ICU ships, and `B` before `a` by bytes and after it by locale. A
+ * catalogue sorted that way hashes differently on two hosts running the same groups with different
+ * `LANG`, which halves the prompt cache for one of them — `05` §3.6.7 and `M2-T17` exist to stop
+ * exactly that.
+ *
+ * The M2 second-pass review swapped this body for `a.localeCompare(b)` and all 36 tests passed,
+ * because every fixture name was lower-case ASCII with no punctuation. `catalog.test.ts` now pins
+ * it with the two pairs above, which is the only way a comment like this one is worth anything.
+ */
 function byteCompare(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }

@@ -130,13 +130,29 @@ describe('catalogue order (10 §3.5.1 step 2; 05 §3.4.9)', () => {
   });
 
   it('sorts bytewise, not by locale', () => {
-    // `localeCompare` orders `B` before `a` in some locales and after it in others, so a
-    // locale-aware sort would hash the same catalogue differently depending on the host's LANG.
-    const catalog = buildCatalog({
+    // Pairs where the two orders **disagree**, which is the whole content of this test. The M2
+    // second-pass review swapped `byteCompare`'s body for `a.localeCompare(b)` and all 36 tests
+    // passed, because every fixture name here was lower-case ASCII with no punctuation — `a_tool`
+    // before `b_tool` under both orders. Measured on Node 26.13.0, `'t0x'.localeCompare('t_x')`
+    // is **1** where bytes give **-1**, and the same for `'B'` against `'a'`.
+    //
+    // What it costs when it goes wrong: a catalogue sorted by locale hashes differently on two
+    // hosts running the same groups with different `LANG`, so one of them re-processes the whole
+    // tool prefix on every turn. `05` §3.6.7 and `M2-T17` exist to stop that.
+    const punctuation = buildCatalog({
       builtins: [],
-      extensions: [tool('b_tool', plugin('p')), tool('a_tool', plugin('p'))],
+      extensions: [tool('t_x', plugin('p')), tool('t0x', plugin('p'))],
     });
-    expect(catalog.tools.map((t) => t.localName)).toEqual(['a_tool', 'b_tool']);
+    expect(punctuation.tools.map((t) => t.localName)).toEqual(['t0x', 't_x']);
+
+    // And across providers, where the provider id is the first sort key.
+    const providers = buildCatalog({
+      builtins: [],
+      extensions: [tool('x', plugin('a')), tool('x', plugin('B'))],
+    });
+    expect(
+      providers.tools.map((t) => (t.provider.kind === 'builtin' ? '' : t.provider.id)),
+    ).toEqual(['B', 'a']);
   });
 
   it('refuses two tools claiming one model name', () => {

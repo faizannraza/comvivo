@@ -15,6 +15,7 @@
  * (`11` §3.1.7).
  */
 import type { ClaimedJob, ClaimRequest, Store } from '@comvivo/core';
+import { ModelCallError } from '@comvivo/core';
 import { z } from '@comvivo/shared';
 import { VirtualClock } from '@comvivo/shared/testing';
 import { describe, expect, it } from 'vitest';
@@ -432,6 +433,34 @@ describe('the worker set and its edges (02 §3.10.4)', () => {
             // the thrown error rather than through a side channel.
             const error = Object.assign(new Error('slow down'), { retryAfterMs: 3_600_000 });
             throw error;
+          }) as JobHandler<never>,
+        ],
+      ]);
+      const { worker, registry } = workerFor(world, 'io', ['poll.close'], handlers);
+      enqueue(world, registry, 'poll.close');
+      const [job] = worker.tick();
+      await settle();
+      const row = world.repos.jobs.job(job?.id ?? ('x' as never));
+      expect(row?.status).toBe('queued');
+      const waited = (row?.runAt.epochMilliseconds ?? 0) - (row?.createdAt.epochMilliseconds ?? 0);
+      expect(waited).toBeGreaterThanOrEqual(3_600_000);
+    });
+  });
+
+  it('takes a retry-after from a ModelCallError, which carries it on `detail`', async () => {
+    await withReposAsync(async (world) => {
+      const handlers = new Map<string, JobHandler<never>>([
+        [
+          'poll.close',
+          (async () => {
+            // The M2 second-pass review's eighth finding. `ModelCallError` puts the provider's
+            // `retry-after` in `detail.retryAfterMs` (`01` §7.5) and a channel send error puts it
+            // at the top level; `retryAfterOf` read only the top level. So a provider 429 on a
+            // background route — every `extract`, `consolidate` and `embed` job — ignored the time
+            // the provider asked for and used our own jittered backoff instead. The `02` §3.10.3
+            // clause and the `M2-T9` AC's "`retry-after` honored" were satisfied at the parse
+            // boundary and nowhere else.
+            throw new ModelCallError('rate_limited', 'anthropic', { retryAfterMs: 3_600_000 });
           }) as JobHandler<never>,
         ],
       ]);

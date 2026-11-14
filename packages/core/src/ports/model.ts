@@ -667,9 +667,16 @@ const KIND_IS_RETRYABLE: Readonly<Record<ModelCallErrorKind, boolean>> = {
 /**
  * A failed model call.
  *
- * `detail.retryAfterMs` is the provider's own `retry-after` where it sent one; the limiter honours
- * it rather than its own backoff, because a server that said when to come back has better
- * information than we do.
+ * `detail.retryAfterMs` is the provider's own `retry-after` where it sent one. **Who honours it:**
+ * the job queue, for a background route — `computeBackoff` takes the larger of the provider's
+ * figure and its own, so a provider that said when to come back can only delay a retry, never
+ * hurry one. An interactive route relies on the SDK's bounded retries inside the turn's deadline
+ * (`05` §3.5.3.10), and those read the header themselves.
+ *
+ * This said "the limiter honours it rather than its own backoff", which `PriorityLimiter`
+ * explicitly disclaims and no limiter code reads — the M2 second-pass review found the sentence
+ * and then found that the queue, which *should* read it, was reading the wrong level. Both fixed;
+ * the claim now names the layer that actually does it.
  */
 export class ModelCallError extends Error {
   readonly kind: ModelCallErrorKind;

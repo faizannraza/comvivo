@@ -38,11 +38,55 @@ export const OPENAI_PROVIDER = 'openai' as const;
  * raises for the first and the caller caused the second — so they map to `other` rather than being
  * silently read as a finished turn.
  */
+/** Chat's `incomplete_details.reason`, measured against `openai` 7.55.0. */
+type IncompleteReason = NonNullable<NonNullable<Response['incomplete_details']>['reason']>;
+
+/**
+ * The members, as values, with completeness enforced by `satisfies` rather than by a comment.
+ *
+ * A member added to the SDK's union breaks the build here, which is where somebody has to decide
+ * what the new reason means for a turn — the same guard the other three adapters already had.
+ */
+const KNOWN_INCOMPLETE_REASONS = Object.freeze({
+  max_output_tokens: true,
+  content_filter: true,
+  max_messages: true,
+  steered: true,
+} satisfies Record<IncompleteReason, true>);
+
+/** Whether the wire's reason is one this build knows. `undefined` counts: it is handled below. */
+function isKnownIncompleteReason(value: unknown): value is IncompleteReason | undefined {
+  if (value === undefined) return true;
+  return typeof value === 'string' && Object.hasOwn(KNOWN_INCOMPLETE_REASONS, value);
+}
+
+/**
+ * A wire value, as a short string safe to put in a trace.
+ *
+ * `String(unknown)` gives `[object Object]`; reporting the **type** of a non-string is more useful.
+ */
+function describeWire(value: unknown): string {
+  return typeof value === 'string' ? value : typeof value;
+}
+
 export function readStop(response: Response): StopInfo {
   const raw = response.status ?? 'completed';
 
   if (response.status === 'incomplete') {
-    const reason = response.incomplete_details?.reason;
+    const wire: unknown = response.incomplete_details?.reason;
+    if (!isKnownIncompleteReason(wire)) {
+      // A reason this build has never heard of. `steered` was itself added to the SDK after
+      // `05` §3.5.4 was written, so the next addition is a matter of when.
+      //
+      // The M2 second-pass review found this reader the odd one of the four: the switch below is
+      // exhaustive over the SDK's union, but falling out of it lands on the generic path further
+      // down, so an unknown reason came back as `{reason:'other', raw:'incomplete'}` — the right
+      // shape with **the reason thrown away**, which is the one thing a host needs to see. And
+      // because falling through is legal here, deleting a `case` was not a type error, so the
+      // claim in `677bd0a` that all four lists are compiler-enforced held for three.
+      return { reason: 'other', raw: `incomplete:${describeWire(wire)}` };
+    }
+    const reason = wire;
     switch (reason) {
       case 'max_output_tokens':
         return { reason: 'max_tokens', raw: `incomplete:${reason}` };

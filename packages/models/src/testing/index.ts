@@ -64,7 +64,6 @@ export {
 export {
   effortsRequested,
   expectNoReadUp,
-  expectNoSamplingParams,
   expectSystemBytesStable,
   expectToolResultsInSingleMessage,
   expectTurnNotesContain,
