@@ -10,8 +10,17 @@
 #
 # `11` §3.8.5: live workflows never trigger on `pull_request` or `pull_request_target`, because a
 # fork PR would then run attacker-authored code with the keys. `workflow_dispatch` on an in-repo
-# branch is the only trigger, and it runs under `evals-live-manual`, which requires a reviewer and
-# has self-review prevented — because the code being dispatched runs with the keys and has not
+# branch is the only trigger, and it runs under `evals-live-manual`.
+#
+# **That environment must be configured as: required reviewers, self-review prevented, deployment
+# branches limited to `main`.** It does not configure itself, and GitHub materialises an unnamed
+# environment on first use with **no protection rules at all** — so until the owner sets it up, a
+# dispatch would run branch code with live keys unreviewed. This comment said the environment
+# "requires a reviewer and has self-review prevented" as though stating it made it so; the M2
+# second-pass review found nothing in the repository creating or checking it, and no owner ask for
+# it either. It is **H-15** in `STATUS.md` now, with the five clicks written out.
+#
+# The reason the protection matters: the code being dispatched runs with the keys and has not
 # necessarily been reviewed yet.
 #
 # ## Ollama is not in this workflow
