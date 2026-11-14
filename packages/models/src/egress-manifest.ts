@@ -30,6 +30,7 @@
  * would be making a decision on a false premise.
  */
 import type { ModelRoute, ProviderId } from '@comvivo/core';
+import { listOf, plural } from '@comvivo/shared';
 import { isLoopbackHost } from '@comvivo/shared/net';
 import type { RouteBinding } from './registry/resolve.js';
 
@@ -408,6 +409,41 @@ export interface LocalOnlyInput {
  * So: every route on a cloud provider becomes **one** problem naming the preset; a mixture is
  * listed per route, because then the host really does have to change specific ones.
  */
+/**
+ * Cloud routes, **grouped by provider** — one problem per provider rather than one per route.
+ *
+ * The all-cloud collapse above was added at `M2-T16` after the demo produced seven near-identical
+ * paragraphs. The M2 second-pass review pointed out that a configuration **one route away** from
+ * the default still produced one paragraph per route, with the same cause and the same shape of
+ * fix. A host does not read the fourth repetition. Providers stay apart because the fix differs:
+ * a different key, a different endpoint.
+ */
+function cloudProblems(cloudBindings: readonly RouteBinding[]): readonly LocalOnlyProblem[] {
+  const byProvider = new Map<string, RouteBinding[]>();
+  for (const binding of cloudBindings) {
+    byProvider.set(binding.provider, [...(byProvider.get(binding.provider) ?? []), binding]);
+  }
+  const out: LocalOnlyProblem[] = [];
+  for (const [provider, bindings] of [...byProvider].toSorted(([a], [b]) => (a < b ? -1 : 1))) {
+    const slots = bindings.map((binding) => binding.slot).toSorted();
+    const first = bindings[0];
+    if (first === undefined) continue;
+    const one = slots.length === 1;
+    out.push({
+      route: first.route,
+      variant: first.variant,
+      provider,
+      detail: one
+        ? `"${slots[0] ?? ''}" resolves to ${provider}, which is a cloud provider`
+        : `${plural(slots.length, 'route')} resolve to ${provider}, which is a cloud provider: ${listOf(slots.map((slot) => `"${slot}"`))}`,
+      fix:
+        `Set ${listOf(slots.map((slot) => `models.routes.${slot}`))} to a local model, then ` +
+        `restart. privacy.localOnly refuses to start rather than send ${one ? 'this route' : 'these routes'} to a provider.`,
+    });
+  }
+  return out;
+}
+
 function routeProblems(input: LocalOnlyInput): readonly LocalOnlyProblem[] {
   const cloudBindings = input.bindings.filter((binding) =>
     CLOUD_PROVIDERS.includes(binding.provider as ProviderId),
@@ -431,6 +467,8 @@ function routeProblems(input: LocalOnlyInput): readonly LocalOnlyProblem[] {
   }
 
   const problems: LocalOnlyProblem[] = [];
+  problems.push(...cloudProblems(cloudBindings));
+
   for (const binding of input.bindings) {
     const cloud = CLOUD_PROVIDERS.includes(binding.provider as ProviderId);
     const local = isLocalDestination(binding.baseUrl, input.allowPrivate);
@@ -455,15 +493,8 @@ function routeProblems(input: LocalOnlyInput): readonly LocalOnlyProblem[] {
         detail: `"${binding.slot}" points at ${hostOf(binding.baseUrl)}, which is neither this machine nor an address you allowlisted`,
         fix: `Add "${hostPortOrBlank(binding.baseUrl)}" to network.egress.allowPrivate if that server is yours, or switch this route to a local model.`,
       });
-      continue;
     }
-    problems.push({
-      route: binding.route,
-      variant: binding.variant,
-      provider: binding.provider,
-      detail: `"${binding.slot}" resolves to ${binding.provider}, which is a cloud provider`,
-      fix: `Set models.routes.${binding.slot} to a local model, then restart. privacy.localOnly refuses to start rather than send this route to a provider.`,
-    });
+    // A cloud binding was already reported above, grouped with its provider's others.
   }
   return problems;
 }
@@ -639,7 +670,7 @@ export class PrivacyModeError extends Error {
   constructor(mode: PrivacyMode, problems: readonly LocalOnlyProblem[]) {
     const lines = problems.map((problem) => `  ${problem.detail}\n    → ${problem.fix}`);
     super(
-      `${String(problems.length)} problem(s) prevent ${
+      `${plural(problems.length, 'problem')} prevent${problems.length === 1 ? 's' : ''} ${
         mode === 'local_only' ? 'privacy.localOnly' : 'privacy.sensitiveRoutesLocal'
       } from being honoured:\n${lines.join('\n')}`,
     );

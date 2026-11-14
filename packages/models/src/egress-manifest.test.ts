@@ -204,7 +204,7 @@ describe('what counts as this machine', () => {
   });
 });
 
-describe('Local-only fails closed (08 §3.11.2)', () => {
+describe('sec.egress.local-only — Local-only fails closed (08 §3.11.2)', () => {
   it('collapses an all-cloud configuration to one problem and one fix', () => {
     // Found by running `14`'s M2 demo step 3: on the default `best` preset this emitted **seven**
     // near-identical paragraphs whose real answer was a single line. Seven copies of one message
@@ -221,7 +221,12 @@ describe('Local-only fails closed (08 §3.11.2)', () => {
     expect(problems[0]?.fix).toContain('models.local.model');
   });
 
-  it('lists a mixed configuration per route, because the host must change specific ones', () => {
+  it('groups a mixed configuration by provider, naming every route in one problem', () => {
+    // `M2-T16` collapsed the all-cloud case after the demo produced seven near-identical
+    // paragraphs. The M2 second-pass review pointed out that a config **one route away** from the
+    // default still produced one paragraph per route — same cause, same shape of fix, and a host
+    // does not read the fourth repetition. So routes are grouped by the provider they resolve to:
+    // one problem, every affected route named, and a fix that lists every setting to change.
     const problems = localOnlyProblems({
       bindings: [
         local('chat', 'http://127.0.0.1:11434/v1'),
@@ -230,12 +235,30 @@ describe('Local-only fails closed (08 §3.11.2)', () => {
       ],
       allowPrivate: [],
     });
+    expect(problems).toHaveLength(1);
+    expect(problems[0]?.detail).toContain('2 routes resolve to anthropic');
+    // Both routes named, in both halves — the detail says which, the fix says what to type.
+    expect(problems[0]?.detail).toContain('"extract"');
+    expect(problems[0]?.detail).toContain('"guard"');
+    expect(problems[0]?.fix).toContain('models.routes.extract');
+    expect(problems[0]?.fix).toContain('models.routes.guard');
+  });
+
+  it('keeps providers apart, because the fix differs per provider', () => {
+    // Two cloud providers is two problems, not one: a host switching away from each has a
+    // different key and a different endpoint to change.
+    // A local route too, or the all-cloud collapse above fires first and correctly says "set the
+    // preset" — which is the right advice when *nothing* is local.
+    const problems = localOnlyProblems({
+      bindings: [
+        local('chat', 'http://127.0.0.1:11434/v1'),
+        cloud('guard', 'guard'),
+        { ...cloud('route', 'route'), provider: 'openai' },
+      ],
+      allowPrivate: [],
+    });
     expect(problems).toHaveLength(2);
-    // Per-route now, and the fix names the route rather than repeating the preset advice.
-    expect(problems.map((problem) => problem.fix)).toEqual([
-      expect.stringContaining('models.routes.guard'),
-      expect.stringContaining('models.routes.extract'),
-    ]);
+    expect(problems.map((problem) => problem.provider).toSorted()).toEqual(['anthropic', 'openai']);
   });
 
   it('names a single cloud route individually rather than claiming "every route"', () => {

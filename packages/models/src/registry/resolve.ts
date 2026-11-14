@@ -29,7 +29,7 @@
  * is worth testing, and where M0's config loader found its own bugs.
  */
 import type { Effort, ModelFeatureSet, ModelRoute, RouteVariant } from '@comvivo/core';
-import { BRAND } from '@comvivo/shared';
+import { BRAND, plural } from '@comvivo/shared';
 import {
   type CapabilityRegistry,
   lookupCapabilities,
@@ -396,7 +396,7 @@ export function resolveRoutesOrThrow(input: ResolveInput): Resolution {
     (problem) => `  ${problem.slot}: ${problem.detail}\n    → ${problem.fix}`,
   );
   throw new Error(
-    `${String(resolution.problems.length)} model route(s) cannot be used:\n${lines.join('\n')}`,
+    `${plural(resolution.problems.length, 'model route')} cannot be used:\n${lines.join('\n')}`,
   );
 }
 

@@ -27,7 +27,7 @@
  * would make `doctor` red for a configuration that is correct.
  */
 
-import { BRAND } from '@comvivo/shared';
+import { BRAND, listOf, plural } from '@comvivo/shared';
 import type { EstimatorCalibration } from './anthropic/count.js';
 import { contextAdviceFor, toolFlagAdviceFor } from './openai-compatible/hints.js';
 import { LEVEL_BEHAVIOUR, levelSummary } from './openai-compatible/ladder.js';
@@ -361,12 +361,12 @@ export const priceCoverageCheck: ModelCheck = {
     if (unpriced.length === 0) {
       return {
         status: 'pass',
-        detail: `all ${String(models.length)} routed model(s) are priced (table ${table.version})`,
+        detail: `every routed model is priced — ${plural(models.length, 'model')}, table ${table.version}`,
       };
     }
     return {
       status: 'warn',
-      detail: `${String(unpriced.length)} routed model(s) have no published price: ${unpriced.join(', ')}`,
+      detail: `${plural(unpriced.length, 'routed model')} ${unpriced.length === 1 ? 'has' : 'have'} no published price: ${listOf(unpriced)}`,
       fix: {
         text:
           'Spend for these is estimated at the dearest rates we have prices for, so the figures on ' +
@@ -424,7 +424,7 @@ export const registryCoverageCheck: ModelCheck = {
         detail:
           context.bindings.length === 0
             ? 'no routes are configured'
-            : `every routed cloud model has its own registry entry (${String(context.bindings.length)} route(s))`,
+            : `every routed cloud model has its own registry entry (${plural(context.bindings.length, 'route')})`,
       };
     }
     const lines = [...byModel.entries()]
@@ -436,7 +436,7 @@ export const registryCoverageCheck: ModelCheck = {
       );
     return {
       status: 'warn',
-      detail: `${String(byModel.size)} routed model(s) are using their provider family's limits: ${lines.join('; ')}`,
+      detail: `${plural(byModel.size, 'routed model')} ${byModel.size === 1 ? 'is' : 'are'} using their provider family's limits: ${lines.join('; ')}`,
       fix: {
         text:
           'These numbers are a guess. If they are too high, a long reply is cut off mid-sentence; ' +
@@ -481,7 +481,7 @@ export const estimatorCheck: ModelCheck = {
     if (implausible.length === 0) {
       return {
         status: 'pass',
-        detail: `calibrated for ${String(calibrations.length)} model(s)`,
+        detail: `calibrated for ${plural(calibrations.length, 'model')}`,
       };
     }
     return {

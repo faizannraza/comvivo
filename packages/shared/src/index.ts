@@ -65,6 +65,8 @@ export {
   type SecretSource,
   scrubSecretsFromEnv,
 } from './config/secrets.js';
+// --- Copy helpers for host-facing text (M2 second-pass review) ---------------------------------
+export { listOf, noun, plural } from './copy.js';
 export {
   AppError,
   BugError,

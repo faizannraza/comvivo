@@ -292,7 +292,7 @@ describe('models.registry', () => {
     const route = openaiBinding({ route: 'route', slot: 'route' });
     const result = registryCoverageCheck.run(context({ bindings: [chat, route] }));
     expect(result.status).toBe('warn');
-    expect(result.detail).toContain('1 routed model(s)');
+    expect(result.detail).toContain('1 routed model is');
   });
 
   it('passes with no routes at all rather than claiming coverage it did not check', () => {

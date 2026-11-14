@@ -246,7 +246,7 @@ const ROW_SURFACES: readonly (readonly EgressSurface[])[] = [
   ['update_check'],
 ];
 
-describe('the manifest reproduces every column of 08 §3.11.1', () => {
+describe('sec.egress.manifest — the manifest reproduces every column of 08 §3.11.1', () => {
   const spec = parseSpecTable();
 
   it('found the table with all four columns, so the comparisons are not comparing nothing', () => {

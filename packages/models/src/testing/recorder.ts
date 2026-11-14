@@ -62,7 +62,7 @@ import type {
   StructuredRequest,
   StructuredResult,
 } from '@comvivo/core';
-import { canonicalJson } from '@comvivo/shared';
+import { canonicalJson, plural } from '@comvivo/shared';
 import { canonicalTurnRequest, hashTurnRequest } from '../request-hash.js';
 
 /** Where a recording goes. Relative to `fixtures/model/`. */
@@ -286,7 +286,7 @@ export class RecordingGateway implements ModelGateway {
     const survivors = survivingIdentities(exchange, identities);
     if (survivors.length === 0) return;
     throw new Error(
-      `the scrub left ${String(survivors.length)} member identit(y|ies) in the fixture for ` +
+      `the scrub left ${plural(survivors.length, 'member identity', 'member identities')} in the fixture for ` +
         `${exchange.route}/${exchange.purpose}, so it was not written. ` +
         'Add the forms they appear in to `identities` — a nickname or a surname the list does not ' +
         'carry is exactly what the patterns cannot catch.',

@@ -277,7 +277,7 @@ describe('resolveRoutesOrThrow', () => {
     } catch (error) {
       message = (error as Error).message;
     }
-    expect(message).toContain('6 model route(s) cannot be used');
+    expect(message).toContain('6 model routes cannot be used');
     for (const slot of ['route', 'extract', 'declassify', 'guard', 'consolidate']) {
       expect(message).toContain(slot);
     }
