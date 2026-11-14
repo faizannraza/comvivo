@@ -33,6 +33,8 @@ export interface StrictViolation {
     | 'ref'
     | 'pattern_properties'
     | 'conditional'
+    | 'combinator'
+    | 'tuple'
     | 'too_large';
   readonly detail: string;
 }
@@ -44,6 +46,17 @@ export interface StrictViolation {
  * on an object makes it a thenable, which `await` picks up. Here the keys are **JSON Schema keyword
  * names** being matched against somebody else's schema, and renaming one would stop the linter
  * catching `if`/`then`/`else` at all.
+ *
+ * **`oneOf`, `allOf`, `not` and `prefixItems` joined the list at the M2 second-pass review.**
+ * `StrictJsonSchema`'s own header has always said they are "absent on purpose", and the linter did
+ * not check for any of them — so a `z.discriminatedUnion()` produced `oneOf` and a `z.tuple()`
+ * produced `prefixItems` + `items: false`, both converted cleanly and both linted clean, and the
+ * failure arrived as a provider 400 the first time a model called the tool. The subset is defined
+ * in one place and this is that place; a rule the subset names and the linter does not check is a
+ * rule nobody is keeping.
+ *
+ * `anyOf` is **not** here: the converter emits it itself for every optional field
+ * (`T | null`), which is `05` §3.6.2 step 2 and is accepted by every provider.
  */
 const FORBIDDEN: Readonly<Record<string, StrictViolation['rule']>> = {
   $ref: 'ref',
@@ -52,6 +65,28 @@ const FORBIDDEN: Readonly<Record<string, StrictViolation['rule']>> = {
   // biome-ignore lint/suspicious/noThenProperty: a JSON Schema keyword name, not a thenable
   then: 'conditional',
   else: 'conditional',
+  oneOf: 'combinator',
+  allOf: 'combinator',
+  not: 'combinator',
+  prefixItems: 'tuple',
+};
+
+/**
+ * What to do instead, per keyword.
+ *
+ * A rejection that names the fix is the difference between a plugin author changing one line and
+ * an author filing an issue — and for three of these the fix is not obvious from the rule name.
+ */
+const FORBIDDEN_DETAIL: Readonly<Record<string, string>> = {
+  $ref: '`$ref` is not allowed: inline the definition so the host and the provider resolve the same schema',
+  oneOf:
+    '`oneOf` is not in the strict subset — a `z.discriminatedUnion()` produces it. Flatten the ' +
+    'branches, or take the discriminant as an enum beside the fields it selects.',
+  allOf: '`allOf` is not in the strict subset: merge the branches into one object.',
+  not: '`not` is not in the strict subset: express the constraint positively, or validate it in the tool.',
+  prefixItems:
+    '`prefixItems` is tuple form and is not in the strict subset — a `z.tuple()` produces it. Use ' +
+    'a fixed-length array of one type, or an object with named properties.',
 };
 
 function isNode(value: unknown): value is Record<string, unknown> {
@@ -135,16 +170,23 @@ function visit(
 
 /** The four keywords that are refused wherever they appear. */
 function checkForbidden(node: Record<string, unknown>, path: string, out: StrictViolation[]): void {
+  // Tuple-form `items`: `items: false` closes a `prefixItems` array and means nothing on its own.
+  if (node['items'] === false) {
+    out.push({
+      path,
+      rule: 'tuple',
+      detail:
+        'tuple-form `items: false` is not in the strict subset. Use a fixed-length array of one ' +
+        'type, or an object with named properties.',
+    });
+  }
+
   for (const [keyword, rule] of Object.entries(FORBIDDEN)) {
     if (!(keyword in node)) continue;
     out.push({
       path,
       rule,
-      detail:
-        rule === 'ref'
-          ? '`$ref` is not allowed: inline the definition so the host and the provider resolve ' +
-            'the same schema'
-          : `\`${keyword}\` is not allowed in a strict schema`,
+      detail: FORBIDDEN_DETAIL[keyword] ?? `\`${keyword}\` is not allowed in a strict schema`,
     });
   }
 }

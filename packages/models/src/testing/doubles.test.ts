@@ -6,14 +6,14 @@
  * record — each of those is a test that has stopped testing, and the only way that stays visible is
  * if it throws.
  */
-import type { ModelTurnRequest } from '@comvivo/core';
+import type { ModelTurnRequest, StructuredRequest } from '@comvivo/core';
 import { VirtualClock } from '@comvivo/shared/testing';
 import { describe, expect, it } from 'vitest';
 import { bindingFor, OPUS, turnRequest } from '../anthropic/testing/fixtures.js';
-import { hashTurnRequest } from '../request-hash.js';
+import { hashStructuredRequest, hashTurnRequest } from '../request-hash.js';
 import { CassetteMiss, CassetteModel, replyText } from './cassette-model.js';
 import { FakeModelGateway, FakeScriptExhausted } from './fake-gateway.js';
-import { RecordingGateway, scrubDeep, scrubText } from './recorder.js';
+import { RecordingGateway, scrubDeep, scrubText, survivingIdentities } from './recorder.js';
 import { ScriptedModel } from './scripted-model.js';
 
 const SIGNAL = (): AbortSignal => AbortSignal.timeout(5_000);
@@ -108,6 +108,95 @@ describe('ScriptedModel', () => {
   });
 });
 
+/** A structured call, for the cassette's second path. */
+function structuredRequest(): StructuredRequest<{ ok: boolean }> {
+  return {
+    route: 'extract',
+    purpose: 'extract.facts',
+    system: [{ id: 'extract', text: 'Extract.' }],
+    input: [{ type: 'text', text: 'milk on tuesday' }],
+    schema: {
+      safeParse: (input: unknown) =>
+        typeof input === 'object' && input !== null && 'ok' in input
+          ? { success: true as const, data: input as { ok: boolean } }
+          : { success: false as const },
+    },
+    jsonSchema: {
+      type: 'object',
+      properties: { ok: { type: 'boolean' } },
+      required: ['ok'],
+      additionalProperties: false,
+    },
+    schemaName: 'facts_v1',
+    effort: 'low',
+    maxOutputTokens: 256,
+    correlation: {},
+  };
+}
+
+describe('scrubbing a fixture (08 §3.16)', () => {
+  /**
+   * The five inputs the M2 second-pass review ran through the shipped scrubber. Four came back
+   * **unchanged** — including the one that matters most, because an `@handle` is the dominant form
+   * a member is named in a `05` §3.4 prompt. `NAME_LIKE` is a capitalised Latin word, and the
+   * committed tests all used exactly that shape.
+   */
+  const IDENTITIES = ['ana', 'ana lopez', 'sam', 'ben', 'leo', 'mia', 'maria', 'mateo'];
+
+  it('removes an @handle, which the patterns used to pass straight through', () => {
+    const scrubbed = scrubText(
+      'requester: @sam · audience: @ana @ben @leo @mia @sam',
+      undefined,
+      IDENTITIES,
+    );
+    for (const handle of ['@sam', '@ana', '@ben', '@leo', '@mia']) {
+      expect(scrubbed, handle).not.toContain(handle);
+    }
+    // The shape survives, which is the point of substituting rather than redacting: this is still
+    // a requester line with an audience of five.
+    expect(scrubbed).toMatch(/^requester: @\w+ · audience: (?:@\w+ ?){5}$/);
+  });
+
+  it('removes a shouted name and a lower-case one', () => {
+    expect(scrubText('MARIA will collect LEO', undefined, IDENTITIES)).not.toMatch(/MARIA|LEO/);
+    expect(scrubText('ana lopez called about leo', undefined, IDENTITIES)).not.toMatch(
+      /\bana\b|\blopez\b|\bleo\b/i,
+    );
+  });
+
+  it('removes the opaque id from a link, which identifies a household too', () => {
+    const scrubbed = scrubText('https://drive.google.com/file/d/1AbCdEf9/view');
+    expect(scrubbed).not.toContain('1AbCdEf9');
+    expect(scrubbed).toContain('drive.google.com');
+  });
+
+  it('leaves a time that still parses as a time', () => {
+    // The digit shuffle produced `36:57` from `17:55` — not a time, so a fixture carrying it tests
+    // a parser against input the product never produces.
+    const scrubbed = scrubText('<msg t="17:55">hola</msg>');
+    const time = /t="(\d{2}):(\d{2})"/.exec(scrubbed);
+    expect(time, scrubbed).not.toBeNull();
+    expect(Number(time?.[1])).toBeLessThan(24);
+    expect(Number(time?.[2])).toBeLessThan(60);
+  });
+
+  it('maps the same name to the same persona every time, or a conversation stops being one', () => {
+    const once = scrubText('@ana asked. @ana waited.', undefined, IDENTITIES);
+    const handles = [...once.matchAll(/@(\w+)/g)].map((match) => match[1]);
+    expect(handles[0]).toBe(handles[1]);
+    expect(scrubText('@ana', undefined, IDENTITIES)).toBe(scrubText('@ana', undefined, IDENTITIES));
+  });
+
+  it('reports a surviving identity, which is what makes the promise keepable', () => {
+    // The fail-closed half. A nickname or a surname nobody listed is exactly what the patterns
+    // cannot catch, so the recorder refuses to write rather than promising they were caught.
+    expect(survivingIdentities({ text: 'mom is upset' }, ['mom'])).toEqual(['mom']);
+    expect(survivingIdentities(scrubDeep({ text: '@ana' }, undefined, ['ana']), ['ana'])).toEqual(
+      [],
+    );
+  });
+});
+
 describe('CassetteModel', () => {
   it('replays a recorded reply by hash', async () => {
     const request = turnRequest();
@@ -146,6 +235,43 @@ describe('CassetteModel', () => {
     const cassette = new CassetteModel({ ...base(), entries: [], strict: false });
     await cassette.run(turnRequest(), SIGNAL());
     expect(cassette.misses()).toHaveLength(1);
+  });
+
+  it('replays a recorded structured value by hash', async () => {
+    // The structured path had **no test at all** until the M2 second-pass review, and it was
+    // broken on the one case that matters: a cassette *hit* threw. `structured()` checked the hash
+    // and then delegated **without installing the entry**, so the fake had no rule for the request
+    // and raised `FakeScriptExhausted` — "nothing scripted for route …", which reads like a
+    // test-authoring mistake rather than a bug in this file. So `M2-T7`'s AC clause "cassette
+    // strict miss fails" held for `run` and nothing held for `structured`.
+    const request = structuredRequest();
+    const cassette = new CassetteModel({
+      ...base(),
+      entries: [
+        {
+          hash: await hashStructuredRequest(request),
+          note: 'extract/extract.facts',
+          structured: { ok: true },
+        },
+      ],
+    });
+    const result = await cassette.structured(request, SIGNAL());
+    expect(result).toMatchObject({ kind: 'ok', value: { ok: true } });
+  });
+
+  it('fails on a structured miss, in both strict and non-strict mode', async () => {
+    // Strict is the documented behaviour. **Non-strict too**, which `run` does not do: `run`
+    // scripts an empty reply, and a structured call has no empty value that is not a lie — an
+    // empty extraction reads as "nothing happened today" and an empty declassification as "no
+    // constraints", both the unsafe direction.
+    for (const strict of [true, false]) {
+      const cassette = new CassetteModel({ ...base(), entries: [], strict });
+      await expect(
+        cassette.structured(structuredRequest(), SIGNAL()),
+        `strict: ${String(strict)}`,
+      ).rejects.toBeInstanceOf(CassetteMiss);
+      expect(cassette.misses()).toHaveLength(1);
+    }
   });
 });
 

@@ -21,7 +21,15 @@
  * approximately. The type expresses the subset we emit — it is deliberately narrower than JSON
  * Schema, because every construct we allow is one the converter has to get right and the provider
  * has to accept. `$ref`, `oneOf`, `allOf`, `not`, tuple-form `items` and recursion are absent on
- * purpose; `M2-T4`'s converter throws on a zod type that would need one.
+ * purpose, and `M2-T4`'s converter throws on a zod type that would need one — which it does by
+ * **linting its own output** through `lintStrictSchema`, so there is one list of what the subset
+ * contains rather than two that can drift apart.
+ *
+ * That last clause was not true until the M2 second-pass review. The sentence was here and nothing
+ * enforced it: `z.record()` produced an object that cannot be closed, `z.tuple()` produced
+ * `prefixItems` + `items: false`, and `z.discriminatedUnion()` produced `oneOf`. All three
+ * converted cleanly, two of them linted clean, and the failure reached a plugin author as a
+ * provider 400 the first time a model called their tool — as far from its cause as it could get.
  */
 
 /** JSON Schema's primitive type keywords, in the subset we emit. */

@@ -19,6 +19,33 @@
  * pass, or a two-turn conversation stops being a conversation. So the mapping is seeded from the
  * text itself.
  *
+ * ## What a pattern can and cannot promise
+ *
+ * The M2 second-pass review measured the gap between the paragraph above and the code, and it was
+ * wide. `NAME_LIKE` is `\p{Lu}\p{Ll}{2,}` — a capitalised Latin word — so **all** of these came
+ * through a scrub unchanged:
+ *
+ *     requester: @sam · audience: @ana @ben @leo @mia @sam
+ *     MARIA will collect LEO
+ *     ana lopez called about leo
+ *     mom is upset about the divorce, please do not tell dad
+ *
+ * An `@handle` is the dominant form a member is named in a `05` §3.4 prompt, and it survived
+ * intact. So did every lower-case and ALL-CAPS name, and all free text.
+ *
+ * Two changes, and the second is the one that makes the promise keepable:
+ *
+ *  1. **Patterns cover more**: `@handle`s, ALL-CAPS words, and URL path segments that look like
+ *     opaque ids (a Drive link identifies a household as surely as a surname).
+ *  2. **`identities` is an exact list** — the members' names and handles, which only the caller
+ *     knows. Those are replaced before any pattern runs, and `RecordingGateway` **refuses to
+ *     record** an exchange where one survives. A denylist of shapes is a best effort; a list of
+ *     the actual people is a guarantee, and `scripts/evals/record.ts` has the group to hand.
+ *
+ * The honest statement of the limit: with `identities` supplied, no listed name or handle reaches a
+ * fixture, enforced by a throw. Without it, this is heuristic — it catches the common shapes and
+ * cannot catch "mom", a nickname, or a surname nobody listed.
+ *
  * ## The writer is injected
  *
  * `write` is a port, not `node:fs`. That keeps `@comvivo/models/testing` free of the platform —
@@ -47,6 +74,16 @@ export interface RecordingGatewayOptions {
   readonly write: FixtureWriter;
   /** Replaces the default persona list, for a locale a scenario needs. */
   readonly personas?: readonly string[];
+  /**
+   * The group's members, by every name and handle they are known by.
+   *
+   * Supplied by the caller because only the caller has the group — `scripts/evals/record.ts` does.
+   * These are replaced **exactly** before any pattern runs, and an exchange where one survives is
+   * **not written**: `08` §3.16's promise that a committed fixture carries no member's name is not
+   * the kind that can be kept on a best-effort basis, because once a fixture is committed it is
+   * public. Omit it and the scrub is heuristic — see the header.
+   */
+  readonly identities?: readonly string[];
 }
 
 /**
@@ -82,7 +119,18 @@ const DEFAULT_PERSONAS: readonly string[] = [
  * still has the length, punctuation and rhythm that make it a useful fixture.
  */
 const NAME_LIKE = /\p{Lu}\p{Ll}{2,}/gu;
+/** `@ana`, the dominant form a member is named in a prompt. Before `EMAIL`, which also has an `@`. */
+const HANDLE = /(?<![\w.])@[\p{L}\p{N}_.]{2,32}\b/gu;
+/** `MARIA`, which `NAME_LIKE` cannot see — it requires a lower-case tail. */
+const SHOUTED_NAME = /\b\p{Lu}{3,}\b/gu;
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.-]+/g;
+/**
+ * A URL path or query segment long enough to be an id.
+ *
+ * `https://drive.google.com/file/d/1AbCdEf/view` names a household's files as surely as a surname
+ * does, and nothing here touched it.
+ */
+const URL_ID = /(?<=[/?=&])[\w-]{8,}/g;
 const DIGIT_RUN = /\d{2,}/g;
 /** Token shapes `08` §3.7.11 names, plus a generic bearer. */
 const TOKEN_LIKE = /\b(?:sk-[\w-]{8,}|vs1_[\w-]+|vmcp_[\w-]+|Bearer\s+[\w.-]{8,})/g;
@@ -104,21 +152,46 @@ function fnv1a(text: string): number {
  * contains both — so the most specific pattern has to win, or a scrubbed email leaves its local
  * part behind looking like a persona.
  */
-export function scrubText(text: string, personas: readonly string[] = DEFAULT_PERSONAS): string {
+export function scrubText(
+  text: string,
+  personas: readonly string[] = DEFAULT_PERSONAS,
+  identities: readonly string[] = [],
+): string {
   const persona = (seed: string): string => personas[fnv1a(seed) % personas.length] ?? 'Avery';
+  // The exact list first, longest first so "ana lopez" wins over "ana", and case-insensitively —
+  // which is what catches `MARIA`, `ana` and `Ana` with one entry.
+  let out = text;
+  for (const identity of [...identities].toSorted((a, b) => b.length - a.length)) {
+    if (identity.trim().length < 2) continue;
+    out = out.replaceAll(
+      new RegExp(identity.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`), 'giu'),
+      persona(identity.toLowerCase()),
+    );
+  }
   return (
-    text
+    out
       .replace(TOKEN_LIKE, '<token>')
       .replace(EMAIL, (match) => `${persona(match).toLowerCase()}@example.invalid`)
+      .replace(URL_ID, (match) => persona(match).toLowerCase().padEnd(match.length, '0'))
+      .replace(HANDLE, (match) => `@${persona(match).toLowerCase()}`)
+      .replace(SHOUTED_NAME, (match) => persona(match).toUpperCase())
       .replace(NAME_LIKE, (match) => persona(match))
-      // Digits are **shuffled**, not removed: a fixture needs a date that parses and a quantity that
-      // reads as a quantity. The shuffle is seeded by the run itself, so it is stable.
+      // Digits are **shuffled**, not removed: a fixture needs a date that parses and a quantity
+      // that reads as a quantity. The shuffle is seeded by the run itself, so it is stable.
+      //
+      // The **leading digit is kept**, which is what makes the result stay in range. Shuffling
+      // every digit turned `t="17:55"` into `t="36:57"` — not a time, so a fixture carrying it
+      // tests a parser against input the product cannot produce. `\d{2,}` matches each run
+      // separately, so an hour and a minute are shuffled independently and neither knew its own
+      // bounds. Keeping the first digit bounds every run by its own magnitude: an hour stays
+      // within its decade, a year stays a year, a quantity stays the size it was. Found at the M2
+      // second-pass review.
       .replace(DIGIT_RUN, (match) => {
         const seed = fnv1a(match);
         // An index loop rather than a spread: digits are ASCII, but `no-misused-spread` is right
         // in general and the loop is no harder to read.
-        let shuffled = '';
-        for (let index = 0; index < match.length; index += 1) {
+        let shuffled = match.slice(0, 1);
+        for (let index = 1; index < match.length; index += 1) {
           // `>>>`, not `>>`: `fnv1a` returns a uint32, and a signed shift of a value with the
           // high bit set is negative — which produced `-6-3-7` instead of `637` and left the
           // fixture with a phone number that no longer parses as one.
@@ -130,15 +203,38 @@ export function scrubText(text: string, personas: readonly string[] = DEFAULT_PE
 }
 
 /** Scrub every string inside a JSON-shaped value, leaving the structure intact. */
-export function scrubDeep(value: unknown, personas?: readonly string[]): unknown {
-  if (typeof value === 'string') return scrubText(value, personas);
-  if (Array.isArray(value)) return value.map((item) => scrubDeep(item, personas));
+export function scrubDeep(
+  value: unknown,
+  personas?: readonly string[],
+  identities?: readonly string[],
+): unknown {
+  if (typeof value === 'string') return scrubText(value, personas, identities);
+  if (Array.isArray(value)) return value.map((item) => scrubDeep(item, personas, identities));
   if (typeof value === 'object' && value !== null) {
     return Object.fromEntries(
-      Object.entries(value).map(([key, item]) => [key, scrubDeep(item, personas)]),
+      Object.entries(value).map(([key, item]) => [key, scrubDeep(item, personas, identities)]),
     );
   }
   return value;
+}
+
+/**
+ * Every listed identity that survived a scrub, as a fail-closed check.
+ *
+ * `RecordingGateway` calls this and **throws** rather than writing. The alternative is a fixture
+ * that reaches the repository with a real name in it, and `08` §3.16's promise is not the kind
+ * that can be made on a best-effort basis: once a fixture is committed it is public.
+ */
+export function survivingIdentities(
+  scrubbed: unknown,
+  identities: readonly string[],
+): readonly string[] {
+  // `JSON.stringify` is typed as possibly `undefined` only for inputs this never receives (a bare
+  // `undefined`, a function); the exchange is always an object.
+  const haystack = JSON.stringify(scrubbed).toLowerCase();
+  return identities.filter(
+    (identity) => identity.trim().length >= 2 && haystack.includes(identity.toLowerCase()),
+  );
 }
 
 /** What a fixture file holds. One exchange, scrubbed, keyed by the request hash. */
@@ -179,25 +275,45 @@ export class RecordingGateway implements ModelGateway {
     return this.#options.inner.routeInfo(route, variant);
   }
 
+  /**
+   * Refuse to record an exchange a listed identity survived.
+   *
+   * Throwing loses the recording, which is the right trade: a live eval can be re-run, and a
+   * fixture with a real name in it cannot be un-committed.
+   */
+  #assertScrubbed(exchange: RecordedExchange): void {
+    const identities = this.#options.identities ?? [];
+    const survivors = survivingIdentities(exchange, identities);
+    if (survivors.length === 0) return;
+    throw new Error(
+      `the scrub left ${String(survivors.length)} member identit(y|ies) in the fixture for ` +
+        `${exchange.route}/${exchange.purpose}, so it was not written. ` +
+        'Add the forms they appear in to `identities` — a nickname or a surname the list does not ' +
+        'carry is exactly what the patterns cannot catch.',
+    );
+  }
+
   async run(req: ModelTurnRequest, signal: AbortSignal): Promise<ModelTurnResult> {
     const result = await this.#options.inner.run(req, signal);
     const hash = await hashTurnRequest(req);
+    const identities = this.#options.identities;
     const exchange: RecordedExchange = {
       hash,
       provider: this.#options.provider,
       route: req.route,
       purpose: req.purpose,
-      request: scrubDeep(canonicalTurnRequest(req), this.#options.personas),
+      request: scrubDeep(canonicalTurnRequest(req), this.#options.personas, identities),
       response: {
-        text: scrubText(result.text, this.#options.personas),
+        text: scrubText(result.text, this.#options.personas, identities),
         stop: result.stop.reason,
         toolCalls: result.toolCalls.map((call) => ({
           name: call.name,
-          input: scrubDeep(call.input, this.#options.personas),
+          input: scrubDeep(call.input, this.#options.personas, identities),
         })),
         servedModel: result.model.served,
       },
     };
+    this.#assertScrubbed(exchange);
     this.#recorded.push(exchange);
     await this.#options.write(
       `${this.#options.provider}/${req.route}/${hash}.json`,

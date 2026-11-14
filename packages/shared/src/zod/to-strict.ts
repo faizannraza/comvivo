@@ -33,6 +33,7 @@
  */
 import { z } from '../zod.js';
 import type { StrictJsonSchema } from './strict-json-schema.js';
+import { lintStrictSchema } from './strict-lint.js';
 
 /**
  * Keywords strict tool validation does not honour (`05` §3.6.2 step 3).
@@ -116,6 +117,40 @@ export function toStrictJsonSchema(
       `a strict schema's root must be an object, got ${JSON.stringify(walked['type'])}. ` +
         '`strict: true` is defined over an object’s properties, so a bare array or scalar has ' +
         'nothing to be strict about.',
+    );
+  }
+
+  // Step 4. **Lint our own output**, and throw rather than return a schema we would reject.
+  //
+  // The M2 second-pass review measured three zod types that converted cleanly and produced
+  // something `10` §3.5.2's own linter refuses or this subset does not contain:
+  //
+  //   z.record(z.string(), z.string())  → an object with `additionalProperties: {type:'string'}`
+  //                                       and no `properties` — the linter's `additional_properties`
+  //   z.tuple([...])                    → `prefixItems` + `items: false`, tuple-form `items`
+  //   z.discriminatedUnion(...)         → `oneOf`
+  //
+  // `closeObject` only closes an object node that *has* `properties`, and nothing threw for the
+  // other two. So a plugin author with a dictionary argument passed their own tests, shipped, and
+  // got a provider 400 the first time a model called their tool — the failure arriving as far as
+  // possible from its cause. This file's own header claimed the opposite: "`$ref`, `oneOf`,
+  // `allOf`, `not`, tuple-form `items` and recursion are absent on purpose; `M2-T4`'s converter
+  // throws on a zod type that would need one."
+  //
+  // Linting the output rather than enumerating the zod types is deliberate: there is one list of
+  // what `strict: true` accepts, it lives in the linter, and a second list here would drift from
+  // it. A new zod feature that produces something unacceptable now fails at conversion.
+  const violations = lintStrictSchema(walked);
+  if (violations.length > 0) {
+    throw new Error(
+      `this zod type converts to JSON Schema that \`strict: true\` does not accept:\n` +
+        violations
+          .map((violation) => `  ${violation.path || '(root)'}: ${violation.detail}`)
+          .join('\n') +
+        '\n\nThe usual causes are a `z.record()` (an open-ended object cannot be closed — use an ' +
+        'object with named properties, or an array of key/value pairs), a `z.tuple()` (use a ' +
+        'fixed-length array of one type, or an object), and a `z.discriminatedUnion()` (flatten it, ' +
+        'or take the discriminant as an enum beside the fields).',
     );
   }
 

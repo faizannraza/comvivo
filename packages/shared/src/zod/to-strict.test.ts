@@ -18,6 +18,53 @@ import {
 } from './strict-lint.js';
 import { denull, KEPT_FORMATS, STRIPPED_KEYWORDS, toStrictJsonSchema } from './to-strict.js';
 
+describe('a zod type the strict subset cannot express', () => {
+  /**
+   * Three that converted cleanly and should not have (M2 second-pass review).
+   *
+   * Each is a shape a plugin author reaches for naturally — a dictionary argument, a pair, a
+   * tagged variant — so each one would ship and fail at the provider rather than here. The
+   * assertion is that the throw happens **at conversion** and names the fix: "this schema is
+   * invalid" inside a 400 is unactionable, and this is actionable.
+   */
+  it('refuses an open-ended record, which cannot be closed', () => {
+    expect(() => toStrictJsonSchema(z.object({ m: z.record(z.string(), z.string()) }))).toThrow(
+      /z\.record/,
+    );
+  });
+
+  it('refuses a tuple, which converts to prefixItems', () => {
+    expect(() => toStrictJsonSchema(z.object({ t: z.tuple([z.string(), z.number()]) }))).toThrow(
+      /prefixItems|z\.tuple/,
+    );
+  });
+
+  it('refuses a discriminated union, which converts to oneOf', () => {
+    const union = z.discriminatedUnion('k', [
+      z.object({ k: z.literal('a'), a: z.string() }),
+      z.object({ k: z.literal('b'), b: z.number() }),
+    ]);
+    expect(() => toStrictJsonSchema(z.object({ u: union }))).toThrow(/oneOf|discriminatedUnion/);
+  });
+
+  it('still accepts the shapes a tool actually needs', () => {
+    // The control. A guard that refused ordinary schemas would be worse than the bug it fixes:
+    // these are what `05` §3.6.7's built-ins are made of, and all of them must still convert.
+    expect(() =>
+      toStrictJsonSchema(
+        z.object({
+          text: z.string(),
+          count: z.number().int(),
+          when: z.string().optional(),
+          who: z.array(z.string()),
+          mode: z.enum(['one', 'two']),
+          nested: z.object({ deep: z.boolean() }),
+        }),
+      ),
+    ).not.toThrow();
+  });
+});
+
 describe('05 §3.6.2 step 1: what cannot be strict fails at registration', () => {
   it('throws on a recursive schema', () => {
     // `strict: true` needs an exhaustive `required` and a finite shape, so recursion has no strict
