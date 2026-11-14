@@ -12,7 +12,12 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import type { ModelGateway, ModelRoute, ModelTurnRequest } from '@comvivo/core';
-import { bindingFor, FakeModelGateway, type ReplyBuilder } from '@comvivo/models/testing';
+import {
+  bindingFor,
+  CacheSimulator,
+  FakeModelGateway,
+  type ReplyBuilder,
+} from '@comvivo/models/testing';
 import { BRAND } from '@comvivo/shared';
 import { VirtualClock } from '@comvivo/shared/testing';
 import { describe, expect, it } from 'vitest';
@@ -48,24 +53,41 @@ function clock(): () => number {
  * `FakeModelGateway` needs a clock and a route resolver, which is the right shape — it simulates
  * the prompt cache and reports usage, and neither is possible without them.
  */
-function fakeGateway(reply: (builder: ReplyBuilder) => ReplyBuilder): ModelGateway {
+function fakeGateway(
+  reply: (builder: ReplyBuilder) => ReplyBuilder,
+  options: { readonly cache?: boolean; readonly structuredValue?: unknown } = {},
+): ModelGateway {
+  const clock = new VirtualClock('2026-11-14T10:00:00Z');
   const fake = new FakeModelGateway({
-    clock: new VirtualClock('2026-11-14T10:00:00Z'),
+    clock,
     bindingFor: () => bindingFor(),
+    // A **real cache simulation** when asked for, because `cache-read` now sends the same request
+    // twice and accepts only if the second read more cache than the first. Before the M2
+    // second-pass review the runner sent every scenario once and accepted any non-empty text, so
+    // the gate's `cache_read_input_tokens > 0` clause was checked nowhere — not live, and not here.
+    ...(options.cache === true
+      ? { cache: new CacheSimulator({ clock, minCacheableTokens: 1 }) }
+      : {}),
   });
   // A rule is a **queue** of outcomes consumed in order, so one `respond` answers one call.
-  // `times` repeats it for the whole scenario list, which is what the smoke needs: five turns,
-  // every one answered the same way.
+  // `times` repeats it: five scenarios, one of which calls twice.
   fake
-    .when({})
+    .when({ route: 'chat' })
     .respond(reply)
-    .times(SMOKE_SCENARIOS.length + 1);
+    .times(SMOKE_SCENARIOS.length + 2);
+  // `structured` goes through `structured()` and its value is validated against the scenario's own
+  // schema, so a gateway that answers with prose fails it — which is what makes the scenario's
+  // stated reason ("a JSON schema is honoured") true rather than asserted.
+  if (options.structuredValue !== undefined) {
+    fake.when({ route: 'extract' }).structured(options.structuredValue).times(2);
+  }
   return fake;
 }
 
 function healthyGateway(): ModelGateway {
-  return fakeGateway((reply) =>
-    reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }),
+  return fakeGateway(
+    (reply) => reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }),
+    { cache: true, structuredValue: { count: 6 } },
   );
 }
 
@@ -157,7 +179,10 @@ describe('running the smoke offline', () => {
   it('fails the scenario whose answer is wrong, and only that one', async () => {
     // Answers everything, but never quotes the passcode — the truncating-server signature.
     const report = await runSmoke({
-      gateway: fakeGateway((reply) => reply.text('OK').toolCall('probe_echo', { value: 'v1' })),
+      gateway: fakeGateway((reply) => reply.text('OK').toolCall('probe_echo', { value: 'v1' }), {
+        cache: true,
+        structuredValue: { count: 6 },
+      }),
       provider: 'fake',
       live: false,
       capMicros: SMOKE_CAP_MICROS,
@@ -167,6 +192,71 @@ describe('running the smoke offline', () => {
     const failed = report.results.filter((result) => result.status === 'fail');
     expect(failed.map((result) => result.scenario)).toEqual(['long-context']);
     expect(report.green).toBe(false);
+  });
+
+  it('fails cache-read when the cache never warms, which is the gate clause', async () => {
+    // No `cache: true`, so every call reports zero cache reads — a provider whose prompt cache is
+    // not working, or a prefix that changes between turns. The M2 exit gate asks for
+    // `cache_read_input_tokens > 0` on the **second** identical request, and until the second-pass
+    // review the runner sent each scenario once and accepted any non-empty text: this scenario
+    // passed on any answer at all, and `cacheReadImproved` — which exists to make the comparison —
+    // had no caller. A green live run would have been read as evidence for a clause nothing
+    // checked.
+    const report = await runSmoke({
+      gateway: fakeGateway(
+        (reply) => reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }),
+        { structuredValue: { count: 6 } },
+      ),
+      provider: 'fake',
+      live: false,
+      capMicros: SMOKE_CAP_MICROS,
+      nowMs: clock(),
+      baseRequest,
+    });
+    const failed = report.results.filter((result) => result.status === 'fail');
+    expect(failed.map((result) => result.scenario)).toEqual(['cache-read']);
+    expect(report.green).toBe(false);
+  });
+
+  it('fails structured when the model ignores the schema', async () => {
+    // Prose where an object was asked for. The adapter's `safeParse` rejects it, so this fails at
+    // `kind !== 'ok'` — which is the scenario's stated reason ("a JSON schema is honoured on the
+    // structured route") being true rather than merely written down. It carried no schema at all
+    // before the second-pass review, and the runner never called `structured()`.
+    const report = await runSmoke({
+      gateway: fakeGateway(
+        (reply) => reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }),
+        { cache: true, structuredValue: { not_count: 'six' } },
+      ),
+      provider: 'fake',
+      live: false,
+      capMicros: SMOKE_CAP_MICROS,
+      nowMs: clock(),
+      baseRequest,
+    });
+    expect(report.results.filter((r) => r.status === 'fail').map((r) => r.scenario)).toEqual([
+      'structured',
+    ]);
+  });
+
+  it('fails structured when the schema is honoured but the number is invented', async () => {
+    // The second half, and the reason `acceptValue` exists: a model that answered `{count: 7}` has
+    // honoured the schema and got the answer wrong, and a smoke that accepted it would report a
+    // working extraction route on a model that cannot count.
+    const report = await runSmoke({
+      gateway: fakeGateway(
+        (reply) => reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }),
+        { cache: true, structuredValue: { count: 7 } },
+      ),
+      provider: 'fake',
+      live: false,
+      capMicros: SMOKE_CAP_MICROS,
+      nowMs: clock(),
+      baseRequest,
+    });
+    expect(report.results.filter((r) => r.status === 'fail').map((r) => r.scenario)).toEqual([
+      'structured',
+    ]);
   });
 
   it('reports a rejected call by kind, never by message', async () => {

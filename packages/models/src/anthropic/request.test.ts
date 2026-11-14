@@ -17,6 +17,7 @@ import {
   OPTIONAL_BETAS,
   WireInvariantError,
 } from './request.js';
+import { buildStructuredRequest } from './structured.js';
 import { bindingFor, OPUS, toolSpec, turnRequest } from './testing/fixtures.js';
 
 const ALL_BETAS = Object.values(OPTIONAL_BETAS);
@@ -499,6 +500,79 @@ describe('assertWireInvariants', () => {
       top_p: 1,
     } as unknown as AnthropicChatParams;
     expect(violationsOf(params)).toHaveLength(2);
+  });
+});
+
+describe('the structured path runs the same assertion as the chat path', () => {
+  /** A minimal structured request, which this file is the first to build one of. */
+  function structuredRequest(overrides: Record<string, unknown> = {}) {
+    return {
+      route: 'extract' as const,
+      purpose: 'extract.facts',
+      system: [{ id: 'extract', text: 'Extract.' }],
+      input: [{ type: 'text' as const, text: 'milk on tuesday' }],
+      schema: { safeParse: (input: unknown) => ({ success: true as const, data: input }) },
+      jsonSchema: {
+        type: 'object' as const,
+        properties: { ok: { type: 'boolean' as const } },
+        required: ['ok'],
+        additionalProperties: false as const,
+      },
+      schemaName: 'facts_v1',
+      effort: 'low' as const,
+      maxOutputTokens: 256,
+      correlation: {},
+      ...overrides,
+    };
+  }
+
+  it('builds a request the invariants accept', () => {
+    // `buildStructuredRequest` had **no test at all** before the M2 second-pass review, and it
+    // never called `assertWireInvariants` — so a structured request, and every Batches item that
+    // `batches.ts` builds through it, had the SDK's typings and the provider's 400 and nothing
+    // else. `M2-T6`'s AC names this guard as `01` §2.1's second line of defence, and the
+    // structured routes are `route`, `extract`, `declassify` and `guard`: four of the six, and
+    // the ones that run on every message rather than every mention.
+    const built = buildStructuredRequest(structuredRequest() as never, {
+      binding: bindingFor({ model: OPUS }),
+      availableBetas: [],
+    });
+    expect(built.params.output_config?.effort).toBe('low');
+    expect(built.params.output_config?.format).toMatchObject({ type: 'json_schema' });
+    // No tools on a structured route, and therefore no `tool_choice` to be wrong about.
+    expect(built.params.tools).toBeUndefined();
+  });
+
+  it('is the backstop for the one mistake this builder could make', () => {
+    // The builder drops the refusal-fallback beta, because it pairs with a `fallbacks` parameter a
+    // structured request does not send — and `structured.ts`'s comment says `assertWireInvariants`
+    // "would rightly refuse the pair". That claim was unfalsifiable while the assertion was never
+    // called from this path. Now it is: the filter is asserted here, and the assertion is shown to
+    // reject the pair the filter exists to prevent.
+    const binding = bindingFor({ model: OPUS });
+    const built = buildStructuredRequest(structuredRequest() as never, {
+      binding,
+      availableBetas: [OPTIONAL_BETAS.serverFallback],
+    });
+    expect(built.params.betas ?? []).not.toContain(OPTIONAL_BETAS.serverFallback);
+
+    // And if the filter were ever removed, this is what would happen — a loud build-time failure
+    // rather than a request the provider cannot rescue.
+    expect(() =>
+      assertWireInvariants(
+        { ...built.params, betas: [OPTIONAL_BETAS.serverFallback] },
+        { capabilities: binding.capabilities, effort: 'low', resumingPausedTurn: false },
+      ),
+    ).toThrow(/cannot be rescued/);
+  });
+
+  it('refuses a non-object output schema with a message naming the route', () => {
+    expect(() =>
+      buildStructuredRequest(structuredRequest({ jsonSchema: { type: 'array' } }) as never, {
+        binding: bindingFor({ model: OPUS }),
+        availableBetas: [],
+      }),
+    ).toThrow(/non-object output schema/);
   });
 });
 

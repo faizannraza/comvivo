@@ -16,8 +16,9 @@
  * `CLAUDE.md` §8: the substitution is stated rather than glossed. A `--fake` run is **not** a live
  * result and `STATUS.md` does not count it as one.
  */
-import type { ModelGateway, ModelRoute, ModelTurnRequest } from '@comvivo/core';
+import type { ModelGateway, ModelRoute, ModelTurnRequest, SchemaLike } from '@comvivo/core';
 import { costIteration, PRICES, type PriceTable } from '@comvivo/models';
+import type { StrictJsonSchema } from '@comvivo/shared';
 import { EvalBudgetGuard, isGreen, type SuiteOutcome } from '../budget/index.js';
 
 /** One smoke scenario: a turn, and what the answer has to contain to count. */
@@ -28,6 +29,29 @@ export interface SmokeScenario {
   readonly request: (base: ModelTurnRequest) => ModelTurnRequest;
   /** Whether the result is acceptable. Deliberately loose: this is liveness, not quality. */
   readonly accept: (text: string, toolCalls: readonly { readonly name: string }[]) => boolean;
+  /**
+   * Send the **same request twice** and accept only if the second read more cache than the first.
+   *
+   * The M2 exit gate asks for `cache_read_input_tokens > 0` on the second identical request, and
+   * the runner sent each scenario once with `accept` as "the text is non-empty" — so `cache-read`
+   * passed on any answer at all, and `cacheReadImproved`, which exists to make the comparison, had
+   * no caller. A green live run would have been read as evidence for a clause nothing checked.
+   * Found at the M2 second-pass review.
+   */
+  readonly twice?: boolean;
+  /**
+   * Run through `gateway.structured()` with this schema, rather than through `run()`.
+   *
+   * Same species of gap: the `structured` scenario's stated reason is "a JSON schema is honoured on
+   * the structured route", it carried no schema, and the runner only ever called `run()`.
+   */
+  readonly structured?: {
+    readonly schemaName: string;
+    readonly jsonSchema: StrictJsonSchema;
+    readonly schema: SchemaLike<unknown>;
+    readonly input: readonly { readonly type: 'text'; readonly text: string }[];
+    readonly acceptValue: (value: unknown) => boolean;
+  };
 }
 
 /**
@@ -106,23 +130,37 @@ export const SMOKE_SCENARIOS: readonly SmokeScenario[] = Object.freeze([
       effort: 'low' as const,
     }),
     accept: (text: string) => text.trim().length > 0,
+    twice: true,
   }),
   Object.freeze({
     id: 'structured',
     why: 'a JSON schema is honoured on the structured route',
     route: 'extract' as const,
-    request: (base: ModelTurnRequest) => ({
-      ...base,
-      messages: [
-        {
-          role: 'user' as const,
-          content: [{ type: 'text' as const, text: 'Six people said yes.' }],
-        },
-      ],
-      maxOutputTokens: 256,
-      effort: 'low' as const,
-    }),
+    request: (base: ModelTurnRequest) => base,
     accept: (text: string) => text.trim().length > 0,
+    structured: {
+      schemaName: 'smoke_count_v1',
+      jsonSchema: {
+        type: 'object' as const,
+        properties: { count: { type: 'integer' as const } },
+        required: ['count'],
+        additionalProperties: false as const,
+      },
+      // The parse is the assertion: a provider that ignored the schema returns prose, and prose
+      // does not parse. `safeParse` rather than a cast, because a cast would accept anything.
+      schema: {
+        safeParse: (value: unknown) =>
+          typeof value === 'object' &&
+          value !== null &&
+          typeof Reflect.get(value, 'count') === 'number'
+            ? { success: true as const, data: value }
+            : { success: false as const },
+      },
+      input: [{ type: 'text' as const, text: 'Six people said yes. How many said yes?' }],
+      // Six, and nothing else parses as six — so this fails on a model that answered with prose
+      // *and* on one that honoured the schema while inventing the number.
+      acceptValue: (value: unknown) => Reflect.get(value as object, 'count') === 6,
+    },
   }),
   Object.freeze({
     id: 'long-context',
@@ -185,6 +223,86 @@ export interface SmokeDeps {
  * wiring gets tested. A refused scenario is `skipped`, not `fail`: the budget stopped it, and
  * reporting it as a failure would make a truncated run look like a broken provider.
  */
+
+/** One scenario's outcome, however many calls it took. */
+interface ScenarioOutcome {
+  readonly accepted: boolean;
+  readonly costMicros: number;
+  readonly cacheReadTokens: number;
+}
+
+function costOf(usage: Parameters<typeof costIteration>[0][], table: PriceTable): number {
+  return usage.reduce((sum, iteration) => sum + costIteration(iteration, table).micros, 0);
+}
+
+/**
+ * Run one scenario the way **it** says it needs to be run.
+ *
+ * Three shapes, because three different things are being proven and one call cannot prove all of
+ * them: a turn, a turn sent twice so the cache can be read, and a structured call. The runner used
+ * to send every scenario once through `run()` and accept any non-empty text, which made two of the
+ * five unable to show what their own `why` claimed.
+ */
+async function runOne(
+  deps: SmokeDeps,
+  scenario: SmokeScenario,
+  table: PriceTable,
+): Promise<ScenarioOutcome> {
+  const structured = scenario.structured;
+  if (structured !== undefined) {
+    const result = await deps.gateway.structured(
+      {
+        route: scenario.route,
+        purpose: `smoke.${scenario.id}`,
+        system: deps.baseRequest(scenario.route).system,
+        input: structured.input,
+        schema: structured.schema,
+        jsonSchema: structured.jsonSchema,
+        schemaName: structured.schemaName,
+        effort: 'low',
+        maxOutputTokens: 256,
+        correlation: {},
+      },
+      AbortSignal.timeout(120_000),
+    );
+    return {
+      // `kind: 'ok'` is already the schema having been honoured — the adapter ran `safeParse` and
+      // a provider that returned prose fails here rather than in the acceptance check.
+      accepted: result.kind === 'ok' && structured.acceptValue(result.value),
+      costMicros: costOf([...result.usage], table),
+      cacheReadTokens: result.usage.reduce((sum, iteration) => sum + iteration.cacheRead, 0),
+    };
+  }
+
+  const request = scenario.request(deps.baseRequest(scenario.route));
+  const first = await deps.gateway.run(request, AbortSignal.timeout(120_000));
+  const firstCost = costOf([...first.usage], table);
+  const firstCacheRead = first.usage.reduce((sum, iteration) => sum + iteration.cacheRead, 0);
+  if (scenario.twice !== true) {
+    return {
+      accepted: scenario.accept(first.text, first.toolCalls),
+      costMicros: firstCost,
+      cacheReadTokens: firstCacheRead,
+    };
+  }
+
+  // The **same** request again, byte for byte, which is what the gate clause is about: a prefix
+  // that changed would miss the cache for a reason that has nothing to do with whether caching
+  // works.
+  const second = await deps.gateway.run(request, AbortSignal.timeout(120_000));
+  const secondCacheRead = second.usage.reduce((sum, iteration) => sum + iteration.cacheRead, 0);
+  return {
+    accepted:
+      scenario.accept(second.text, second.toolCalls) &&
+      cacheReadImproved(
+        { cacheReadTokens: firstCacheRead } as SmokeResult,
+        { cacheReadTokens: secondCacheRead } as SmokeResult,
+      ),
+    costMicros: firstCost + costOf([...second.usage], table),
+    cacheReadTokens: secondCacheRead,
+  };
+}
+
 export async function runSmoke(deps: SmokeDeps): Promise<SmokeReport> {
   const guard = new EvalBudgetGuard({
     share: { job: `smoke:${deps.provider}`, capMicros: deps.capMicros },
@@ -210,21 +328,14 @@ export async function runSmoke(deps: SmokeDeps): Promise<SmokeReport> {
 
     const startedAt = deps.nowMs();
     try {
-      const request = scenario.request(deps.baseRequest(scenario.route));
-      const result = await deps.gateway.run(request, AbortSignal.timeout(120_000));
-      const costMicros = result.usage.reduce(
-        (sum, iteration) => sum + costIteration(iteration, table).micros,
-        0,
-      );
-      guard.finish({ scenario: scenario.id, costMicros, judge: false });
-
-      const accepted = scenario.accept(result.text, result.toolCalls);
+      const outcome = await runOne(deps, scenario, table);
+      guard.finish({ scenario: scenario.id, costMicros: outcome.costMicros, judge: false });
       results.push({
         scenario: scenario.id,
-        status: accepted ? 'pass' : 'fail',
-        detail: accepted ? scenario.why : `the answer did not satisfy: ${scenario.why}`,
-        costMicros,
-        cacheReadTokens: result.usage.reduce((sum, iteration) => sum + iteration.cacheRead, 0),
+        status: outcome.accepted ? 'pass' : 'fail',
+        detail: outcome.accepted ? scenario.why : `the answer did not satisfy: ${scenario.why}`,
+        costMicros: outcome.costMicros,
+        cacheReadTokens: outcome.cacheReadTokens,
         latencyMs: deps.nowMs() - startedAt,
       });
     } catch (error) {

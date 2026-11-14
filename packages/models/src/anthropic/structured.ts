@@ -26,7 +26,7 @@ import type { StructuredRequest, StructuredResult, UsageIteration } from '@comvi
 import { BRAND } from '@comvivo/shared';
 import type { RouteBinding } from '../registry/resolve.js';
 import type { AnthropicChatParams } from './request.js';
-import { OPTIONAL_BETAS, WireInvariantError } from './request.js';
+import { assertWireInvariants, OPTIONAL_BETAS, WireInvariantError } from './request.js';
 import { readStop, servedByFallback, usageIterations } from './response.js';
 
 type Message = Anthropic.Beta.Messages.BetaMessage;
@@ -109,6 +109,24 @@ export function buildStructuredRequest(
     })),
     ...(betas.length === 0 ? {} : { betas: [...betas] }),
   };
+
+  // **The same pre-send assertion the chat path runs**, which this path did not.
+  //
+  // `M2-T6`'s AC names `assertWireInvariants` as `01` §2.1's second line of defence, and it was
+  // called only from `buildChatRequest` — so a structured request, and every Batches item (which
+  // `batches.ts` builds through this function), had the SDK's typings and the provider's 400 and
+  // nothing else. The structured routes are `route`, `extract`, `declassify` and `guard`: four of
+  // the six, and the ones that run on every message rather than every mention. Found at the M2
+  // second-pass review.
+  //
+  // `resumingPausedTurn` is `false` because a structured call is one request for one JSON value
+  // and has no tool loop to pause.
+  assertWireInvariants(params, {
+    capabilities: binding.capabilities,
+    effort: req.effort,
+    resumingPausedTurn: false,
+  });
+
   return { params, betas };
 }
 

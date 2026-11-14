@@ -24,7 +24,11 @@ import {
   type RouteBinding,
   resolveRoutesOrThrow,
 } from '@comvivo/models';
-import { bindingFor as anthropicBinding, FakeModelGateway } from '@comvivo/models/testing';
+import {
+  bindingFor as anthropicBinding,
+  CacheSimulator,
+  FakeModelGateway,
+} from '@comvivo/models/testing';
 import { BRAND, SystemClock } from '@comvivo/shared';
 import { silentLogger, VirtualClock } from '@comvivo/shared/testing';
 import { SMOKE_CAP_MICROS } from '../budget/index.js';
@@ -197,14 +201,27 @@ async function writeReport(report: SmokeReport): Promise<void> {
  * output shape is the real one. It is **not** a live result and `render` says so on the first line.
  */
 function fakeGateway(): ModelGateway {
+  const clock = new VirtualClock('2026-11-14T10:00:00Z');
   const fake = new FakeModelGateway({
-    clock: new VirtualClock('2026-11-14T10:00:00Z'),
+    clock,
     bindingFor: () => anthropicBinding(),
+    // A **real cache simulation**, so `--fake` exercises the clause the gate asks for rather than
+    // reporting green past it. `cache-read` now sends the same request twice and accepts only if
+    // the second read more cache than the first; without this the rehearsal would pass a scenario
+    // the live run would fail, which is the opposite of what a rehearsal is for. Added at the M2
+    // second-pass review, which found the clause unenforced on both sides.
+    cache: new CacheSimulator({ clock, minCacheableTokens: 1 }),
   });
+  // The turn scenarios. `long-context` wants the passcode back, `tool-call` wants the call, and
+  // `plain-reply`/`cache-read` want any text — one reply satisfies all four, twice over for
+  // `cache-read`'s second pass.
   fake
-    .when({})
+    .when({ route: 'chat' })
     .respond((reply) => reply.text('smoke-7781 OK').toolCall('probe_echo', { value: 'v1' }))
-    .times(SMOKE_SCENARIOS.length + 1);
+    .times(SMOKE_SCENARIOS.length + 2);
+  // And the structured scenario, which goes through `structured()` and is validated against its
+  // own schema on the way out — so the value has to be the one the prompt asks for.
+  fake.when({ route: 'extract' }).structured({ count: 6 }).times(2);
   return fake;
 }
 
