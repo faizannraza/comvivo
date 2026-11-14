@@ -150,6 +150,16 @@ for (const path of byDepth) {
 //
 // `format` rather than `check --write`: formatting is mechanical, while lint autofixes can change
 // what code means, and a rename has no business doing that.
+//
+// **Plus the import sorter, which `format` does not do.** In Biome 2 organizing imports is an
+// *assist* action, not a formatter action, so `format --write` leaves import order alone — and a
+// scope rename provably changes that order. `@comvivo/shared` sorts before `@google/genai` and
+// `@zzbrand/shared` sorts after it, so the drill failed `biome ci` on eight files whose only
+// problem was two adjacent import lines in the wrong order. Found by the drill on 2026-11-14,
+// which is what the drill is for.
+//
+// `--only=assist/source/organizeImports` keeps the surgical intent of the paragraph above: the
+// import sorter is as mechanical as the formatter, and nothing else in `check --write` runs.
 if (!dryRun) {
   // The binary directly, not `pnpm exec`: `pnpm` is a shim that `execFileSync` cannot exec
   // (`spawnSync pnpm ENOEXEC`), and going through it would also trigger pnpm's install check for
@@ -166,6 +176,17 @@ if (!dryRun) {
   }
   try {
     execFileSync(biome, ['format', '--write', '.'], { cwd: ROOT, stdio: 'pipe' });
+    // A non-zero exit here is expected and not a failure: `check` reports the diagnostics it
+    // could not fix, and after the sorter has run those are the pre-existing ones `pnpm verify`
+    // will report anyway. What matters is that the writes happened.
+    try {
+      execFileSync(biome, ['check', '--write', '--only=assist/source/organizeImports', '.'], {
+        cwd: ROOT,
+        stdio: 'pipe',
+      });
+    } catch {
+      // Intentionally ignored; see above.
+    }
   } catch (error) {
     const failure = error as { status?: number; stdout?: Buffer; stderr?: Buffer };
     stdout.write(
