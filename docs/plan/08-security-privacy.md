@@ -715,10 +715,21 @@ Rules:
 | MCP remote tools | Arguments, within the server's approved data ceiling (§3.14) | Per approval | — |
 | Update check (opt-in) | `GET` static JSON with a generic `User-Agent`: reveals the IP only (`12` §3.4.4) | — | Off by default |
 
+> **Implemented at `M2-T16`** as `packages/models/src/egress-manifest.ts`, and **as data**: the
+> wizard, `doctor`, the dashboard and the privacy disclosure all render from one list, so a row
+> that drifted cannot tell four surfaces the same wrong thing.
+> `test/plan/egress-manifest.test.ts` parses this table out of the plan and compares it row by row.
+>
+> **One deliberate addition**: `extract` is **two** rows there — group and DM. §3.11.2 moves DM
+> extraction onto the local model in Hybrid and leaves group extraction in the cloud, so one row
+> cannot carry both: its "does Hybrid move this" flag would have to be true and false at once. The
+> bolded "DM extraction sends DM text" below is that same distinction written as prose.
+
 Provider-specific hygiene (`05`):
-- OpenAI Responses API calls set `store: false`.
-- Anthropic Files API is not used for member content.
+- OpenAI Responses API calls set `store: false`. **Enforced** by `assertWireInvariants` over the built request (`M2-T11`), not only promised.
+- Anthropic Files API is not used for member content. Enforced by its absence: the adapter has no Files code path at all.
 - Prompt caches are org-scoped by providers. Use one API key per instance; never share keys across unrelated instances.
+  - **This one cannot be checked from inside the process** (`M2-T16`), and `PROVIDER_HYGIENE` records it as unenforceable rather than claiming otherwise. `doctor` can advise; nothing can prevent a host from pasting one key into two instances, and a list where every row claimed enforcement would be overclaiming.
 
 #### 3.11.2 Modes
 - **Cloud** (default presets).
@@ -726,6 +737,9 @@ Provider-specific hygiene (`05`):
   - `declassify`, `guard`, DM `extract` and `embed` run on the local model;
   - `chat` stays cloud;
   - boot fails if no local model is reachable.
+  - **Hybrid refuses to start with no local model** (`M2-T16`). Not a degraded Hybrid: it would be Cloud with a setting that reads as a privacy guarantee, which is the worst of the three outcomes. An unstated local model is treated as **unreachable**, so a caller that forgot to probe fails closed rather than being read as "a model is there".
+  - **Hybrid has no dashboard badge**, deliberately. §3.11.2 names a badge only for Local-only, and a "Hybrid" badge would read as a stronger promise than it is — `chat` is most of what a group sends and still goes out. Measured at `M2-T16`: nine surfaces reach a provider under the default presets and Hybrid moves three, so six still do. The wizard shows that gap rather than the phrase "sensitive routes stay local".
+  - **DM extraction is a per-turn decision, not a binding** (`M2-T16`). The resolver binds a route once at boot; only the engine knows whether a conversation is a DM. `hybridExtractIsLocal(mode, conversation)` is where that asymmetry is written down, so `M6`'s extraction scheduler reads a rule rather than re-deriving one.
 - **Local-only**, via `privacy.localOnly: true`, fail-closed:
   - every route resolves to loopback, LAN-allowlisted or host-listed model hosts;
   - transcription and embeddings must be local;
@@ -736,6 +750,14 @@ Provider-specific hygiene (`05`):
   - CI proves zero non-platform egress (S12).
 
   Chat platforms still carry messages: Local-only means "no AI provider", not "offline". Fully offline is possible with the web channel and a LAN Matrix homeserver.
+
+  **How the refusal works** (`M2-T16`). `assertPrivacyOrThrow` is the single function a boot calls, and it exists before there is a boot to call it for the same reason `resolveRoutesOrThrow` did at `M2-T2`: when `M3` wires the composition root it calls one function and fail-closed is automatic, rather than being a second step somebody has to remember. A privacy mode that silently degraded because a wiring step was forgotten is exactly what this section is written to prevent, and it has **no symptom a host could notice**.
+  - It **refuses rather than rewriting routes to local**, because a rewrite needs a local model to rewrite *to* — and if one were reachable the host would have chosen the Local preset. Guessing one would mean booting with a model nobody chose, answering a family's questions with it, and reporting success.
+  - Every problem is reported at once: a host fixing this is editing a config file, and a refusal that reveals one problem per restart is five restarts.
+  - **"This machine" is decided by `isLoopbackHost`, not a regex.** `/^127\./` matches `127.0.0.1.evil.example`, which is a name whose owner decides where it resolves — the first version of this check had that hole and a test caught it. The hardened check lives in `shared/net` beside the egress classifier, because answering it needs `node:net`'s `isIP`. A **name** other than `localhost` is never loopback, even one that resolves there: a destination decided by DNS can change between the check and the connection.
+  - A LAN model host is accepted only when the host wrote down the exact `host:port` in `network.egress.allowPrivate` — §3.9's mechanism, and the same allowlist `safeFetch` reads. No wildcards.
+  - The `fake` gateway is **allowed**: it reaches no network at all, and refusing it would mean a Local-only instance could not run its own scenario suite, which is the one way a host can check the thing works.
+  - **`ollama` embeddings count as local**, which is why the provider classification is a list rather than `provider !== 'local'`: the config enum lists `ollama` beside the three cloud providers, and reading "not the string `local`" as "remote" would refuse exactly the configuration Local-only is for.
 
 #### 3.11.3 Provider data-handling notes (link, don't overclaim; checked 2026-11-01)
 | Provider | What their published policy says (summary) | Source |

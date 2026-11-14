@@ -77,6 +77,36 @@ export {
   WireInvariantError,
   withRepairTurn,
 } from './anthropic/index.js';
+// --- The egress manifest and the privacy modes (08 §3.11.1-§3.11.2; M2-T16) -------------------
+export {
+  assertPrivacyOrThrow,
+  destinationOf,
+  EGRESS_MANIFEST,
+  EGRESS_SURFACES,
+  type EgressDefault,
+  type EgressRow,
+  type EgressSurface,
+  egressRow,
+  HYBRID_LOCAL_ROUTES,
+  hybridExtractIsLocal,
+  hybridProblem,
+  isLocalDestination,
+  LOCAL_ONLY_DISCLOSURE,
+  type LocalOnlyInput,
+  type LocalOnlyProblem,
+  localOnlyProblems,
+  localOnlySettingsFrom,
+  PROVIDER_HYGIENE,
+  type PrivacyCheckInput,
+  type PrivacyMode,
+  PrivacyModeError,
+  type PrivacySettings,
+  privacyBadge,
+  privacyModeOf,
+  privacyProblems,
+  providerSurfaces,
+  routeRunsLocal,
+} from './egress-manifest.js';
 // --- The Google adapter (05 §3.5.5; M2-T13) ---------------------------------------------------
 export {
   createGoogleClient,
