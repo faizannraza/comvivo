@@ -15,13 +15,16 @@ import { describe, expect, it } from 'vitest';
 import { jsonObjectShape, storageContract, storageContracts } from './storage-contract.js';
 
 describe('the registered contracts', () => {
+  // Nine since `M3-T20`, which owns `05` §3.10 and therefore tightened `ModelCallTraceSchema`
+  // into the typed shape §3.10.1's table specifies. The list shrinking is the point of pinning it:
+  // a milestone that tightens an interior and forgets to remove the entry fails here, and so does
+  // one that removes an entry without tightening anything.
   it('is exactly this list, each with an owning milestone and a cap', () => {
     expect(storageContracts().map((entry) => `${entry.name} → ${entry.owner}`)).toEqual([
       'ActionRequestSnapshotSchema → M5 (05 §3.6.6 ActionRequest)',
       'CompiledPolicySchema → M4 (03 §3.2.6 constitution compiler)',
       'ConstraintValueSchema → M5-T7 (03 §3.5.4 constraint catalog v1)',
       'GuardResultTraceSchema → M5 (05 §3.8 disclosure guard records)',
-      'ModelCallTraceSchema → M5 (05 §3.10 model call trace)',
       'OutboundPayloadSchema → M3 (06 §8 OutboundMessage and its channel-SDK member types)',
       'PolicyDecisionTraceSchema → M4 (03 §3.3 authorize() decision trace)',
       'ProposalPayloadSchema → M4 (03 §3.3.6 amendment and contested-action payloads)',

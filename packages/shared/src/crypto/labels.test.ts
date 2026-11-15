@@ -97,6 +97,13 @@ describe('AEAD additional data (08 §3.7.4, §3.7.10)', () => {
     expect(AAD.vaultEntry('anthropic.apiKey')).toBe('comvivo/vault/v1|anthropic.apiKey');
   });
 
+  it('binds a trace debug capture to its turn', () => {
+    // `M3-T20`. The plaintext is a rendered prompt and response, so a ciphertext moved between
+    // turns would attribute one group's conversation to another — and the only reader is a host
+    // debugging, who has no way to tell.
+    expect(AAD.traceDebug('trn_01jd8')).toBe('comvivo/trace-debug/v1|trn_01jd8');
+  });
+
   it('gives the keyring file the same format identifier the AAD uses', () => {
     // One constant for both, because `08` §3.7.4 uses the same string for the file's `format`
     // field and the AAD prefix — and a mismatch would make a keyring written by one version
@@ -121,14 +128,15 @@ describe('AEAD additional data (08 §3.7.4, §3.7.10)', () => {
     expect(AAD.keyringSlot('i', 1, 's', 'k').startsWith(`${KEYRING_FORMAT}|`)).toBe(true);
   });
 
-  it('separates the four AAD families, so a ciphertext cannot move between them', () => {
+  it('separates the five AAD families, so a ciphertext cannot move between them', () => {
     const all = [
       AAD.blobBody('x', 'text/plain'),
       AAD.blobDek('x', 1),
       AAD.keyringSlot('i', 1, 's', 'k'),
       AAD.vaultEntry('x'),
+      AAD.traceDebug('x'),
     ];
-    expect(new Set(all).size).toBe(4);
+    expect(new Set(all).size).toBe(5);
   });
 });
 

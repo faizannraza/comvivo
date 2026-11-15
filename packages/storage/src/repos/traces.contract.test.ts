@@ -12,7 +12,7 @@
  *    field-encrypted and host-only. The separation is the control — a trace can be shown because
  *    the prompt is not in it.
  */
-import type { NotPromise } from '@comvivo/core';
+import type { ModelCallTrace, NotPromise } from '@comvivo/core';
 import { expectWritten, TRACE_TOTAL_BUDGET_BYTES } from '@comvivo/core';
 import { internedId, type ReaderSetId } from '@comvivo/shared';
 import { Temporal } from 'temporal-polyfill';
@@ -91,6 +91,32 @@ function aTurn(world: World, ids: Ids, tag: string) {
   ).id;
 }
 
+/** One `05` §3.10.1 model call. Every field, because the schema requires every field. */
+function modelCall(overrides: Record<string, unknown> = {}): ModelCallTrace {
+  return {
+    route: 'chat',
+    variant: 'default',
+    provider: 'anthropic',
+    requestedModel: 'claude-opus-5-5',
+    servedModel: 'claude-opus-5-5',
+    effort: 'medium',
+    step: 1,
+    stopReason: 'end_turn',
+    refusalCategory: null,
+    inputTokens: 400,
+    cacheReadTokens: 1_600,
+    cacheWriteTokens: 0,
+    outputTokens: 120,
+    reasoningTokens: 0,
+    cacheReadRatio: 0.8,
+    ttftMs: 640,
+    latencyMs: 1_200,
+    requestHash: 'a'.repeat(64),
+    inputTransformations: 0,
+    ...overrides,
+  } as ModelCallTrace;
+}
+
 const trace = (tag: string, world: World, ids: Ids, overrides = {}) => ({
   id: traceId(tag),
   turnId: turnId(tag),
@@ -106,7 +132,10 @@ const trace = (tag: string, world: World, ids: Ids, overrides = {}) => ({
     tokenEstimate: 1200,
     contextHash: 'c0ffee',
   },
-  modelCalls: [{ requestHash: 'a' }],
+  // A real `ModelCallTrace` since `M3-T20` tightened the schema: `05` §3.10.1's fields are
+  // validated on write and on read (`02` D21), so a placeholder no longer parses — which is the
+  // schema working rather than the fixture being fussy.
+  modelCalls: [modelCall()],
   toolCalls: [{ name: 'calendar.create' }],
   policyDecisions: [{ outcome: 'allow' }],
   guardResults: [{ pass: true }],

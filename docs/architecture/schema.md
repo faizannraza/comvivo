@@ -5,7 +5,7 @@
 Generated from `packages/storage/src/schema/*.ts` and the migration SQL, so it cannot drift:
 `pnpm run schema:check` fails CI when this file no longer matches the schema it describes.
 
-**86 tables**, 966 columns, 136 indexes, 4 virtual tables and 250 triggers, created by 6 migrations.
+**86 tables**, 971 columns, 136 indexes, 4 virtual tables and 250 triggers, created by 7 migrations.
 
 What this is **not**: the design. `docs/plan/02-domain-model-and-storage.md` §3.3 says why each
 table looks the way it does, `docs/architecture/storage.md` covers the module layout, and
@@ -1643,12 +1643,17 @@ Check constraints: `turn_effects_seq_ck`.
 | `label_id` | `integer` | not null |  |
 | `trigger` | `text` | not null |  |
 | `disposition` | `text` | not null |  |
+| `router` | `text` | nullable |  |
+| `binding` | `text` | nullable |  |
+| `prompt` | `text` | nullable |  |
+| `output` | `text` | nullable |  |
 | `context_manifest` | `text` | not null |  |
 | `model_calls` | `text` | not null |  |
 | `tool_calls` | `text` | not null |  |
 | `policy_decisions` | `text` | not null |  |
 | `guard_results` | `text` | not null |  |
 | `cost_micros` | `integer` | not null, has default |  |
+| `cost_by_route` | `text` | not null, has default |  |
 | `latency` | `text` | not null |  |
 | `replay` | `text` | not null |  |
 | `created_at` | `integer` | not null |  |

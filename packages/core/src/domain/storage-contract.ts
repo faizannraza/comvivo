@@ -75,12 +75,6 @@ export const DEFERRED_INTERIORS = [
     pinned: 'a JSON object; the column holds at most 50, capped at 128 KiB',
   },
   {
-    name: 'ModelCallTraceSchema',
-    owner: 'M5 (05 §3.10 model call trace)',
-    maxBytes: 128 * KIB,
-    pinned: 'a JSON object; the column holds at most 50, capped at 128 KiB',
-  },
-  {
     name: 'OutboundPayloadSchema',
     owner: 'M3 (06 §8 OutboundMessage and its channel-SDK member types)',
     maxBytes: 64 * KIB,

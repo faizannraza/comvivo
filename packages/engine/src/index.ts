@@ -19,7 +19,6 @@ export {
   type RuntimeCopyOptions,
   type RuntimeCopyParams,
 } from './copy.js';
-
 // --- The group tool catalogue and its hash (10 §3.5.1; 01 §14 A13; M2-T17) --------------------
 export {
   type BuildCatalogInput,
@@ -38,3 +37,13 @@ export {
   ToolNameTooLongError,
   toolSpecs,
 } from './tools-executor/catalog.js';
+// --- The turn-trace writer (05 §3.10.1; 11 §3.10.4; M3-T20) ------------------------------------
+export {
+  DEBUG_CAPTURE_TTL_MS,
+  type SealDebugCapture,
+  type TraceContext,
+  type TraceSink,
+  TraceWriter,
+  type TraceWriterOptions,
+  TurnTraceDraft,
+} from './trace/trace-writer.js';

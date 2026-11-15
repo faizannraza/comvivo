@@ -38,7 +38,12 @@ import {
   OutboxPartsSchema,
   PolicyDecisionTraceSchema,
   ToolCallTraceSchema,
+  TraceBindingSchema,
+  TraceCostSchema,
+  TraceOutputSchema,
+  TracePromptSchema,
   TraceReplayMetaSchema,
+  TraceRouterSchema,
   TraceTriggerSchema,
   TriggerMessageIdsSchema,
   TurnFailureSchema,
@@ -188,6 +193,24 @@ export const turnTraces = sqliteTable(
     labelId: labelRef().notNull(),
     trigger: jsonOf(TraceTriggerSchema, 'turn_traces.trigger')('trigger').notNull(),
     disposition: text('disposition').notNull(),
+    /*
+     * `05` §3.10.1's five rows that had no column, added at `M3-T20` (migration `0006`).
+     *
+     * §3.10.1's table has thirteen rows and this table had eight of them. The missing five are
+     * not decoration: `/why` (`M5-T22`) opens with "You asked me directly", which is `router`;
+     * `03` §3.5's minor rules are audited through `binding.includesMinor`; a cache-miss
+     * investigation needs `prompt`'s four breakpoint hashes; and `09`'s dashboard shows what was
+     * sent, which is `output`. Writing them into `trigger`'s free-form object would have fitted
+     * without a migration and named none of them.
+     *
+     * Nullable, because each is written by the task that produces it — the router at `M3-T21`,
+     * the prompt at `M3-T19`, the output at `M3-T26` — and because a turn refused at a gate has
+     * no prompt and no output at all. `NULL` here means "that phase did not happen".
+     */
+    router: jsonOf(TraceRouterSchema, 'turn_traces.router')('router'),
+    binding: jsonOf(TraceBindingSchema, 'turn_traces.binding')('binding'),
+    prompt: jsonOf(TracePromptSchema, 'turn_traces.prompt')('prompt'),
+    output: jsonOf(TraceOutputSchema, 'turn_traces.output')('output'),
     /** Ids and label ids only — never the context text (`02` §3.3.9). */
     contextManifest: jsonOf(
       ContextManifestSchema,
@@ -210,6 +233,20 @@ export const turnTraces = sqliteTable(
       'turn_traces.guard_results',
     )('guard_results').notNull(),
     costMicros: integer('cost_micros').notNull().default(0),
+    /**
+     * `05` §3.10.1's `cost` row: micro-USD **by route**.
+     *
+     * Beside `cost_micros` rather than instead of it, because the two are read by different
+     * things. Q-USE-1 aggregates the total over many rows and cannot sum a JSON column on the
+     * budget path; the breakdown is what tells a host a turn cost what it did because the guard
+     * ran four times.
+     */
+    costByRoute: jsonOf(
+      TraceCostSchema,
+      'turn_traces.cost_by_route',
+    )('cost_by_route')
+      .notNull()
+      .default({}),
     latency: jsonOf(LatencyTraceSchema, 'turn_traces.latency')('latency').notNull(),
     /** `11` §12-1: everything a replay needs to reproduce the turn. */
     replay: jsonOf(TraceReplayMetaSchema, 'turn_traces.replay')('replay').notNull(),

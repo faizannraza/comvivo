@@ -171,6 +171,17 @@ export const LOG_EVENTS = {
   /** The degradation ladder level a local server was placed at (`05` §3.5.6). */
   'model.local_level': 'a local model server was placed on the degradation ladder',
 
+  // --- Turn traces (M3-T20) --------------------------------------------------------------------
+  /**
+   * A trace row was shortened to fit `02` §3.3.9's 512 KiB combined budget (`05` §3.10.1).
+   *
+   * `warn` because the caller's own observability is now incomplete and nothing else would say
+   * so: `11`'s replay reads these rows as evidence, and a truncated `modelCalls` list must not be
+   * read as "the turn made fewer calls than it did". Carries the turn id and which columns were
+   * shortened, never their contents.
+   */
+  'trace.truncated': 'a turn trace was truncated to fit its budget',
+
   // --- Runtime copy (M3-T12) -------------------------------------------------------------------
   /**
    * A copy catalog entry could not be rendered, so English was used instead (`05` §3.11).

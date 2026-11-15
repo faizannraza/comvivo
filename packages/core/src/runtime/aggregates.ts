@@ -42,10 +42,15 @@ import type {
   ContextManifest,
   GuardResultTraceSchema,
   LatencyTrace,
-  ModelCallTraceSchema,
+  ModelCallTrace,
   PolicyDecisionTraceSchema,
   ToolCallTraceSchema,
+  TraceBinding,
+  TraceCost,
+  TraceOutput,
+  TracePrompt,
   TraceReplayMeta,
+  TraceRouter,
   TraceTriggerSchema,
 } from './traces.js';
 import type { EffectSummaryParams, TurnFailure } from './turns.js';
@@ -59,7 +64,6 @@ import type { EffectSummaryParams, TurnFailure } from './turns.js';
  * does not own.
  */
 type TraceTrigger = z.infer<typeof TraceTriggerSchema>;
-type ModelCallTrace = z.infer<typeof ModelCallTraceSchema>;
 type ToolCallTrace = z.infer<typeof ToolCallTraceSchema>;
 type PolicyDecisionTrace = z.infer<typeof PolicyDecisionTraceSchema>;
 type GuardResultTrace = z.infer<typeof GuardResultTraceSchema>;
@@ -264,12 +268,26 @@ export interface TurnTrace {
   readonly labelId: LabelId;
   readonly trigger: TraceTrigger;
   readonly disposition: string;
+  /**
+   * `05` §3.10.1's `router`, `binding`, `prompt` and `output` rows, added at `M3-T20`.
+   *
+   * Optional because each is written by a different later task — the router at `M3-T21`, the
+   * prompt at `M3-T19`, the output at `M3-T26` — and because a turn refused at a gate genuinely
+   * has no prompt and no output. An absent section means "this phase did not happen", which is a
+   * fact `/why` (`M5-T22`) renders rather than a hole it has to explain away.
+   */
+  readonly router?: TraceRouter | undefined;
+  readonly binding?: TraceBinding | undefined;
+  readonly prompt?: TracePrompt | undefined;
+  readonly output?: TraceOutput | undefined;
   readonly contextManifest: ContextManifest;
   readonly modelCalls: readonly ModelCallTrace[];
   readonly toolCalls: readonly ToolCallTrace[];
   readonly policyDecisions: readonly PolicyDecisionTrace[];
   readonly guardResults: readonly GuardResultTrace[];
   readonly costMicros: number;
+  /** `05` §3.10.1's `cost` row: micro-USD **by route**, where `costMicros` is the total. */
+  readonly costByRoute: TraceCost;
   readonly latency: LatencyTrace;
   readonly replay: TraceReplayMeta;
   readonly createdAt: Temporal.Instant;
@@ -283,12 +301,18 @@ export interface NewTurnTrace {
   readonly conversationId: ConversationId;
   readonly trigger: TraceTrigger;
   readonly disposition: string;
+  readonly router?: TraceRouter | undefined;
+  readonly binding?: TraceBinding | undefined;
+  readonly prompt?: TracePrompt | undefined;
+  readonly output?: TraceOutput | undefined;
   readonly contextManifest: ContextManifest;
   readonly modelCalls: readonly ModelCallTrace[];
   readonly toolCalls: readonly ToolCallTrace[];
   readonly policyDecisions: readonly PolicyDecisionTrace[];
   readonly guardResults: readonly GuardResultTrace[];
   readonly costMicros?: number | undefined;
+  /** Defaults to `{}`: a turn with no model call has no cost to break down. */
+  readonly costByRoute?: TraceCost | undefined;
   readonly latency: LatencyTrace;
   readonly replay: TraceReplayMeta;
   readonly expiresAt: Temporal.Instant;

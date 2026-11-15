@@ -343,6 +343,8 @@ describe('the migration source reads both layouts', () => {
       // `ddl.int.test.ts` pins `0002`'s bytes so one cannot be smuggled in.
       '0004_claim_link_token_unique',
       '0005_link_code_redeemer_check',
+      // `M3-T20`: `05` §3.10.1's five rows that `turn_traces` had no column for.
+      '0006_trace_sections',
     ]);
     for (const migration of list) {
       expect(migration.checksum).toMatch(/^[0-9a-f]{64}$/);

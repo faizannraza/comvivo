@@ -34,7 +34,8 @@
     "@comvivo/shared": "workspace:*",
     "@comvivo/channel-sdk": "workspace:*",
     "@comvivo/plugin-sdk": "workspace:*",
-    "intl-messageformat": "catalog:"
+    "intl-messageformat": "catalog:",
+    "temporal-polyfill": "catalog:"
   },
   "devDependencies": {
     "@comvivo/models": "workspace:*",

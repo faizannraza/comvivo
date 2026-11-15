@@ -222,12 +222,21 @@ describe('schedules (02 §3.10.5)', () => {
 
 describe('the combined trace budget (02 §3.3.9)', () => {
   // `02` §3.3.9 says `turn_traces.*` is "512 KiB **total**", and only the per-column caps existed:
-  // 128 KiB each across seven columns, so a row could satisfy every individual cap and still be
-  // ~896 KiB. `TRACE_TOTAL_BUDGET_BYTES` was exported with **no reader**, which made the combined
+  // 128 KiB each, so a row could satisfy every individual cap and still be several times the
+  // total. `TRACE_TOTAL_BUDGET_BYTES` was exported with **no reader**, which made the combined
   // budget a number in a spec rather than a bound. Found by the M1 independent review.
-  it('names the seven columns the budget covers', () => {
+  //
+  // Twelve columns since `M3-T20`, which added `05` §3.10.1's five rows that had no column at
+  // all. Pinned in order, because the order is the writer's truncation order and a column added
+  // to the middle of it silently changes which list gets halved first.
+  it('names the twelve columns the budget covers', () => {
     expect(TRACE_JSON_COLUMNS).toEqual([
       'trigger',
+      'router',
+      'binding',
+      'prompt',
+      'output',
+      'cost_by_route',
       'context_manifest',
       'model_calls',
       'tool_calls',

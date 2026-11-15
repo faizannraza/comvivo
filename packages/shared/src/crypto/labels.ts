@@ -53,7 +53,15 @@ export const KEY_PURPOSE = {
   vault: 'vault',
   /** The recovery-key slot's own derivation (`08` §3.7.4). */
   rkSlot: 'rk-slot',
-  /** Column encryption, used only in the `02` §3.6.5 plaintext fallback. */
+  /**
+   * Column encryption (`08` §3.7.2).
+   *
+   * Two users, and the note here used to name only the first: `02` §3.6.5's plaintext-fallback
+   * mode, where content columns carry their own envelope because the database does not; and
+   * `05` §3.10.1's `turn_trace_debug`, **unconditionally** — the rendered prompts and responses
+   * are the most sensitive thing this product stores, and "host-only" has to mean that a
+   * dashboard query cannot render them even on an encrypted database. Corrected at `M3-T20`.
+   */
   field: 'field',
   /** Blind-token FTS, used only in the `02` §3.6.5 plaintext fallback. */
   ftsToken: 'fts-token',
@@ -185,6 +193,17 @@ export const AAD = {
 
   /** A vault entry, bound to its key path (`08` §3.7.2). */
   vaultEntry: (path: string): string => `${DOMAIN}/vault/${VERSION}|${path}`,
+
+  /**
+   * A `turn_trace_debug` row (`05` §3.10.1; `M3-T20`).
+   *
+   * Bound to the **turn**, which is its primary key, so a ciphertext cannot be moved from one
+   * turn's row to another's. That matters more here than for most columns: the plaintext is the
+   * rendered prompt and response, so a swapped row would attribute one group's conversation to
+   * another turn — and the one reader of this column is a host debugging, who would have no way
+   * to tell.
+   */
+  traceDebug: (turnId: string): string => `${DOMAIN}/trace-debug/${VERSION}|${turnId}`,
 } as const;
 
 /** The file magics (`08` §3.7.10, §3.7.11). Four bytes each, and equally frozen. */

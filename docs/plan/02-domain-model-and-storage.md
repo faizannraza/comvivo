@@ -1433,7 +1433,7 @@ Tables for 06 onboarding, 09 auth, 10 extensions and 11 feedback are in §3.3.11
 | `private_constraint_policies.*` | `ConstraintTypeSchema[]`, `SensitivityCeilingsSchema` | 03 | 4 KiB |
 | `turns.trigger_message_ids` / `.failure` | `MessageId[] ≤ 50` / `TurnFailureSchema` | 05 | — |
 | `turn_effects.summary_params` / `.entity_refs` | `EffectSummaryParamsSchema` (`Record<string, string \| number \| boolean>`, ≤ 20 keys) / `EntityRef[] ≤ 50` | 05 | 4 KiB |
-| `turn_traces.*` | `TraceTriggerSchema`, `ContextManifestSchema` (ids + label ids only), `ModelCallTraceSchema`, `ToolCallTraceSchema`, `PolicyDecisionTraceSchema`, `GuardResultTraceSchema`, `LatencyTraceSchema` | 05 | 512 KiB total |
+| `turn_traces.*` | `TraceTriggerSchema`, `TraceRouterSchema`, `TraceBindingSchema`, `TracePromptSchema`, `TraceOutputSchema`, `TraceCostSchema`, `ContextManifestSchema` (ids + label ids only), `ModelCallTraceSchema` (typed at `M3-T20`), `ToolCallTraceSchema`, `PolicyDecisionTraceSchema`, `GuardResultTraceSchema`, `LatencyTraceSchema` | 05 | 512 KiB total; twelve columns at 128 KiB each, so the **combined** cap is what binds (`M3-T20`) |
 | `audit_events.actor` / `.decision` / `.details` | `AuditActorSchema`, `AuditDecisionSchema`, `AuditDetailsSchema` (no free text) | 03 | 4 KiB |
 | `outbox_messages.payload` | `OutboundPayloadSchema` (`@comvivo/core/domain/outbound`, §12 P1) | 05/06 | 64 KiB |
 | `jobs.payload` | per-kind `JobKindDef.payload` (§3.10.1) | each kind's owner | 64 KiB |

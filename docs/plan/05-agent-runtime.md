@@ -1634,6 +1634,19 @@ Notes:
 ### 3.10 Traces and "why" (I)
 
 #### 3.10.1 `TurnTrace` (manifests only)
+
+Implemented at `M3-T20`: `packages/engine/src/trace/trace-writer.ts` accumulates a turn's sections
+and writes one row inside the turn's own commit. Five of the rows below had **no column** in `02`
+§3.3.9 — `router`, `binding`, `prompt`, `output` and `cost`'s per-route breakdown — and migration
+`0006` adds them; the first four are nullable, and `NULL` means "that phase did not happen", which
+a turn refused at a gate genuinely has for the prompt and the output. `ModelCallTraceSchema` stops
+being a deferred storage contract in the same commit: it is the typed shape of the `modelCalls[]`
+row below.
+
+**The no-content rule is tested by scanning the serialised row** for the strings a turn handled, not
+by reviewing the fields. A field added later with a plausible name is how content reaches a trace,
+and a reviewer reading a diff does not see it.
+
 | Field | Content |
 |---|---|
 | `trigger` | Kind, message ids, `coalescedIds`, `retryOf?`, `parentTurnId?` |
@@ -1646,12 +1659,13 @@ Notes:
 | `policyDecisions[]` | Kind, reason code, capability |
 | `guardResults[]` | Result kind, reason code, judge used, latency, `recordId` (I5) |
 | `output` | Part count, mentions count, links stripped, reaction ack |
-| `cost` | Micro-USD by route |
+| `cost` | Micro-USD by route, in `cost_by_route`, **plus** the `cost_micros` total. Both, because Q-USE-1 aggregates the total over many rows and cannot sum a JSON column on the budget path, while the breakdown is what explains a turn that cost what it did. The total is accumulated per call rather than summed from the stored list, so a `modelCalls` list the 512 KiB budget truncated still reports the whole spend (`M3-T20`) |
 | `latency` | Phase durations |
 | `outcome` | Status, error codes |
 
 - **Retention.** `traces.retentionDays`: default 30, configurable 7–365 (11 §5, 08 §3.16.2). Traces hold manifests, never content (see `contextManifest`). Doc 02 handles deletion.
 - **Debug content.** `COMVIVO_DEBUG_CONTENT=1` additionally stores the rendered requests and responses in `turn_trace_debug`: encrypted, 24 h TTL, host-only, never exported. A startup banner warns that it is on.
+  - Implemented at `M3-T20` with five fences rather than four. The flag is read in **one place** — a caller offers the capture unconditionally and the writer decides — so a caller that forgot to check cannot leak anything. The payload is sealed through a one-function port (`SealDebugCapture`), so the `field` purpose key never enters `packages/engine`; `08` §3.7.2's `field` purpose therefore has two users, not just `02` §3.6.5's fallback mode. The AAD binds the ciphertext to its **turn** (`AAD.traceDebug`), because a row moved between turns would attribute one group's conversation to another and the only reader is a host debugging. The TTL is 24 h **from the write**, not the trace's retention, so the capture disappears whether or not anybody remembers to turn the flag off. And a writer constructed with the flag on and no seal **refuses at construction**: the alternative is a process that runs normally until the first turn finishes and then stores a prompt in the clear.
 
 #### 3.10.2 Who may see what
 | Viewer | May see |

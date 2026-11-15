@@ -223,8 +223,14 @@ describe('02 §3.3.9 JSON column catalog', () => {
     // thirteen `<table>.*` wildcards (49 → 62) once the parser stopped dropping them, the schema
     // gained three JSON columns on the new channel tables (99 → 102), and the gap list shrank to
     // the columns genuinely absent from §3.3.9 (57 → 19).
+    //
+    // 107 since `M3-T20`, which added `05` §3.10.1's five sections to `turn_traces`. The catalog
+    // count and the gap list are unchanged because §3.3.9 covers that table with a `turn_traces.*`
+    // wildcard — which is the wildcard mechanism working as intended: a table whose columns are
+    // one subsystem's own gets one row in the catalog, and §3.3.9's row was updated to name the
+    // five new schemas in the same commit.
     expect(inCatalog.size).toBe(62);
-    expect(jsonColumns).toHaveLength(102);
+    expect(jsonColumns).toHaveLength(107);
     expect(absent).toHaveLength(19);
   });
 

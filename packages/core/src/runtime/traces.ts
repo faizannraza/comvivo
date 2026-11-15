@@ -107,17 +107,174 @@ export const TraceTriggerSchema = storageContract(
 );
 
 /**
- * `turn_traces.model_calls` — a **storage contract**.
+ * `turn_traces.model_calls`: one row of `05` §3.10.1's `modelCalls[]`.
  *
- * `M5` owns what a model call records; `11` §12-1 already fixes one field of it (`requestHash`).
- * Pinned here: an array of JSON objects, bounded in both length and bytes, so a runaway tool loop
- * cannot write an unbounded trace.
+ * Tightened from a free-form object at `M3-T20`, which owns `05` §3.10. Every field is a number,
+ * an enum or a hash — **nothing here is content**, which is what lets a trace be shown to a member
+ * whose own message produced the call.
+ *
+ * `cacheReadRatio` is stored rather than derived, and that is deliberate: it is the number
+ * `01` §14 A32 is about, and deriving it at render time means every reader has to agree on the
+ * denominator. Here it is `cacheRead / (input + cacheRead)` computed once, by the writer that had
+ * the iteration in hand.
+ *
+ * The four token fields are separate for the reason `02` §3.3.7 gives about `usage_records`:
+ * cache writes are charged by TTL and cache reads at a tenth of input, so a single `inputTokens`
+ * would make the cost unreproducible from the record.
  */
-export const ModelCallTraceSchema = storageContract(
-  'ModelCallTraceSchema',
-  jsonObjectShape,
+export const ModelCallTraceSchema = capped(
+  z.object({
+    /** `05` §3.5's `ModelRoute`, as a string so `traces.ts` does not import the model port. */
+    route: z.string().max(24),
+    variant: z.enum(['default', 'economy']),
+    provider: z.string().max(32),
+    requestedModel: z.string().max(80),
+    /** `05` S9: the model that **answered**, which the refusal fallback can change. */
+    servedModel: z.string().max(80),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
+    /** Which step of the agent loop this call was, from 1. */
+    step: z.int().min(1).max(100),
+    stopReason: z.string().max(32),
+    /** `05` §3.5.3.2's refusal category, when the stop reason was `refusal`. */
+    refusalCategory: z.string().max(60).nullable(),
+    inputTokens: z.int().min(0),
+    cacheReadTokens: z.int().min(0),
+    cacheWriteTokens: z.int().min(0),
+    outputTokens: z.int().min(0),
+    reasoningTokens: z.int().min(0),
+    /** `cacheRead / (input + cacheRead)`, or 0 when there was no input at all. */
+    cacheReadRatio: z.number().min(0).max(1),
+    ttftMs: z.int().min(0).nullable(),
+    latencyMs: z.int().min(0),
+    /** `11` §12-1: what a replay compares to decide whether the request itself moved. */
+    requestHash: z.string().max(64),
+    /** How many times the adapter rewrote the request (betas withdrawn, parts dropped). */
+    inputTransformations: z.int().min(0),
+  }),
+  TRACE_COLUMN_MAX_BYTES,
   'model call trace',
 );
+
+export type ModelCallTrace = z.infer<typeof ModelCallTraceSchema>;
+
+/**
+ * `turn_traces.router`: `05` §3.10.1's `router` row.
+ *
+ * Written by `M3-T21`. Here because §3.10.1 is `M3-T20`'s section and the trace has to have
+ * somewhere to put it — `02` §3.3.9's column list predated §3.10.1 being implemented, and five of
+ * its thirteen rows had no column. `/why` reads this one first: "You asked me directly" is
+ * `ruleId` plus `reason`.
+ *
+ * `classifierSignals` is a bounded map of numbers, not the classifier's output text. A signal is a
+ * score; the message that produced it is in `contextManifest.messageIds`.
+ */
+export const TraceRouterSchema = capped(
+  z.object({
+    /** `05` §3.2.1's R0–R13. */
+    ruleId: z.string().max(16),
+    /** A reason **code**, not a sentence: `05` §3.11's copy renders the sentence. */
+    reason: z.string().max(60),
+    planning: z.boolean(),
+    effort: z.enum(['low', 'medium', 'high', 'xhigh', 'max']),
+    /** A BCP 47 tag the router inferred, or `null` when it could not tell. */
+    languageHint: z.string().max(35).nullable(),
+    classifierSignals: z.record(z.string().max(40), z.number()).optional(),
+  }),
+  TRACE_COLUMN_MAX_BYTES,
+  'trace router',
+);
+
+export type TraceRouter = z.infer<typeof TraceRouterSchema>;
+
+/**
+ * `turn_traces.binding`: `05` §3.10.1's `binding` row — who asked, and who could read the answer.
+ *
+ * This is the **I3 (requester authority)** record. `requesterPrincipal` is the principal the turn
+ * ran as, `audienceReaderSetId` is the interned audience, and `capabilitySetHash` is what the
+ * requester was allowed to do at that moment — so a reviewer can tell a turn that was permitted
+ * from one that would be permitted now.
+ *
+ * `includesMinor` is a boolean and not a list of ids, because `03` §3.5's rules turn on *whether*
+ * a minor was in the audience and naming them in a retained artefact would be the leak the rule
+ * exists to prevent.
+ */
+export const TraceBindingSchema = capped(
+  z.object({
+    requesterPrincipal: z.string().max(60),
+    audienceReaderSetId: z.int().min(1),
+    includesMinor: z.boolean(),
+    capabilitySetHash: z.string().max(64),
+  }),
+  TRACE_COLUMN_MAX_BYTES,
+  'trace binding',
+);
+
+export type TraceBinding = z.infer<typeof TraceBindingSchema>;
+
+/**
+ * `turn_traces.prompt`: `05` §3.10.1's `prompt` row — which prompt, by version and hash.
+ *
+ * Separate from `replay` even though both hold hashes, because they answer different questions.
+ * `replay` is `11` §12-1's reproduction set — the inputs a replay pins. This is the prompt's own
+ * **structure**: which charter, which profile, and the four cache-breakpoint hashes `05` §3.4.8
+ * keys the prompt cache on, so a cache miss can be attributed to the layer that moved.
+ *
+ * `partTokens` is per cache breakpoint rather than per message: `05` §3.4.8 has four, and the
+ * estimate is what makes a cache-read ratio interpretable.
+ */
+export const TracePromptSchema = capped(
+  z.object({
+    charterVersion: z.string().max(40),
+    profile: z.string().max(40),
+    catalogHash: z.string().max(64),
+    globalHash: z.string().max(64),
+    groupLayerHash: z.string().max(64),
+    turnSkeletonHash: z.string().max(64),
+    partTokens: z.array(z.int().min(0)).max(16),
+  }),
+  TRACE_COLUMN_MAX_BYTES,
+  'trace prompt',
+);
+
+export type TracePrompt = z.infer<typeof TracePromptSchema>;
+
+/**
+ * `turn_traces.output`: `05` §3.10.1's `output` row — the shape of what was sent.
+ *
+ * Counts only. `05` §3.10.1 writes "Part count, mentions count, links stripped, reaction ack", and
+ * every one of those is a number because the **text** of the reply is the one thing a member can
+ * already see and a trace must not outlive: the reply is in `messages`, which has its own
+ * retention, and `03` §3.7's erasure removes it there.
+ */
+export const TraceOutputSchema = capped(
+  z.object({
+    partCount: z.int().min(0),
+    mentionsCount: z.int().min(0),
+    linksStripped: z.int().min(0),
+    reactionAck: z.boolean(),
+  }),
+  TRACE_COLUMN_MAX_BYTES,
+  'trace output',
+);
+
+export type TraceOutput = z.infer<typeof TraceOutputSchema>;
+
+/**
+ * `turn_traces.cost_by_route`: `05` §3.10.1's `cost` row — micro-USD **by route**.
+ *
+ * `cost_micros` already holds the total, and a reader could sum this to get it. Both exist because
+ * they are read by different things for different reasons: the total is a column a budget query
+ * aggregates (Q-USE-1), and the breakdown is what tells a host that a turn cost what it did
+ * because the guard ran four times. Summing a JSON column per row is not a query `02` wants on
+ * the budget path.
+ */
+export const TraceCostSchema = capped(
+  z.record(z.string().max(24), z.int().min(0)),
+  TRACE_COLUMN_MAX_BYTES,
+  'trace cost by route',
+);
+
+export type TraceCost = z.infer<typeof TraceCostSchema>;
 
 /** `turn_traces.tool_calls` — a **storage contract**; `M5` owns the interior. */
 export const ToolCallTraceSchema = storageContract(
@@ -143,9 +300,17 @@ export const GuardResultTraceSchema = storageContract(
 /** The combined budget `02` §3.3.9 sets for one trace row's JSON columns. */
 export const TRACE_TOTAL_BUDGET_BYTES = TRACE_TOTAL_MAX_BYTES;
 
-/** The seven `turn_traces` JSON columns the combined budget covers (`02` §3.3.9). */
+/** The twelve `turn_traces` JSON columns the combined budget covers (`02` §3.3.9). */
 export const TRACE_JSON_COLUMNS = [
   'trigger',
+  // `M3-T20`: `05` §3.10.1's five rows that had no column. The combined budget covers them for
+  // the same reason it covers the others — twelve columns at 128 KiB each is 1.5 MiB, and the
+  // 512 KiB cap is what makes the writer's truncation the bound that actually holds.
+  'router',
+  'binding',
+  'prompt',
+  'output',
+  'cost_by_route',
   'context_manifest',
   'model_calls',
   'tool_calls',
@@ -176,8 +341,8 @@ export function traceRowBytes(row: Partial<Record<TraceJsonColumn, unknown>>): n
 /**
  * Whether a trace row fits `02` §3.3.9's **combined** 512 KiB budget.
  *
- * The per-column caps are 128 KiB each and there are seven columns, so a row can satisfy every
- * individual cap and still be ~896 KiB — the combined budget was published as a constant with
+ * The per-column caps are 128 KiB each and there are twelve columns, so a row can satisfy every
+ * individual cap and still be ~1.5 MiB — the combined budget was published as a constant with
  * nothing reading it, which made it a number in a spec rather than a bound. Found by the M1
  * independent review.
  *

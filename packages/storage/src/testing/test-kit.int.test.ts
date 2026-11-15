@@ -74,11 +74,10 @@ describe('createTestDb', { tags: ['db'] }, () => {
       // The bookkeeping table travels with the image, so a clone knows it is migrated.
       expect(
         (db.prepare(`SELECT count(*) AS n FROM ${MIGRATIONS_TABLE}`).get() as { n: number }).n,
-        // Six since `M3-T1`: the two M1 migrations, `0002`'s channel and onboarding tables,
-        // `0003`'s guards for them, and `0004`/`0005`'s two corrections from writing the
-        // repositories — a unique index on the claim code's link token and a redeemer constraint
-        // that no longer forces a cancellation to erase who redeemed.
-      ).toBe(6);
+        // Seven since `M3-T20`: the two M1 migrations, `0002`'s channel and onboarding tables,
+        // `0003`'s guards for them, `0004`/`0005`'s two corrections from writing the repositories,
+        // and `0006`'s five trace sections from `05` §3.10.1.
+      ).toBe(7);
     } finally {
       db.close();
     }

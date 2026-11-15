@@ -550,6 +550,9 @@ importers:
       intl-messageformat:
         specifier: 'catalog:'
         version: 12.1.5
+      temporal-polyfill:
+        specifier: 'catalog:'
+        version: 1.0.6
     devDependencies:
       '@comvivo/models':
         specifier: workspace:*

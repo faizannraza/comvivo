@@ -157,6 +157,14 @@ export class SqliteTraceRepository implements TraceReader, TraceRepository {
     const labelId = this.#labels.intern(uow, label);
     const { keep, truncation } = fitBudget({
       trigger: trace.trigger,
+      // `05` §3.10.1's five sections (`M3-T20`). In the budget calculation because the combined
+      // cap covers every JSON column, and an absent section contributes nothing — `traceRowBytes`
+      // skips `undefined`, which is why they can be passed as they are.
+      router: trace.router,
+      binding: trace.binding,
+      prompt: trace.prompt,
+      output: trace.output,
+      cost_by_route: trace.costByRoute ?? {},
       context_manifest: trace.contextManifest,
       latency: trace.latency,
       model_calls: trace.modelCalls,
@@ -176,6 +184,10 @@ export class SqliteTraceRepository implements TraceReader, TraceRepository {
             labelId,
             trigger: trace.trigger,
             disposition: trace.disposition,
+            router: trace.router ?? null,
+            binding: trace.binding ?? null,
+            prompt: trace.prompt ?? null,
+            output: trace.output ?? null,
             contextManifest: trace.contextManifest,
             // Sliced here rather than inside `fitBudget`, so each column keeps its own element
             // type: the four are storage contracts whose interiors `M4` and `M5` own, and a helper
@@ -185,6 +197,7 @@ export class SqliteTraceRepository implements TraceReader, TraceRepository {
             policyDecisions: trace.policyDecisions.slice(0, keep.policy_decisions),
             guardResults: trace.guardResults.slice(0, keep.guard_results),
             costMicros: trace.costMicros,
+            costByRoute: trace.costByRoute ?? {},
             latency: trace.latency,
             replay: trace.replay,
             expiresAt: trace.expiresAt,
