@@ -47,10 +47,12 @@ describe('every storage error code is classified', () => {
 
   it('lists every member of the union, so the loop above is not short', () => {
     // The array is hand-written beside the union, so the two can drift. The count is pinned
-    // because a silent shrink would make the loop pass over whatever was removed. 39 since
-    // `STORAGE_TX_FOREIGN` was added at the M1 exit gate for a transaction `SqliteStore` did not
-    // open (38 at `M1-T26`, when `AUDIT_REANCHOR_FAILED` arrived for `08` §3.16.2's re-anchor).
-    expect(STORAGE_ERROR_CODES).toHaveLength(39);
+    // because a silent shrink would make the loop pass over whatever was removed. 40 since
+    // `M3-T1`, where `I4_PARENT_GROUP_MISMATCH` turned out to be raised by the guard triggers and
+    // mapped by nothing — so a cross-group write reported "a write broke a database constraint",
+    // naming neither the invariant nor the table (39 at the M1 exit gate with `STORAGE_TX_FOREIGN`
+    // for a transaction `SqliteStore` did not open; 38 at `M1-T26` with `AUDIT_REANCHOR_FAILED`).
+    expect(STORAGE_ERROR_CODES).toHaveLength(40);
     expect(new Set(STORAGE_ERROR_CODES).size).toBe(STORAGE_ERROR_CODES.length);
   });
 

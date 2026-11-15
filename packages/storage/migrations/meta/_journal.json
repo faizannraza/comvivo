@@ -29,6 +29,20 @@
       "when": 1794707306369,
       "tag": "0003_channel_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794708498591,
+      "tag": "0004_claim_link_token_unique",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794708644703,
+      "tag": "0005_link_code_redeemer_check",
+      "breakpoints": true
     }
   ]
 }

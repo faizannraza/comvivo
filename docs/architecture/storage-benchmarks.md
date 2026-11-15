@@ -84,6 +84,7 @@ the budgets.
 | Operation | p50 | p95 | Budget | |
 |---|---|---|---|---|
 | Ingestion transaction (insert + FTS trigger + enqueue) | 0.65 ms | **0.93 ms** | ≤ 3 ms of the 20 ms spine budget | ✅ 31% |
+| Ingestion transaction with an attachment (A25: ref + fetch enqueue) | 0.83 ms | **1.41 ms** | ≤ 3 ms, the same budget | ✅ 47% |
 | Recent window, 50 messages (Q-CTX-1) | 0.64 ms | **0.71 ms** | 5 ms | ✅ 14% |
 | Memory FTS (Q-CTX-2), word mode | 0.15 ms | **0.16 ms** | 20 ms | ✅ 1% |
 | Memory FTS, trigram mode | 1.37 ms | **1.49 ms** | 30 ms | ✅ 5% |
@@ -98,6 +99,15 @@ the budgets.
 
 Every row is inside its budget, so there is no deviation to file in `15`. The percentage is the p95
 against the budget.
+
+**The attachment row is `M3-T1`'s fourth acceptance criterion** — "ingestion p95 ≤ 3 ms unchanged
+with attachments" — and it is reported as a comparison rather than as a single number, because
+"unchanged" is a claim about two measurements. It is not unchanged: 0.85 ms → 1.41 ms p95 on the
+same fixture and the same run, which is an extra `INSERT` and an extra `enqueue` inside the same
+transaction, both priced. What holds is the **budget**, at 47% of it. The figure worth watching is
+this one rather than the absolute: a photo-heavy chat is the ordinary case on Telegram and
+WhatsApp, and the thing a relaxed budget on this row would hide is `01` §14 A25 being broken —
+ingestion downloading a file instead of recording a ref.
 
 The queue's own round trip is the one row whose budget is a **floor** rather than a ceiling:
 `11` §3.9.1's `B4` asks for ≥ 500 jobs/s, and `micro:queue.roundtrip` measures the enqueue → claim

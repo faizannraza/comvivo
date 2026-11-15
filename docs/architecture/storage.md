@@ -36,7 +36,7 @@ reference is [`schema.md`](./schema.md); the measured cost of each read and writ
 builder and the `dbstat` size reader, none of which ship. `spike/` is the encryption spike's
 permanent regression suite (`02` M1-T2).
 
-## Six rules worth knowing
+## Seven rules worth knowing
 
 1. **A transaction never spans an `await`.** better-sqlite3 is synchronous, and an `await` inside a
    transaction yields the event loop while holding a write lock. `SqliteStore.write(fn)` takes a
@@ -75,7 +75,19 @@ permanent regression suite (`02` M1-T2).
    row is parsed on the way out rather than cast. The cost is measured: hydrating 200 memories,
    validation included, is 3.2 ms.
 6. **Forward-only migrations.** There is no `down`. Expand, then contract, across two releases, and
-   read `MIGRATIONS.md` before touching `src/schema/`.
+   read `MIGRATIONS.md` before touching `src/schema/`. The rule has no "but it is not released yet"
+   clause: `0004` and `0005` are one-line corrections to `0002` that landed as new files in the
+   same unmerged branch, because `ddl.int.test.ts` pins an applied migration's bytes and a host who
+   has run `0002` will never run it again.
+7. **A single-use write is one `UPDATE … WHERE`, and the preconditions live in the statement.**
+   Claim codes, link codes and button tokens (`repos/onboarding.ts`) are spent by a conditional
+   write whose row count is the answer; the refusal path then reads the row, only to choose which
+   sentence a member is told. **Never the other way round.** Every one of these was first written
+   as a TypeScript check followed by an `UPDATE` repeating it, which reads as careful and is not:
+   under `BEGIN IMMEDIATE` the pre-read already sees the committed winner, so it produces every
+   refusal and the `WHERE` decides nothing. Measured at `M3-T1` — an eight-thread concurrency test
+   stayed green with `used_at IS NULL` deleted from the statement. The drill that follows from it:
+   delete each `WHERE` term in turn and confirm a test fails.
 
 ## What this package may import
 

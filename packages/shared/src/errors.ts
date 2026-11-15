@@ -164,6 +164,8 @@ export type StorageErrorCode =
   | 'STORAGE_CONSTRAINT'
   | 'I4_LABEL_GROUP_MISMATCH'
   | 'I4_GROUP_IMMUTABLE'
+  /** A child row named a parent in a different group (`02` §3.2 D5's parent-group triggers). */
+  | 'I4_PARENT_GROUP_MISMATCH'
   | 'MEMORY_CONTENT_IMMUTABLE'
   | 'AUDIT_APPEND_ONLY'
   | 'CONSTITUTION_VERSION_IMMUTABLE'
@@ -207,6 +209,7 @@ export const STORAGE_ERROR_CODES: readonly StorageErrorCode[] = [
   'STORAGE_CONSTRAINT',
   'I4_LABEL_GROUP_MISMATCH',
   'I4_GROUP_IMMUTABLE',
+  'I4_PARENT_GROUP_MISMATCH',
   'MEMORY_CONTENT_IMMUTABLE',
   'AUDIT_APPEND_ONLY',
   'CONSTITUTION_VERSION_IMMUTABLE',

@@ -18,6 +18,7 @@
  */
 
 import type {
+  Attachment,
   AuditEvent,
   ChannelIdentity,
   ConfirmationRequest,
@@ -76,6 +77,7 @@ import type {
   memoryItems,
   memorySources,
   memorySubjects,
+  messageAttachments,
   messages,
   outboxMessages,
   persons,
@@ -222,6 +224,31 @@ export function toMessage(row: typeof messages.$inferSelect): Message {
     turnId: opt(row.turnId),
     clientMessageId: opt(row.clientMessageId),
     retentionUntil: opt(row.retentionUntil),
+  };
+}
+
+/**
+ * An attachment row (`02` §3.3.3; `01` §14 **A25**).
+ *
+ * `labelId` is not on the domain type, deliberately: `02` §3.3.3 makes it equal to the message's,
+ * so carrying it would invite a caller to compare the two and decide — which is a decision with
+ * only one correct answer and therefore not a decision.
+ */
+export function toAttachment(row: typeof messageAttachments.$inferSelect): Attachment {
+  return {
+    id: row.id,
+    messageId: row.messageId,
+    groupId: row.groupId,
+    kind: row.kind,
+    fileName: opt(row.fileName),
+    mime: row.mime,
+    sizeBytes: opt(row.sizeBytes),
+    platformRef: row.platformRef,
+    fetchJobId: opt(row.fetchJobId),
+    status: row.status,
+    blobSha256: opt(row.blobSha256),
+    derivedMessageId: opt(row.derivedMessageId),
+    createdAt: row.createdAt,
   };
 }
 

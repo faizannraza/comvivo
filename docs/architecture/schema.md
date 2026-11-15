@@ -5,7 +5,7 @@
 Generated from `packages/storage/src/schema/*.ts` and the migration SQL, so it cannot drift:
 `pnpm run schema:check` fails CI when this file no longer matches the schema it describes.
 
-**86 tables**, 966 columns, 135 indexes, 4 virtual tables and 250 triggers, created by 4 migrations.
+**86 tables**, 966 columns, 136 indexes, 4 virtual tables and 250 triggers, created by 6 migrations.
 
 What this is **not**: the design. `docs/plan/02-domain-model-and-storage.md` §3.3 says why each
 table looks the way it does, `docs/architecture/storage.md` covers the module layout, and
@@ -1230,6 +1230,7 @@ Check constraints: `channel_state_value_len_ck`.
 | index | | columns |
 |---|---|---|
 | `claim_codes_code_hash_unique` | unique | `code_hash` |
+| `claim_codes_link_token_hash_unique` | unique | `link_token_hash` |
 
 ### `interaction_tokens`
 

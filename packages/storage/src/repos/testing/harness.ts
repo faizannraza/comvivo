@@ -25,6 +25,7 @@ import {
   type NotPromise,
 } from '@comvivo/core';
 import {
+  type AttachmentId,
   type AuditId,
   type CalendarSubscriptionId,
   type ChannelIdentityId,
@@ -560,4 +561,9 @@ export function deletionId(tag: string): DeletionId {
 
 export function outboxId(tag: string): OutboxId {
   return `obx_${suffix(tag)}` as OutboxId;
+}
+
+/** `M3-T1`: the caller mints an attachment's id, because A25 enqueues the fetch job first. */
+export function attachmentId(tag: string): AttachmentId {
+  return `att_${suffix(tag)}` as AttachmentId;
 }

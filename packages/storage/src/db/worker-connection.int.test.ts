@@ -17,7 +17,10 @@ import { dirname, join } from 'node:path';
 import { MessageChannel, type MessagePort, Worker } from 'node:worker_threads';
 import { StorageError } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
-import { writeSourcePathsTsconfig } from '../../../../scripts/support/paths-tsconfig.js';
+import {
+  workerModule,
+  writeSourcePathsTsconfig,
+} from '../../../../scripts/support/paths-tsconfig.js';
 import { withDataDir } from '../datadir/testing/data-dir.js';
 import { initDatabase } from './init.js';
 import { openDatabase } from './open.js';
@@ -61,14 +64,15 @@ function startReader(
   // `tsx` so the worker can import the TypeScript it is testing, and `TSX_TSCONFIG_PATH` so it
   // resolves `@comvivo/*` to source rather than to `dist/`. See `writeSourcePathsTsconfig`,
   // which owns the reasoning and is shared with `schema/ddl.int.test.ts`.
-  // `dist/` when it is there, source otherwise — see the note in `read-worker.mjs`. Resolved here
-  // rather than in the worker because the worker is the one place that cannot be relied on to have
-  // TypeScript loading available.
+  // `dist/` while it is current, source otherwise — see `workerModule`, which owns that rule and
+  // the measurement behind it. Resolved here rather than in the worker because the worker is the
+  // one place that cannot be relied on to have TypeScript loading available.
   // Both relative to **this** file (`src/db/`), not to the worker in `src/db/testing/`.
-  const built = new URL('../../dist/db/worker-connection.js', import.meta.url);
-  const modulePath = existsSync(built)
-    ? built.href
-    : new URL('./worker-connection.ts', import.meta.url).href;
+  const modulePath = workerModule(
+    new URL('../../dist/db/worker-connection.js', import.meta.url),
+    new URL('./worker-connection.ts', import.meta.url),
+    new URL('../', import.meta.url),
+  );
 
   const worker = new Worker(WORKER, {
     workerData: { path, modulePath },

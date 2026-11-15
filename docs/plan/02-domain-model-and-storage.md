@@ -1490,7 +1490,8 @@ Secrets (codes, tokens, session ids) are **never stored**: only `sha256` (or HMA
 export const claimCodes = sqliteTable('claim_codes', {      // 06 §3.20.1 ≡ 09 claim_codes; single use, 30 min TTL (01 §14 A27)
   id: tid('clm')('id').primaryKey(),
   kind: text('kind', { enum: ['host', 'group'] }).notNull(),         // host: first claim of the instance; group: admin adds a chat
-  codeHash: blob('code_hash', { mode: 'buffer' }).notNull().unique(), linkTokenHash: blob('link_token_hash', { mode: 'buffer' }),
+  codeHash: blob('code_hash', { mode: 'buffer' }).notNull().unique(),
+  linkTokenHash: blob('link_token_hash', { mode: 'buffer' }).unique(),  // `unique` at M3-T1: redemption matches `code_hash = ? OR link_token_hash = ?`
   channel: text('channel'), groupId: tid('grp')('group_id').references(() => groups.id, { onDelete: 'cascade' }),
   template: text('template'),                                        // archetype template, e.g. 'family@1'
   createdByPersonId: tid('prs')('created_by_person_id').references(() => persons.id),
@@ -1506,7 +1507,12 @@ export const linkCodes = sqliteTable('link_codes', {        // 06 §3.18.1 ident
   state: text('state', { enum: ['issued', 'redeemed', 'confirmed', 'cancelled'] }).notNull(),
   redeemedByIdentityId: tid('chid')('redeemed_by_identity_id'),
   createdAt: createdAt(), expiresAt: instantMs('expires_at').notNull(),          // 10 min
-}, (t) => [index('link_codes_issuer_idx').on(t.issuerPersonId, t.state)]);
+}, (t) => [index('link_codes_issuer_idx').on(t.issuerPersonId, t.state),
+  // A redeemer is required where the state says there is one, and `cancelled` is exempt. Stated as
+  // an equality at first (M3-T1, migration `0005`), which made cancelling a *redeemed* code
+  // require erasing who redeemed it — the one fact a host investigating a leaked code would ask
+  // for. 06 §3.18.1 reaches `cancelled` from both sides, so the constraint has to allow both.
+  check('link_codes_redeemer_ck', sql`CASE ${t.state} WHEN 'issued' THEN ${t.redeemedByIdentityId} IS NULL WHEN 'cancelled' THEN 1 ELSE ${t.redeemedByIdentityId} IS NOT NULL END`)]);
 export const inviteCodes = sqliteTable('invite_codes', {     // 09 §4.6
   id: tid('inv')('id').primaryKey(), codeHash: blob('code_hash', { mode: 'buffer' }).notNull().unique(),
   groupId: tid('grp')('group_id').references(() => groups.id, { onDelete: 'cascade' }), personId: tid('prs')('person_id'),
@@ -2049,7 +2055,9 @@ export interface Store {
 }
 export interface ReadScope {
   readonly groups: GroupReader; readonly members: MemberReader; readonly persons: PersonReader;
-  readonly conversations: ConversationReader; readonly messages: MessageReader; readonly memories: MemoryReader;
+  readonly conversations: ConversationReader; readonly chatBindings: ChatBindingReader;
+  readonly onboarding: OnboardingReader;                       // M3-T1: claim/link codes, button tokens, adapter state, rate limits
+  readonly messages: MessageReader; readonly memories: MemoryReader;
   readonly calendar: CalendarReader; readonly reminders: ReminderReader; readonly tasks: TaskReader;
   readonly lists: ListReader; readonly polls: PollReader; readonly plans: PlanReader; readonly decisions: DecisionReader;
   readonly constitution: ConstitutionReader; readonly proposals: ProposalReader; readonly labels: LabelReader;
@@ -2070,6 +2078,21 @@ Repository method conventions:
 - Labeled reads require an `EligibleLabelSet`, or are explicitly named `…Unfiltered` and import-restricted to `engine/tools-executor`, `engine/retention` and `storage` internals (dependency-cruiser rule).
 - Writes return discriminated unions: `{ kind: 'ok', value } | { kind: 'conflict' } | { kind: 'not_found' } | { kind: 'duplicate', existingId }`.
 - Infrastructure failures throw `StorageError` (§4.3).
+
+**The conditional write.** Four methods on `OnboardingRepository` spend something single-use —
+`redeemClaimCode`, `redeemLinkCode`, `confirmLinkCode`, `spendInteractionToken` — and each is one
+`UPDATE … WHERE <every precondition>`, with the row count as the answer. `02` D10's `BEGIN
+IMMEDIATE` and `C1` make a competing redemption serialise rather than interleave, so the condition
+is belt and braces today; it is what holds if the transaction mode ever changes, and `M3-T1`
+measured why it must not be replaced by a TypeScript check. **The preconditions live in the
+statement, never above it.** The first implementation checked all five in TypeScript and repeated
+them in the `WHERE`, which reads as careful and is not: the pre-read already sees the committed
+winner, so it produced every refusal and the `WHERE` decided nothing — deleting `used_at IS NULL`
+from it left an eight-thread concurrency test green. Each method therefore writes first and reads
+only on the refusal path, to choose which of five sentences a member is told. There is deliberately
+**no `lost_race` result arm**: under `BEGIN IMMEDIATE` the loser's `UPDATE` matches zero rows with
+`used_at` already set, which is `already_used`, and an arm no execution can reach would read as
+proof the implementation handles a case it never sees.
 
 Example port:
 ```ts
@@ -2849,6 +2872,7 @@ Audit growth dominates long-run size in busy groups. If it exceeds 25% of the DB
 > | Operation | p50 | p95 | Budget | p95 of budget |
 > |---|---|---|---|---|
 > | Ingestion transaction | 0.65 ms | 0.93 ms | ≤ 3 ms | 31% |
+> | Ingestion transaction with an attachment (`M3-T1`, A25) | 0.83 ms | 1.41 ms | ≤ 3 ms | 47% |
 > | Recent window, 50 msgs | 0.64 ms | 0.71 ms | 5 ms | 14% |
 > | Memory FTS, word | 0.15 ms | 0.16 ms | 20 ms | 1% |
 > | Memory FTS, trigram | 1.37 ms | 1.49 ms | 30 ms | 5% |
@@ -2955,6 +2979,7 @@ export interface SeedProfile {
 |---|---|---|---|---|
 | `Store`, `UnitOfWork`, `ReadScope`, `NotPromise` | `core/ports/storage/store.ts` | `storage/db/tx.ts` | engine services, tools (via `ToolContext`), apps | 01 §1 atomic effects, §4 |
 | Aggregate repositories (`GroupRepository`, `MemberRepository`, `ConversationRepository`, `ChatBindingRepository`, `MessageRepository`, `MemoryRepository`, `EntityRepository`, `ExtractionCursorRepository`, `CalendarRepository`, `ReminderRepository`, `TaskRepository`, `RotationRepository`, `LedgerRepository`, `ListRepository`, `PollRepository`, `PlanRepository`, `DecisionRepository`, `ProactivityRepository`, `ConstitutionRepository`, `ProposalRepository`, `ConstraintPolicyRepository`, `ConstraintRepository`, `DeclassificationRepository`, `GuardianRepository`, `StandingApprovalRepository`, `ConfirmationRequestRepository`, `ConsentRepository`, `SettingsRepository`, `AuthRepository` (09 tables), `ExtensionRepository` (10 tables), `FeedbackRepository`) | `core/ports/storage/repos/*.ts` | `storage/repos/*.ts` | engine, tools-executor, apps/server (via engine services) | 01 §5, §14 A7 |
+| `OnboardingRepository`, `OnboardingReader` (claim codes, link codes, button tokens, adapter state, rate-limit windows) | `core/ports/storage/repos/channels.ts` | `storage/repos/onboarding.ts` | onboarding and `/link` services (06), interaction dispatch (05), adapters (06 §4.2) | 06 §3.20.1, §3.18.1, §3.7; 01 §14 A27 |
 | `LabelStore` (intern, `groupLabels`), `computeEligible` (pure; core) | `core/ports/storage/labels.ts`, `core/ifc/eligible.ts` | `storage/ifc/label-store.ts` | context builder, tools-executor, export | 01 §7.2 |
 | `MemorySearchPort`, `ContextReadModel` | `core/ports/storage/search.ts` | `storage/readmodels/*` | **`engine/context` and `engine/readmodels` only** (dependency-cruiser); both pass an `EligibleLabelSet` | 01 §14 A11 |
 | `TurnJournal`, `TurnJournalReader`, `TraceRepository` | `core/ports/storage/turns.ts` | `storage/repos/turns.ts` | turn engine, recovery (05) | 01 §1, §5, I7 |

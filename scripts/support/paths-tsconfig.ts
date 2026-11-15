@@ -34,8 +34,9 @@
  * identical source of truth, rather than hand-writing a second map that could drift from the one
  * `tsc`, dependency-cruiser and Vitest all read.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { parseJsonc } from './jsonc.js';
 
 interface PathsFile {
@@ -98,4 +99,55 @@ export function writeSourcePathsTsconfig(
     `${JSON.stringify({ compilerOptions: { paths: sourcePaths(repoRoot) } }, null, 2)}\n`,
   );
   return path;
+}
+
+/**
+ * Pick the module a `worker_threads` worker should import: the build, or the source it came from.
+ *
+ * ## Why this is not simply "the build if it exists"
+ *
+ * It was, and the preference is deliberate — `db/worker-connection.int.test.ts` records the
+ * reason: on the declared Node floor (24.11) `tsx`'s module-customization hooks are not active for
+ * *nested* relative specifiers inside a worker, so a worker that imports a `.ts` module which
+ * itself imports `'../../db/drizzle.js'` dies with `Cannot find module`. Preferring `dist/` makes
+ * the floor leg exercise the artefact a host actually runs, which is the stronger claim anyway.
+ *
+ * What it also did, measured at `M3-T1`, is make a worker test **green against stale bytes**. The
+ * claim-redemption concurrency test was run with `used_at IS NULL` deleted from the conditional
+ * `UPDATE` — the single line the test exists to defend — and it passed, because `pnpm typecheck`
+ * had built `dist/` a moment earlier and the worker imported that. A test that cannot fail when
+ * the code under test is broken is not a test, and nothing in its output said which bytes it ran.
+ *
+ * So: the build wins only while it is **at least as new as** the sources it shadows. On a clean
+ * runner `dist/` is built from the commit under test and still wins; in a working tree with an
+ * edit, the source does. `mtime` is the right comparison because it is what makes "stale" true —
+ * not a hash of inputs, which would be a build system.
+ *
+ * `sourceRoot` is the directory whose newest file decides, normally the package's `src/`.
+ */
+export function workerModule(built: URL, source: URL, sourceRoot: URL): string {
+  const builtPath = fileURLToPath(built);
+  if (!existsSync(builtPath)) return source.href;
+  const builtAt = statSync(builtPath).mtimeMs;
+  return builtAt >= newestMtime(fileURLToPath(sourceRoot)) ? built.href : source.href;
+}
+
+/** The newest `mtime` under `directory`, in milliseconds. `0` when there is nothing to compare. */
+function newestMtime(directory: string): number {
+  let newest = 0;
+  const walk = (at: string): void => {
+    for (const entry of readdirSync(at, { withFileTypes: true })) {
+      const path = join(at, entry.name);
+      if (entry.isDirectory()) {
+        walk(path);
+        continue;
+      }
+      // Only the files a build would consume. A `.tsbuildinfo` or an editor swap file is noise,
+      // and a test fixture that is newer than the build does not make the build stale.
+      if (!/\.(?:ts|mts|cts|mjs|cjs|js|json)$/.test(entry.name)) continue;
+      newest = Math.max(newest, statSync(path).mtimeMs);
+    }
+  };
+  walk(directory);
+  return newest;
 }

@@ -64,8 +64,17 @@ export const claimCodes = sqliteTable('claim_codes', {
   kind: text('kind', { enum: ['host', 'group'] }).notNull(),
   /** `sha256` of the normalised typed code. Never the code. */
   codeHash: blob('code_hash', { mode: 'buffer' }).notNull().unique(),
-  /** `sha256` of the link token, when one was issued. */
-  linkTokenHash: blob('link_token_hash', { mode: 'buffer' }),
+  /**
+   * `sha256` of the link token, when one was issued.
+   *
+   * `unique` for the same reason `code_hash` is, and added at `M3-T1`'s repository half (`0004`)
+   * because writing the redemption is what made it visible: the statement matches
+   * `code_hash = ? OR link_token_hash = ?`, so two rows sharing a link token would be **two**
+   * codes spent by one 22-character token. At 128 bits that is not going to happen — which is the
+   * same thing one could say about the 40-bit typed code, and that column is unique. The index
+   * also makes the deep-link lookup an index hit rather than a scan of 30 days of codes.
+   */
+  linkTokenHash: blob('link_token_hash', { mode: 'buffer' }).unique(),
   /** `NULL` makes the code channel-agnostic (`village group claim` without `--channel`). */
   channel: text('channel'),
   /** `NULL` creates a new group on redemption. */
@@ -119,11 +128,21 @@ export const linkCodes = sqliteTable(
   },
   (t) => [
     index('link_codes_issuer_idx').on(t.issuerPersonId, t.state),
-    // A redeemer is recorded exactly when the state says there is one. A `confirmed` row with no
-    // redeemer would be a link to nobody; a `redeemed` row without one cannot be confirmed.
+    // A redeemer is recorded when the state says there is one, and `cancelled` is exempt.
+    //
+    // `confirmed` with no redeemer would be a link to nobody, and `redeemed` without one cannot be
+    // confirmed — so those two require it. `issued` must not have one, because a redeemer before a
+    // redemption is a row nothing wrote.
+    //
+    // `cancelled` is reached from **both** sides (`06` §3.18.1 invalidates a code typed in a group,
+    // which may already have been redeemed), and the first version of this constraint spelled the
+    // rule as an equality, which made cancelling a redeemed code require **erasing who redeemed
+    // it**. That is the one fact a host investigating a leaked code would ask for, and a constraint
+    // that forces data loss to stay satisfiable is a constraint stated too strongly. Corrected at
+    // `M3-T1`'s repository half (`0005`), with the spec note in `02` §3.3.11.
     check(
       'link_codes_redeemer_ck',
-      sql`(${t.state} IN ('redeemed', 'confirmed')) = (${t.redeemedByIdentityId} IS NOT NULL)`,
+      sql`CASE ${t.state} WHEN 'issued' THEN ${t.redeemedByIdentityId} IS NULL WHEN 'cancelled' THEN 1 ELSE ${t.redeemedByIdentityId} IS NOT NULL END`,
     ),
   ],
 );

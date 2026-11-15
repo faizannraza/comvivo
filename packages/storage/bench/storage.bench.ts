@@ -184,6 +184,83 @@ const benchmarks: readonly ErasedBench[] = [
   }),
 
   defineBench({
+    id: 'B1a',
+    name: 'ingestion transaction with an attachment (A25: ref + fetch enqueue, no download)',
+    unit: 'ms',
+    // `M3-T1`'s fourth acceptance criterion is "ingestion p95 ≤ 3 ms **unchanged** with
+    // attachments", so the budget is `B1`'s and the comparison is between the two rows rather
+    // than against a looser number. The claim it defends is `01` §14 **A25**: ingestion records
+    // the ref and enqueues the fetch, and nothing downloads anything — a budget that had been
+    // relaxed for this row would be the first sign that something does.
+    budget: 3,
+    iterations: 200,
+    warmup: 20,
+    setup: () => {
+      const base = context();
+      const registry = new JobKindRegistry();
+      const extract = registry.register('extract.conversation', {
+        parse: (value: unknown) => value,
+        safeParse: (value: unknown) => ({ success: true as const, data: value }),
+      } as never);
+      // The kind A25 names. Registered here rather than assumed, because `JobKindRegistry` refuses
+      // an unregistered kind and `02` §3.10.1's catalog is what decides its pool and seriality.
+      const fetch = registry.register('attachment.fetch', {
+        parse: (value: unknown) => value,
+        safeParse: (value: unknown) => ({ success: true as const, data: value }),
+      } as never);
+      return { ...base, extract, fetch };
+    },
+    run: (ctx) => {
+      ingested.count += 1;
+      const ordinal = ingested.count;
+      ctx.store.write((uow) => {
+        const messageId = `msg_01jb${String(ordinal).padStart(22, '0')}`;
+        const attachmentId = `att_01jb${String(ordinal).padStart(22, '0')}`;
+        // Enqueue **before** the insert, which is the ordering A25 forces: the job's payload names
+        // the attachment it is to fetch, so the id is the caller's to mint and the row carries the
+        // job it is waiting on. The other order needs a second `UPDATE` to join them, and a second
+        // update is a second place the link can be left unwritten.
+        const queued = ctx.repos.jobs.enqueue(uow, ctx.fetch as never, {
+          partitionKey: ctx.groupId,
+          payload: { attachmentId, messageId } as never,
+          idempotencyKey: `att:${attachmentId}`,
+        });
+        expectWritten(
+          ctx.repos.messages.insert(
+            uow,
+            {
+              id: messageId as never,
+              groupId: ctx.groupId,
+              conversationId: ctx.conversationId,
+              kind: 'member',
+              text: `bench message ${String(ordinal)} with a photo attached`,
+              sentAt: uow.now,
+              receivedAt: uow.now,
+            },
+            ctx.repos.labels.groupLabels(ctx.groupId).values().next().value as never,
+            [
+              {
+                id: attachmentId as never,
+                kind: 'image',
+                fileName: 'kitchen.jpg',
+                mime: 'image/jpeg',
+                sizeBytes: 1_482_301,
+                platformRef: { channel: 'telegram', data: { fileId: `AgACAg${String(ordinal)}` } },
+                ...(queued.kind === 'enqueued' ? { fetchJobId: queued.id } : {}),
+              },
+            ],
+          ),
+          'the message and its attachment',
+        );
+        ctx.repos.jobs.enqueue(uow, ctx.extract as never, {
+          partitionKey: ctx.groupId,
+          payload: { conversationId: ctx.conversationId } as never,
+        });
+      });
+    },
+  }),
+
+  defineBench({
     id: 'micro:storage.recent-window',
     name: 'recent window, 50 messages (Q-CTX-1)',
     unit: 'ms',

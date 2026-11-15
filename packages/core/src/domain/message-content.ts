@@ -4,7 +4,9 @@
  * Both are owned by `06` and both are columns, which is why they live in `core`: `packages/storage`
  * may depend on `core` but never on a channel package (`01` §4 as amended by A11).
  */
+import type { AttachmentId, GroupId, JobId, MessageId } from '@comvivo/shared';
 import { capped, z } from '@comvivo/shared';
+import type { Temporal } from 'temporal-polyfill';
 import type { ChannelId } from './channel.js';
 import { channelIdSchema } from './channel.js';
 
@@ -73,3 +75,78 @@ export const AttachmentRefSchema = capped(
   ATTACHMENT_REF_MAX_BYTES,
   'attachment ref',
 );
+
+// --- Attachments ---------------------------------------------------------------------------------
+
+/**
+ * An attachment's kinds (`02` §3.3.3).
+ *
+ * `voice` is separate from `audio` because they take different media jobs — a voice note is
+ * transcribed and read as speech, a music file is not — and separate from `file` because a
+ * platform tells us which it is and that distinction cannot be recovered from a MIME type.
+ */
+export const ATTACHMENT_KINDS = [
+  'image',
+  'voice',
+  'audio',
+  'video',
+  'document',
+  'file',
+  'sticker',
+] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+
+/**
+ * How far an attachment has got (`02` §3.3.3; `01` §14 **A25**).
+ *
+ * Seven terminal states rather than a boolean plus an error string, because each one is a
+ * different sentence to a member who asked "what did that photo say?" — and because `07`'s digest
+ * must not describe a file it never read. `too_large` and `quota_exceeded` in particular are the
+ * host's settings rather than a failure, so they are not `failed`.
+ */
+export const ATTACHMENT_STATUSES = [
+  'pending',
+  'stored',
+  'too_large',
+  'quota_exceeded',
+  'forbidden',
+  'unsupported',
+  'failed',
+  'expired',
+] as const;
+export type AttachmentStatus = (typeof ATTACHMENT_STATUSES)[number];
+
+/**
+ * An attachment as ingestion records it (`01` §14 **A25**).
+ *
+ * `id` is minted by the **caller**, not by the repository, and that is A25's ordering rather than
+ * a style choice: ingestion enqueues the `attachment.fetch` job *first* — so that the job's
+ * payload can name the attachment it is to fetch — and then writes this row carrying the job's id.
+ * A repository-minted id would make the payload impossible to build without a second update, and a
+ * second update is a second place the link can be left unwritten.
+ *
+ * Nothing is downloaded here. `status` starts `pending`, `blobSha256` is absent, and the file is
+ * still only a `platformRef` — because `01` §14 A25 budgets ingestion at 20 ms and a download is
+ * not something a 20 ms budget can contain.
+ */
+export interface NewAttachment {
+  readonly id: AttachmentId;
+  readonly kind: AttachmentKind;
+  readonly fileName?: string | undefined;
+  readonly mime: string;
+  readonly sizeBytes?: number | undefined;
+  readonly platformRef: AttachmentRef;
+  /** The `attachment.fetch` job that will store it. Absent only when the fetch was never queued. */
+  readonly fetchJobId?: JobId | undefined;
+}
+
+export interface Attachment extends NewAttachment {
+  readonly messageId: MessageId;
+  readonly groupId: GroupId;
+  readonly status: AttachmentStatus;
+  /** Hex `sha256` of the plaintext, once the fetch job has stored it. */
+  readonly blobSha256?: string | undefined;
+  /** The transcript, OCR or PDF-text message the media jobs derived from it. */
+  readonly derivedMessageId?: MessageId | undefined;
+  readonly createdAt: Temporal.Instant;
+}

@@ -40,6 +40,12 @@ import type { Label } from '../../ifc/eligible.js';
 import type { JobQueueTx } from './jobs.js';
 import type { AuditLog, AuditReader } from './repos/audit.js';
 import type {
+  ChatBindingReader,
+  ChatBindingRepository,
+  OnboardingReader,
+  OnboardingRepository,
+} from './repos/channels.js';
+import type {
   CalendarReader,
   CalendarRepository,
   DecisionReader,
@@ -108,6 +114,10 @@ export interface ReadScope extends TxClock {
   readonly identities: ChannelIdentityReader;
   readonly members: MemberReader;
   readonly conversations: ConversationReader;
+  /** `M3-T1`: the Q-ING-2 lookup on every inbound message, before any conversation exists. */
+  readonly chatBindings: ChatBindingReader;
+  /** `M3-T1`: claim codes, link codes, button tokens, adapter state, rate-limit windows. */
+  readonly onboarding: OnboardingReader;
   readonly messages: MessageReader;
   readonly settings: SettingsReader;
   readonly memories: MemoryReader;
@@ -155,6 +165,8 @@ export interface UnitOfWork extends ReadScope, TxToken {
   readonly groupsW: GroupRepository;
   readonly personsW: PersonRepository;
   readonly identitiesW: ChannelIdentityRepository;
+  readonly chatBindingsW: ChatBindingRepository;
+  readonly onboardingW: OnboardingRepository;
   readonly membersW: MemberRepository;
   readonly conversationsW: ConversationRepository;
   readonly messagesW: MessageRepository;

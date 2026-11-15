@@ -124,7 +124,10 @@ describe('migrations.fresh-equals-migrated', { tags: ['db'] }, () => {
       expect(normalizedSchema(migrated)).toEqual(normalizedSchema(fresh));
       // Pinned, not `> 150`. A floor that low cannot tell a schema from a third of one, and the
       // number is the whole premise of the comparison above: two identical halves of *nothing*
-      // are equal. **491** at `M3-T1`: the 471 of the M1 exit gate plus the eight channel and
+      // are equal. **492** at `M3-T1`'s repository half, which added one unique index on
+      // `claim_codes.link_token_hash` (`0004`) — the redemption statement matches either digest,
+      // so two rows sharing a link token would be two codes spent by one token. 491 was the
+      // schema half: the 471 of the M1 exit gate plus the eight channel and
       // onboarding tables of `02` §3.3.11, their ten indexes and the two I4 triggers
       // `chat_bindings` earns by carrying both a `group_id` and a `conversation_id` — a binding
       // whose conversation belongs to another group is a cross-group leak, and the trigger is why
@@ -132,7 +135,7 @@ describe('migrations.fresh-equals-migrated', { tags: ['db'] }, () => {
       // shadow tables and 248 triggers; it was 317 before the M1 gate's group-agreement guards.
       // `STATUS.md`'s `M1-T14` entry records that figure, and this is where the current one lives,
       // because a count in a document nothing runs is a count that rots.
-      expect(normalizedSchema(migrated)).toHaveLength(491);
+      expect(normalizedSchema(migrated)).toHaveLength(492);
     } finally {
       migrated.close();
       fresh.close();
@@ -335,6 +338,11 @@ describe('the migration source reads both layouts', () => {
       // be created before its table, and `0001` runs first. The generator emits one file per wave
       // for that reason.
       '0003_channel_guards',
+      // `M3-T1`'s repository half. Both are corrections to `0002` that are **not** edits to it:
+      // `02` §3.12.3's forward-only rule has no "but it is not released yet" clause, and
+      // `ddl.int.test.ts` pins `0002`'s bytes so one cannot be smuggled in.
+      '0004_claim_link_token_unique',
+      '0005_link_code_redeemer_check',
     ]);
     for (const migration of list) {
       expect(migration.checksum).toMatch(/^[0-9a-f]{64}$/);

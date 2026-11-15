@@ -41,8 +41,9 @@ import { isSqliteError, mapSqliteError } from './errors.js';
  * The reader half of a repository set, as `ReadScope` names them.
  *
  * Spelled out rather than spread wholesale, so a `read` transaction cannot reach a writer by
- * accident: the object `read` hands out has exactly the seven reader properties, and TypeScript's
- * structural typing would otherwise let the writer methods through on the same instances.
+ * accident: the object `read` hands out has exactly `ReadScope`'s reader properties, and
+ * TypeScript's structural typing would otherwise let the writer methods through on the same
+ * instances.
  */
 function readersOf(repos: Repositories): Omit<ReadScope, 'now'> {
   return {
@@ -51,6 +52,8 @@ function readersOf(repos: Repositories): Omit<ReadScope, 'now'> {
     identities: repos.identities,
     members: repos.members,
     conversations: repos.conversations,
+    chatBindings: repos.chatBindings,
+    onboarding: repos.onboarding,
     messages: repos.messages,
     settings: repos.settings,
     memories: repos.memories,
@@ -387,6 +390,8 @@ export class SqliteStore implements Store {
       identitiesW: repos.identities,
       membersW: repos.members,
       conversationsW: repos.conversations,
+      chatBindingsW: repos.chatBindings,
+      onboardingW: repos.onboarding,
       messagesW: repos.messages,
       settingsW: repos.settings,
       labelsW: repos.labels,

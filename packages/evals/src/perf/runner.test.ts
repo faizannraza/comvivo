@@ -213,9 +213,19 @@ describe('the median (11 §3.9.2: "the median of the repetitions")', () => {
   });
 
   it('survives one bad repetition, which is why there are five', async () => {
-    // One repetition takes ten times as long as the other four — a noisy neighbour on a shared
-    // runner, which is exactly the event the median is chosen to absorb. A mean would carry it.
-    const state = { repetition: 0 };
+    // One repetition takes twenty times as long as the other four — a noisy neighbour on a shared
+    // runner, which is exactly the event the median is chosen to absorb. A mean would carry it:
+    // 4.8 ms against the median's 1 ms.
+    //
+    // On a **scripted clock**, not a real one. The first version spun for 1 ms or 20 ms and
+    // asserted `< 10`, which measures the machine's spare capacity as much as the median: it
+    // failed at 11.9 ms during a `pnpm verify` that was sharing the machine with a benchmark run,
+    // because all five repetitions — the four "fast" ones included — took about twelve
+    // milliseconds. An absolute latency bound inside a test suite is the thing
+    // `repos/ingestion.perf.int.test.ts` already records removing, for the same reason: a perf
+    // assertion that flakes gets deleted rather than fixed. The property under test is the
+    // **median across repetitions**, which needs no real time at all.
+    const durations = [1, 1, 1, 1, 1, 1, 20, 20, 20, 1, 1, 1, 1, 1, 1];
     const result = await measure(
       {
         id: 'micro:noisy',
@@ -224,15 +234,16 @@ describe('the median (11 §3.9.2: "the median of the repetitions")', () => {
         iterations: 3,
         warmup: 0,
         repetitions: 5,
-        setup: () => {
-          state.repetition += 1;
-          return state.repetition;
-        },
-        run: (repetition: number) => spin(repetition === 3 ? 20 : 1),
+        run: () => undefined,
       },
-      OPTIONS,
+      { ...OPTIONS, nanos: scriptedNanos(durations) },
     );
-    expect(result.value).toBeLessThan(10);
+    // The third repetition's p95 is 20 ms and the other four are 1 ms, so the median is 1.
+    expect(result.value).toBeCloseTo(1, 1);
+    // Named rather than implied: the mean of those five is 4.8, so this assertion is what
+    // separates "the median absorbed it" from "the machine was quick today".
+    const mean = durations.reduce((total, each) => total + each, 0) / durations.length;
+    expect(result.value).toBeLessThan(mean);
   });
 });
 

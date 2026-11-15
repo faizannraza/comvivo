@@ -60,6 +60,16 @@ export interface MapOptions {
  */
 const RAISED_CODES: readonly StorageErrorCode[] = [
   'I4_LABEL_GROUP_MISMATCH',
+  // The other two `I4` aborts the guard triggers raise. They were **missing**, and the comment
+  // four lines down describes exactly what that cost: `trg_*_parent_group_*` and
+  // `trg_*_group_immutable` fired, the write failed, and the caller was told "a write broke a
+  // database constraint" — which names neither the invariant nor the table. Found at `M3-T1`,
+  // where a test asserting the parent-group abort by name could not see it. The migrations are the
+  // list to check against: `grep -ho "RAISE(ABORT, '[A-Z_]*'" migrations/*.sql | sort -u`, and
+  // `errors.int.test.ts` now does that comparison rather than leaving it to a grep somebody
+  // remembers to run.
+  'I4_GROUP_IMMUTABLE',
+  'I4_PARENT_GROUP_MISMATCH',
   'MEMORY_CONTENT_IMMUTABLE',
   'AUDIT_APPEND_ONLY',
   // Added with the guard triggers in `M1-T13`. Without an entry here the abort still fails the
@@ -121,6 +131,18 @@ const DESCRIPTIONS: Partial<
     hint:
       'This is a bug: read-only connections are for backups, exports and scans, and must not ' +
       'write.',
+  },
+  I4_GROUP_IMMUTABLE: {
+    message: 'a record’s group was changed (I4)',
+    hint:
+      'This is a bug: a row’s `group_id` is fixed when it is written. Moving data between groups ' +
+      'is not an update — it would carry the old group’s labels with it.',
+  },
+  I4_PARENT_GROUP_MISMATCH: {
+    message: 'a record named a parent in another group (I4)',
+    hint:
+      'This is a bug: a child row must name a parent in its own group. Check the `group_id` the ' +
+      'caller passed against the parent it referenced.',
   },
   I4_LABEL_GROUP_MISMATCH: {
     message: 'a record was written with a label from another group (I4)',

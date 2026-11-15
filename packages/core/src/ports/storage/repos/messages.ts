@@ -16,9 +16,14 @@
  *    dependency-cruiser rule and that rule restricts module imports rather than method calls. A
  *    `…Unfiltered` method on this interface would be a restriction the guard cannot express.
  */
-import type { ConversationId, GroupId, MemberId, MessageId } from '@comvivo/shared';
+import type { AttachmentId, ConversationId, GroupId, MemberId, MessageId } from '@comvivo/shared';
 import type { Temporal } from 'temporal-polyfill';
 import type { Message, MessageRid, NewMessage } from '../../../domain/message.js';
+import type {
+  Attachment,
+  AttachmentStatus,
+  NewAttachment,
+} from '../../../domain/message-content.js';
 import type { EligibleLabelSet, Label } from '../../../ifc/eligible.js';
 import type { TxToken, WriteResult } from '../uow.js';
 
@@ -59,6 +64,19 @@ export interface MessageReader {
   ): readonly Message[];
   /** Hydrate ids a search or a trace produced, dropping any this audience may not read. */
   hydrate(ids: readonly MessageId[], eligible: EligibleLabelSet): readonly Message[];
+  /**
+   * A message's attachments, oldest first (`02` §3.3.3; `01` §14 **A25**).
+   *
+   * Not folded into `Message`, and the reason is the hot path: `window` is Q-CTX-1 and runs on
+   * every turn over up to 200 messages, almost none of which have an attachment. A join or an
+   * N+1 there would make the common case pay for the rare one. The context builder asks for the
+   * handful it is going to describe.
+   *
+   * No `EligibleLabelSet` parameter, because an attachment's `label_id` **equals its message's**
+   * (`02` §3.3.3) — so the caller has already been filtered by the read that gave it the message
+   * id, and a second filter here would be a second place the rule is stated.
+   */
+  attachments(groupId: GroupId, messageId: MessageId): readonly Attachment[];
 }
 
 export interface MessageRepository {
@@ -72,7 +90,38 @@ export interface MessageRepository {
    *
    * Returns `duplicate` with the existing message id when Q-ING-1's dedupe key collides.
    */
-  insert(uow: TxToken, message: NewMessage, label: Label): WriteResult<Message>;
+  insert(
+    uow: TxToken,
+    message: NewMessage,
+    label: Label,
+    attachments?: readonly NewAttachment[],
+  ): WriteResult<Message>;
+  /**
+   * Record what the `attachment.fetch` job found (`01` §14 **A25**).
+   *
+   * One method for every outcome rather than a `markStored` and a `markFailed`, because `02`
+   * §3.3.3's seven statuses are not two groups: `too_large` and `quota_exceeded` are the host's
+   * settings working, `forbidden` and `expired` are the platform's answer, and only `failed` is a
+   * failure. A pair of methods would make the caller decide which group each belongs to, and
+   * `07`'s digest reads the status to decide what it may say about a file it never saw.
+   *
+   * `stored` is the only status that carries a blob, and the signature says so: `02` §3.3.3's
+   * `attachments_blob_fk` is a composite key on `(group_id, blob_sha256)`, so a digest on a row
+   * whose group does not own that blob is refused by the database rather than by a check here.
+   */
+  recordAttachmentOutcome(
+    uow: TxToken,
+    groupId: GroupId,
+    id: AttachmentId,
+    outcome:
+      | {
+          readonly status: 'stored';
+          readonly blobSha256: string;
+          readonly sizeBytes: number;
+          readonly mime?: string | undefined;
+        }
+      | { readonly status: Exclude<AttachmentStatus, 'pending' | 'stored'> },
+  ): WriteResult<void>;
   /**
    * Apply a platform edit (`06` §3.24).
    *

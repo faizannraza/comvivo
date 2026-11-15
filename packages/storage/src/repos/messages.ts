@@ -22,26 +22,35 @@
  * that guard's door, since dependency-cruiser restricts imports and not calls.
  */
 import type {
+  Attachment,
+  AttachmentStatus,
   EligibleLabelSet,
   Label,
   Message,
   MessageReader,
   MessageRepository,
   MessageWindow,
+  NewAttachment,
   NewMessage,
   TxToken,
   WriteResult,
 } from '@comvivo/core';
 import { duplicate, notFound, writeOk } from '@comvivo/core';
-import { type ConversationId, type GroupId, type MessageId, StorageError } from '@comvivo/shared';
+import {
+  type AttachmentId,
+  type ConversationId,
+  type GroupId,
+  type MessageId,
+  StorageError,
+} from '@comvivo/shared';
 import { sha256 } from '@comvivo/shared/crypto';
 import { and, asc, desc, eq, gte, inArray, isNotNull, lt, lte, type SQL, sql } from 'drizzle-orm';
 import type { Temporal } from 'temporal-polyfill';
 import { type Db, eqUnindexed, exactlyOne, maybeOne } from '../db/drizzle.js';
 import { isUniqueViolation } from '../db/errors.js';
 import type { LabelStore } from '../ifc/label-store.js';
-import { conversations, messages } from '../schema/index.js';
-import { toMessage } from './rows.js';
+import { conversations, messageAttachments, messages } from '../schema/index.js';
+import { toAttachment, toMessage } from './rows.js';
 
 /** `02` §3.3.3: the dedupe key is the first 16 bytes of the digest, not the whole of it. */
 const DEDUPE_KEY_BYTES = 16;
@@ -179,6 +188,64 @@ export class SqliteMessageRepository implements MessageReader, MessageRepository
   }
 
   /**
+   * A message's attachments, oldest first (`02` §3.3.3; `01` §14 **A25**).
+   *
+   * Scoped on `group_id` as well as `message_id` even though the message id is unique, because
+   * `I4` is a property of the query and not of the data model: a caller that passed an id from
+   * another group must get nothing, and `attachments_message_idx` plus the group equality costs
+   * one comparison to make that structural.
+   */
+  attachments(groupId: GroupId, messageId: MessageId): readonly Attachment[] {
+    return this.#db
+      .select()
+      .from(messageAttachments)
+      .where(
+        and(eq(messageAttachments.messageId, messageId), eq(messageAttachments.groupId, groupId)),
+      )
+      .orderBy(asc(messageAttachments.createdAt), asc(messageAttachments.id))
+      .all()
+      .map(toAttachment);
+  }
+
+  /** Record what the `attachment.fetch` job found (`01` §14 **A25**). */
+  recordAttachmentOutcome(
+    _uow: TxToken,
+    groupId: GroupId,
+    id: AttachmentId,
+    outcome:
+      | {
+          readonly status: 'stored';
+          readonly blobSha256: string;
+          readonly sizeBytes: number;
+          readonly mime?: string | undefined;
+        }
+      | { readonly status: Exclude<AttachmentStatus, 'pending' | 'stored'> },
+  ): WriteResult<void> {
+    const patch =
+      outcome.status === 'stored'
+        ? {
+            status: outcome.status,
+            blobSha256: outcome.blobSha256,
+            sizeBytes: outcome.sizeBytes,
+            // The platform's declared MIME is a hint; the fetch job sniffs the bytes. Only
+            // overwritten when it has an answer, so a job that could not tell leaves the hint.
+            ...(outcome.mime === undefined ? {} : { mime: outcome.mime }),
+          }
+        : // A terminal non-`stored` outcome leaves `blob_sha256` NULL, which is what keeps the row
+          // out of `attachments_blob_idx` and therefore out of blob GC's Q-BLOB-1 scan.
+          { status: outcome.status };
+    const updated = maybeOne(
+      this.#db
+        .update(messageAttachments)
+        .set(patch)
+        .where(and(eq(messageAttachments.id, id), eq(messageAttachments.groupId, groupId)))
+        .returning({ id: messageAttachments.id }),
+    );
+    // `I4`: scoped on the group, so an id from another group is `not_found` rather than a write.
+    return updated === undefined ? notFound() : writeOk(undefined);
+  }
+
+  /**
    * Insert one message, interning its label.
    *
    * Reads the conversation to derive the dedupe key, which is one primary-key lookup — the cost of
@@ -187,7 +254,12 @@ export class SqliteMessageRepository implements MessageReader, MessageRepository
    * `messages` references `groups` and `conversations` separately, so a row naming group A and a
    * conversation in group B satisfies both keys and violates `I4`.
    */
-  insert(uow: TxToken, message: NewMessage, label: Label): WriteResult<Message> {
+  insert(
+    uow: TxToken,
+    message: NewMessage,
+    label: Label,
+    attachments: readonly NewAttachment[] = [],
+  ): WriteResult<Message> {
     const conversation = maybeOne(
       this.#db
         .select({
@@ -244,6 +316,35 @@ export class SqliteMessageRepository implements MessageReader, MessageRepository
           .returning(),
         'the message',
       );
+      // After the message and inside the same transaction, so the `ON DELETE CASCADE` on
+      // `message_id` has something to point at and a rolled-back ingest leaves no orphan refs.
+      // `labelId` is the message's own interned id rather than a second intern of the same label:
+      // `02` §3.3.3 says an attachment's label **equals** its message's, and interning twice would
+      // be two chances to pass a different one.
+      for (const attachment of attachments) {
+        this.#db
+          .insert(messageAttachments)
+          .values({
+            id: attachment.id,
+            messageId: message.id,
+            groupId: message.groupId,
+            kind: attachment.kind,
+            fileName: attachment.fileName ?? null,
+            mime: attachment.mime,
+            sizeBytes: attachment.sizeBytes ?? null,
+            blobSha256: null,
+            // `pending` and nothing else. A25: ingestion records the ref and the fetch job stores
+            // the file, so any other starting status here would be a claim about a download that
+            // has not happened.
+            status: 'pending',
+            platformRef: attachment.platformRef,
+            fetchJobId: attachment.fetchJobId ?? null,
+            derivedMessageId: null,
+            labelId,
+            createdAt: uow.now,
+          })
+          .run();
+      }
       return writeOk(toMessage(row));
     } catch (error) {
       if (!isUniqueViolation(error)) throw error;

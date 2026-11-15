@@ -44,8 +44,10 @@ function seedTurn(db: Database.Database, seeded: ReturnType<typeof seedGroup>, i
 }
 
 describe('I6 is a unique index, not a convention', () => {
-  it('declares exactly these 45 unique indexes', () => {
-    // 45 since `M3-T1`: `chat_bindings_platform_uq` is the Q-ING-2 lookup, and the four
+  it('declares exactly these 46 unique indexes', () => {
+    // 46 since `M3-T1`'s repository half, which made `claim_codes.link_token_hash` unique:
+    // redemption matches `code_hash = ? OR link_token_hash = ?`, so two rows sharing a link token
+    // would be two codes spent by one 22-character token. 45 at the schema half: `chat_bindings_platform_uq` is the Q-ING-2 lookup, and the four
     // `*_hash_unique` indexes are what make a claim, link or interaction token
     // single-valued — a second row with the same digest would be a second grant of the same
     // secret.
@@ -60,6 +62,7 @@ describe('I6 is a unique index, not a convention', () => {
       'channel_identities_platform_uq',
       'chat_bindings_platform_uq',
       'claim_codes_code_hash_unique',
+      'claim_codes_link_token_hash_unique',
       'constitution_versions_group_version_uq',
       'conversations_one_primary_uq',
       'conversations_platform_uq',

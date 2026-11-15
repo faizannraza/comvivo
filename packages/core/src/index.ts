@@ -260,12 +260,18 @@ export {
   type NewMessage,
 } from './domain/message.js';
 export {
+  ATTACHMENT_KINDS,
   ATTACHMENT_REF_MAX_BYTES,
+  ATTACHMENT_STATUSES,
+  type Attachment,
+  type AttachmentKind,
   type AttachmentRef,
   AttachmentRefSchema,
+  type AttachmentStatus,
   FORWARD_INFO_MAX_BYTES,
   type ForwardInfo,
   ForwardInfoSchema,
+  type NewAttachment,
 } from './domain/message-content.js';
 export {
   type Block,
@@ -536,6 +542,27 @@ export {
 } from './ports/storage/jobs.js';
 export type { AuditLog, AuditReader } from './ports/storage/repos/audit.js';
 export { AUDIT_REANCHOR_ACTION } from './ports/storage/repos/audit.js';
+export type {
+  ChatBinding,
+  ChatBindingReader,
+  ChatBindingRepository,
+  ChatBindingStatus,
+  ClaimCode,
+  ClaimCodeKind,
+  ClaimRedemption,
+  LinkCode,
+  LinkCodeState,
+  LinkConfirmation,
+  LinkRedemption,
+  NewChatBinding,
+  NewClaimCode,
+  NewLinkCode,
+  OnboardingReader,
+  OnboardingRepository,
+  RateLimitVerdict,
+} from './ports/storage/repos/channels.js';
+// --- The channel-binding and onboarding ports (02 §3.3.1, §3.3.11; M3-T1) ----------------------
+export { CLAIM_BURN_AFTER } from './ports/storage/repos/channels.js';
 export type {
   CalendarReader,
   CalendarRepository,

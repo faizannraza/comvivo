@@ -19,6 +19,7 @@ import { describe, expect, it } from 'vitest';
 import { dedupeKey } from './messages.js';
 import {
   ABSENT_GROUP,
+  attachmentId,
   conversationId,
   groupLabel,
   member,
@@ -860,6 +861,268 @@ describe('MessageRepository', () => {
         ),
       );
       expect(missing.kind).toBe('not_found');
+    });
+  });
+});
+
+describe('attachments (02 §3.3.3; 01 §14 A25)', () => {
+  /** A group with a conversation, as `withChat` builds but reachable from this block. */
+  function withChat<T>(
+    fn: (
+      world: Parameters<Parameters<typeof withRepos>[0]>[0],
+      conversation: ReturnType<typeof conversationId>,
+    ) => NotPromise<T>,
+  ): T {
+    return withRepos((world) => {
+      const conversation = world.store.write((uow) => {
+        expectWritten(world.repos.persons.create(uow, person('a')), 'person a');
+        expectWritten(world.repos.members.add(uow, member('a', world.groupId)), 'member');
+        return expectWritten(
+          world.repos.conversations.create(uow, {
+            id: conversationId('a'),
+            groupId: world.groupId,
+            channel: 'telegram',
+            platformChatId: 'chat-a',
+            kind: 'group',
+            boundAt: T0,
+          }),
+          'a conversation',
+        ).id;
+      });
+      return fn(world, conversation);
+    });
+  }
+
+  const photo = (tag: string, overrides: Record<string, unknown> = {}) => ({
+    id: attachmentId(tag),
+    kind: 'image' as const,
+    fileName: 'kitchen.jpg',
+    mime: 'image/jpeg',
+    sizeBytes: 1_482_301,
+    platformRef: { channel: 'telegram' as const, data: { fileId: `AgACAg-${tag}` } },
+    ...overrides,
+  });
+
+  function withPhoto<T>(
+    fn: (
+      world: Parameters<Parameters<typeof withRepos>[0]>[0],
+      conversation: ReturnType<typeof conversationId>,
+    ) => NotPromise<T>,
+  ): T {
+    return withChat((world, conversation) => {
+      world.store.write((uow) =>
+        expectWritten(
+          world.repos.messages.insert(
+            uow,
+            {
+              id: messageId('ph'),
+              groupId: world.groupId,
+              conversationId: conversation,
+              kind: 'member',
+              text: 'look at this',
+              sentAt: T0,
+              receivedAt: T0,
+            },
+            groupLabel(world.groupId),
+            [photo('p1f')],
+          ),
+          'a message with a photo',
+        ),
+      );
+      return fn(world, conversation);
+    });
+  }
+
+  it('records the ref and nothing else — A25 forbids a download here', () => {
+    withPhoto((world) => {
+      const [attached] = world.repos.messages.attachments(world.groupId, messageId('ph'));
+      expect(attached).toBeDefined();
+      if (attached === undefined) return;
+      // `pending`, no digest. The fetch job stores the file (`02` §3.11) and then the `media.*`
+      // jobs read it; ingestion's 20 ms budget cannot contain a download, which is the whole of
+      // A25 and the reason this status is the only one `insert` can write.
+      expect(attached.status).toBe('pending');
+      expect(attached.blobSha256).toBeUndefined();
+      expect(attached.derivedMessageId).toBeUndefined();
+      expect(attached.platformRef).toEqual({
+        channel: 'telegram',
+        data: { fileId: 'AgACAg-p1f' },
+      });
+      expect(attached.mime).toBe('image/jpeg');
+      expect(attached.fileName).toBe('kitchen.jpg');
+      // No blob row exists, so `attachments_blob_idx` — Q-BLOB-1's GC scan — has nothing to find.
+      expect((world.db.prepare('SELECT count(*) AS n FROM blobs').get() as { n: number }).n).toBe(
+        0,
+      );
+    });
+  });
+
+  it('carries the fetch job’s id, because the enqueue happens first', () => {
+    withChat((world, conversation) => {
+      // A25's ordering: the job's payload names the attachment, so the id is the caller's to mint
+      // and the row carries the job it waits on. The alternative needs a second `UPDATE` to join
+      // them, which is a second place the link can be left unwritten.
+      const jobId = world.store.write((uow) => {
+        const kind = world.repos.jobKinds.register('attachment.fetch', {
+          parse: (value: unknown) => value,
+          safeParse: (value: unknown) => ({ success: true as const, data: value }),
+        } as never);
+        const queued = world.repos.jobs.enqueue(uow, kind, {
+          partitionKey: world.groupId,
+          payload: { attachmentId: attachmentId('p2f') } as never,
+        });
+        if (queued.kind !== 'enqueued') throw new Error('fixture: the fetch job was not enqueued');
+        expectWritten(
+          world.repos.messages.insert(
+            uow,
+            {
+              id: messageId('ph'),
+              groupId: world.groupId,
+              conversationId: conversation,
+              kind: 'member',
+              text: 'and this one',
+              sentAt: T0,
+              receivedAt: T0,
+            },
+            groupLabel(world.groupId),
+            [photo('p2f', { fetchJobId: queued.id })],
+          ),
+          'a message with a photo',
+        );
+        return queued.id;
+      });
+      expect(world.repos.messages.attachments(world.groupId, messageId('ph'))[0]?.fetchJobId).toBe(
+        jobId,
+      );
+    });
+  });
+
+  it('gives an attachment its message’s label, never a second intern', () => {
+    withPhoto((world) => {
+      // `02` §3.3.3: equal, by construction. Compared in SQL because `Attachment` deliberately
+      // does not carry `labelId` — a caller able to see both could compare them and decide, and
+      // that is a decision with one correct answer.
+      const row = world.db
+        .prepare(
+          `SELECT a.label_id AS attachment, m.label_id AS message
+             FROM message_attachments a JOIN messages m ON m.id = a.message_id`,
+        )
+        .get() as { attachment: number; message: number };
+      expect(row.attachment).toBe(row.message);
+    });
+  });
+
+  it('writes several attachments in one transaction, oldest first', () => {
+    withChat((world, conversation) => {
+      world.store.write((uow) =>
+        expectWritten(
+          world.repos.messages.insert(
+            uow,
+            {
+              id: messageId('ph'),
+              groupId: world.groupId,
+              conversationId: conversation,
+              kind: 'member',
+              text: 'the whole album',
+              sentAt: T0,
+              receivedAt: T0,
+            },
+            groupLabel(world.groupId),
+            [photo('p3f'), photo('p4f', { kind: 'video', mime: 'video/mp4' })],
+          ),
+          'a message with two attachments',
+        ),
+      );
+      const attached = world.repos.messages.attachments(world.groupId, messageId('ph'));
+      expect(attached.map((each) => each.kind)).toEqual(['image', 'video']);
+      // A media group arrives in one transaction with one `created_at`, so the id is what orders
+      // them — without it the second tie-break the order would be the planner's choice.
+      expect(attached.map((each) => each.id)).toEqual([attachmentId('p3f'), attachmentId('p4f')]);
+    });
+  });
+
+  it('returns nothing for a message in another group (I4)', () => {
+    withPhoto((world) => {
+      expect(world.repos.messages.attachments(world.otherGroupId, messageId('ph'))).toEqual([]);
+    });
+  });
+
+  it('records a stored outcome with its digest and measured size', () => {
+    withPhoto((world) => {
+      const sha256 = 'a'.repeat(64);
+      world.store.write((uow) => {
+        // The blob has to exist first: `attachments_blob_fk` is composite on
+        // `(group_id, blob_sha256)`, so a digest naming a blob of another group is refused by the
+        // database rather than by a check in the repository.
+        world.db
+          .prepare(
+            `INSERT INTO blobs
+               (group_id, sha256, size_bytes, mime, storage_addr, wrapped_dek, wrap_nonce,
+                kek_version, state, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'stored', ?)`,
+          )
+          .run(
+            world.groupId,
+            sha256,
+            1_482_301,
+            'image/jpeg',
+            `addr-${sha256}`,
+            Buffer.alloc(48),
+            Buffer.alloc(24),
+            1,
+            T0.epochMilliseconds,
+          );
+        expectWritten(
+          world.repos.messages.recordAttachmentOutcome(uow, world.groupId, attachmentId('p1f'), {
+            status: 'stored',
+            blobSha256: sha256,
+            sizeBytes: 1_482_301,
+            mime: 'image/png',
+          }),
+          'the outcome',
+        );
+      });
+      const [attached] = world.repos.messages.attachments(world.groupId, messageId('ph'));
+      expect(attached?.status).toBe('stored');
+      expect(attached?.blobSha256).toBe(sha256);
+      // The sniffed type overwrites the platform's declared one, which was `image/jpeg`.
+      expect(attached?.mime).toBe('image/png');
+    });
+  });
+
+  it('records a refusal without a digest, so blob GC never sees the row', () => {
+    withPhoto((world) => {
+      world.store.write((uow) =>
+        expectWritten(
+          world.repos.messages.recordAttachmentOutcome(uow, world.groupId, attachmentId('p1f'), {
+            status: 'too_large',
+          }),
+          'the outcome',
+        ),
+      );
+      const [attached] = world.repos.messages.attachments(world.groupId, messageId('ph'));
+      // `too_large` is the host's setting working, not a failure — which is why `02` §3.3.3 has
+      // seven statuses rather than a boolean and an error string.
+      expect(attached?.status).toBe('too_large');
+      expect(attached?.blobSha256).toBeUndefined();
+    });
+  });
+
+  it('refuses an outcome for an attachment of another group (I4)', () => {
+    withPhoto((world) => {
+      expect(
+        world.store.write((uow) =>
+          world.repos.messages.recordAttachmentOutcome(
+            uow,
+            world.otherGroupId,
+            attachmentId('p1f'),
+            { status: 'failed' },
+          ),
+        ).kind,
+      ).toBe('not_found');
+      expect(world.repos.messages.attachments(world.groupId, messageId('ph'))[0]?.status).toBe(
+        'pending',
+      );
     });
   });
 });

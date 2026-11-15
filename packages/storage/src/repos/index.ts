@@ -26,6 +26,7 @@ import { SqliteDeletionPrimitives } from '../retention/primitives.js';
 import { EmbeddingSpaceManager } from '../search/embedding-spaces.js';
 import { SqliteMemorySearch } from '../search/memory-search.js';
 import { SqliteAuditLog } from './audit.js';
+import { SqliteChatBindingRepository } from './bindings.js';
 import { SqliteCalendarRepository } from './calendar.js';
 import { SqliteConversationRepository } from './conversations.js';
 import {
@@ -40,6 +41,7 @@ import { SqliteListRepository } from './lists.js';
 import { SqliteMemberRepository } from './members.js';
 import { SqliteMemoryRepository } from './memory.js';
 import { SqliteMessageRepository } from './messages.js';
+import { SqliteOnboardingRepository } from './onboarding.js';
 import { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 import { SqliteSettingsRepository } from './settings.js';
 import { SqliteTaskRepository } from './tasks.js';
@@ -62,6 +64,16 @@ export interface Repositories {
   readonly identities: SqliteChannelIdentityRepository;
   readonly members: SqliteMemberRepository;
   readonly conversations: SqliteConversationRepository;
+  /**
+   * Chat bindings, aliases and DM contexts (`M3-T1`).
+   *
+   * Before `conversations` in `ReadScope`'s order and after it here, because the two point at each
+   * other: a binding names the conversation it bound, and `02` §3.3.1 makes the binding the only
+   * way a conversation comes to exist for a platform chat (A27).
+   */
+  readonly chatBindings: SqliteChatBindingRepository;
+  /** Claim codes, link codes, button tokens, adapter state, rate-limit windows (`M3-T1`). */
+  readonly onboarding: SqliteOnboardingRepository;
   readonly messages: SqliteMessageRepository;
   readonly settings: SqliteSettingsRepository;
   /**
@@ -233,6 +245,8 @@ export function makeRepositories(options: RepositoriesOptions): Repositories {
     identities: new SqliteChannelIdentityRepository(db),
     members: new SqliteMemberRepository(db, groups),
     conversations: new SqliteConversationRepository(db),
+    chatBindings: new SqliteChatBindingRepository(db, options.ids),
+    onboarding: new SqliteOnboardingRepository(db, options.ids),
     messages,
     settings: new SqliteSettingsRepository(db),
     labels,
@@ -302,6 +316,7 @@ export {
 } from '../queue/scheduler.js';
 export { SqliteContextReadModel } from '../readmodels/context.js';
 export { auditHash, DEFAULT_VERIFY_LIMIT, GENESIS_HASH, SqliteAuditLog } from './audit.js';
+export { SqliteChatBindingRepository } from './bindings.js';
 export { SqliteCalendarRepository } from './calendar.js';
 export { SqliteConversationRepository } from './conversations.js';
 export {
@@ -316,6 +331,7 @@ export { after, midpoint, SqliteListRepository } from './lists.js';
 export { SqliteMemberRepository } from './members.js';
 export { SqliteMemoryRepository } from './memory.js';
 export { dedupeKey, SqliteMessageRepository } from './messages.js';
+export { SqliteOnboardingRepository } from './onboarding.js';
 export { SqliteChannelIdentityRepository, SqlitePersonRepository } from './persons.js';
 export { SqliteSettingsRepository } from './settings.js';
 export { SqliteTaskRepository } from './tasks.js';
