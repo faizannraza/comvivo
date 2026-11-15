@@ -77,6 +77,24 @@ export interface BenchOptions {
   readonly gitSha: string;
   /** Scale the work down, for the tests that prove this harness rather than measure anything. */
   readonly scale?: number;
+  /**
+   * The nanosecond clock, injected (`M2-T6`). Defaults to `hrtime.bigint`.
+   *
+   * A measuring instrument that reads the wall clock directly cannot be tested — `01` §11.4 says
+   * exactly that about every other clock in this repository, and this one was the exception. The
+   * cost of the exception was three separate load-sensitive failures of one assertion: an absolute
+   * bound at the M1 gate (15.97 ms for a 2 ms spin), a ratio at `M2-T4` (8.03 against 5.71), and
+   * then the *ordering itself* inverting at `M2-T6` (10.38 ms for an 8 ms spin against 12.75 ms
+   * for a 2 ms one, under a full `pnpm verify`).
+   *
+   * Each patch made the assertion weaker, and none of them could work: a busy spin for 2 ms of
+   * wall time takes ≥ 2 ms **and has no upper bound**, because the OS may deschedule it. "More
+   * work reads as more time" is a property of the scheduler, not of this code. With the clock
+   * injected, the arithmetic this function is actually responsible for — the histogram, the
+   * percentiles, the median across repetitions, the ops/s conversion — is asserted exactly, and
+   * the real-clock test only has to show it runs.
+   */
+  readonly nanos?: () => bigint;
 }
 
 const DEFAULTS = { iterations: 200, warmup: 50, repetitions: 5 } as const;
@@ -111,9 +129,10 @@ function percentilesOf(histogram: RecordableHistogram): Repetition {
 /**
  * Run one benchmark and return its result.
  *
- * The timing is `hrtime.bigint()` around each iteration, recorded in nanoseconds. A duration of
- * zero is recorded as 1 ns, because `RecordableHistogram.record` refuses zero and an operation
- * that takes less than the clock's resolution is better described as "the floor" than as an error.
+ * The timing is `options.nanos()` around each iteration — `hrtime.bigint()` unless a test injects
+ * one — recorded in nanoseconds. A duration of zero is recorded as 1 ns, because
+ * `RecordableHistogram.record` refuses zero and an operation that takes less than the clock's
+ * resolution is better described as "the floor" than as an error.
  */
 export async function measure<Ctx>(
   definition: BenchDefinition<Ctx>,
@@ -130,6 +149,11 @@ export async function measure<Ctx>(
     Math.round((definition.repetitions ?? DEFAULTS.repetitions) * scale),
   );
 
+  // Wrapped rather than passed by reference: `unbound-method` is right that detaching
+  // `hrtime.bigint` from `hrtime` is the shape of a `this` bug, even though this particular method
+  // does not use one.
+  const nanos = options.nanos ?? ((): bigint => hrtime.bigint());
+
   const reps: Repetition[] = [];
   for (let repetition = 0; repetition < repetitions; repetition += 1) {
     const context = (await definition.setup?.()) as Ctx;
@@ -137,9 +161,9 @@ export async function measure<Ctx>(
       for (let i = 0; i < warmup; i += 1) await definition.run(context);
       const histogram = createHistogram();
       for (let i = 0; i < iterations; i += 1) {
-        const started = hrtime.bigint();
+        const started = nanos();
         await definition.run(context);
-        const elapsed = Number(hrtime.bigint() - started);
+        const elapsed = Number(nanos() - started);
         histogram.record(Math.max(elapsed, 1));
       }
       reps.push(percentilesOf(histogram));

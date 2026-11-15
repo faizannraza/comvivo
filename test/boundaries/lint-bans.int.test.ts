@@ -24,6 +24,7 @@ import {
   FETCH_ALLOWED_GLOBS,
   FETCH_BAN,
   RAW_TRANSACTION_BAN,
+  SDK_PURITY_RULES,
   SECURITY_RULES,
   SYNC_TX_BAN,
   UNFILTERED_ALLOWED_GLOBS,
@@ -285,12 +286,86 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
       .sort();
   };
 
-  it('bans Date, process and fetch inside core — the options, not just the rule', async () => {
+  it('bans every impure global inside core — the options, not just the rule', async () => {
+    // Sorted, so the assertion is a set rather than an ordering. The four timer/Node names joined
+    // the three originals at `M2-T1`, when `packages/core/tsconfig.json` gained `"types":
+    // ["node"]` so the model port could name an `AbortSignal` as `01` §7.5 specifies: until then
+    // an empty `types` array had been refusing them by accident, and an accident is not a rule.
     expect(await restrictedGlobalsFor('packages/core/src/policy/authorize.ts')).toEqual([
+      'Buffer',
       'Date',
       'fetch',
       'process',
+      'setImmediate',
+      'setInterval',
+      'setTimeout',
     ]);
+  });
+
+  it.each(['setTimeout', 'setInterval', 'setImmediate', 'Buffer'])(
+    'refuses %s in core, which `types: []` used to refuse by accident',
+    async (name) => {
+      // Planted through the real rule rather than asserted from the config: the four exist because
+      // Node's types now make them compile in core, so the thing worth proving is that they still
+      // fail.
+      const code =
+        name === 'Buffer'
+          ? 'export const f = () => Buffer.alloc(1);'
+          : `export const f = () => ${name}(() => undefined, 1);`;
+      expect(
+        await rulesFiredFor(CORE_PURITY_RULES, code, 'packages/core/src/policy/authorize.ts'),
+      ).toContain('no-restricted-globals');
+    },
+  );
+
+  it('bans every impure global inside the plugin SDK — the options, not just the rule', async () => {
+    // Added at `M2-T5`, when `packages/plugin-sdk/tsconfig.json` gained `"types": ["node"]` so
+    // `ToolContext` could name an `AbortSignal` and `EgressHttp` a `Response` (`10` §3.2.4). The
+    // same trade core made at `M2-T1`: Node's types make these compile, so they have to be a rule.
+    expect(await restrictedGlobalsFor('packages/plugin-sdk/src/tool.ts')).toEqual([
+      'Buffer',
+      'Date',
+      'fetch',
+      'process',
+      'setImmediate',
+      'setInterval',
+      'setTimeout',
+    ]);
+  });
+
+  it.each(['Date', 'process', 'setTimeout', 'setInterval', 'setImmediate', 'Buffer', 'fetch'])(
+    'refuses %s in the plugin SDK, where ToolContext supplies the replacement',
+    async (name) => {
+      const code =
+        name === 'Buffer'
+          ? 'export const f = () => Buffer.alloc(1);'
+          : name === 'Date'
+            ? 'export const f = () => Date.now();'
+            : name === 'process'
+              ? 'export const f = () => process.argv;'
+              : name === 'fetch'
+                ? 'export const f = () => fetch("https://example.com");'
+                : `export const f = () => ${name}(() => undefined, 1);`;
+      expect(
+        await rulesFiredFor(SDK_PURITY_RULES, code, 'packages/plugin-sdk/src/tool.ts'),
+      ).toContain('no-restricted-globals');
+    },
+  );
+
+  it('refuses Math.random in the plugin SDK, so an invocation can be replayed', async () => {
+    expect(
+      await rulesFiredFor(
+        SDK_PURITY_RULES,
+        'export const f = () => Math.random();',
+        'packages/plugin-sdk/src/tool.ts',
+      ),
+    ).toContain('no-restricted-properties');
+  });
+
+  it('applies both purity rules inside the plugin SDK', async () => {
+    const rules = await configuredRulesFor('packages/plugin-sdk/src/tool.ts');
+    expect(Object.keys(rules)).toContain('no-restricted-globals');
+    expect(Object.keys(rules)).toContain('no-restricted-properties');
   });
 
   it('bans only fetch outside core, where a clock is legitimate', async () => {

@@ -38,6 +38,7 @@ export const EXPECTED_ALLOW_BUILDS: Readonly<Record<string, boolean>> = {
   '@matrix-org/matrix-sdk-crypto-nodejs': true,
   'onnxruntime-node': false,
   esbuild: true,
+  protobufjs: false,
 };
 
 /** Filename fragments that only ever appear in an ONNX Runtime CUDA execution provider. */

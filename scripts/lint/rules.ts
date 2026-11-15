@@ -47,6 +47,35 @@ export const CORE_RESTRICTED_GLOBALS = [
     message:
       'core is pure (01 §4): configuration arrives as an argument, never from the environment.',
   },
+  // ── Added at `M2-T1`, when `packages/core/tsconfig.json` gained `"types": ["node"]`.
+  //
+  // `01` §7.5 and `05` §4.1 both give `ModelGateway.run` an `AbortSignal`, which is a platform
+  // global in neither `lib.es2024` nor an empty `types` array — so the port could not be written
+  // as the spine specifies without Node's types. Until then `types: []` was doing part of the
+  // purity enforcement by accident: a `setTimeout` in core did not *compile*. Trading an accident
+  // for a rule means naming the globals that accident was covering, which is these four.
+  {
+    name: 'setTimeout',
+    message:
+      'core is pure (01 §4): a delay is a decision for the caller, from the injected Clock and ' +
+      'the job queue. A timer in core is a behaviour no test can fast-forward.',
+  },
+  {
+    name: 'setInterval',
+    message:
+      'core is pure (01 §4): nothing in the domain may schedule itself. `02` §3.10 owns recurring ' +
+      'work, where it is durable and visible.',
+  },
+  {
+    name: 'setImmediate',
+    message: 'core is pure (01 §4): Node-only, and ordering is not a domain concern.',
+  },
+  {
+    name: 'Buffer',
+    message:
+      'core is pure (01 §4): Node-only. Use `Uint8Array`, which is what the ports already carry ' +
+      'and what runs in a browser too.',
+  },
 ] as const;
 
 /**
@@ -83,6 +112,79 @@ export const CORE_PURITY_RULES: Linter.RulesRecord = {
 };
 
 /**
+ * `packages/plugin-sdk` must not reach for a platform global either (`M2-T5`).
+ *
+ * The package's tsconfig carries `"types": ["node"]`, because `10` §3.2.4 gives `ToolContext` an
+ * `AbortSignal` and `EgressHttp.fetch` a `Response`, and neither exists under `lib.es2024` with an
+ * empty `types` array. That is the same trade `packages/core` made at `M2-T1`: Node's types make a
+ * handful of impure globals *compile*, so the globals they cover have to be named as a rule
+ * instead of being refused by accident.
+ *
+ * The reason is stronger here than in `core`. Every one of these has a replacement **in the
+ * context object a tool is handed**: `ctx.clock` for the time, `ctx.http` for the network,
+ * `ctx.settings` for configuration, `ctx.store` for state. An SDK that reached for the global
+ * would be teaching every plugin author to do the same, in a package whose examples people copy —
+ * and a plugin that reads the wall clock cannot be replayed in the simulator, which is where `07`'s
+ * recurrence and quiet-hours bugs are found.
+ */
+export const SDK_RESTRICTED_GLOBALS = [
+  {
+    name: 'Date',
+    message:
+      'the plugin SDK takes time from ToolContext.clock (10 §3.2.4), so a plugin can be replayed ' +
+      'in the simulator and stepped through 30 virtual days in a test. Temporal types are fine.',
+  },
+  {
+    name: 'process',
+    message:
+      'the plugin SDK never reads the environment: a plugin is configured through ' +
+      'ToolContext.settings and ToolContext.secrets, both of which the host validates and shows ' +
+      'at the approval screen.',
+  },
+  {
+    name: 'setTimeout',
+    message:
+      'the plugin SDK does not schedule: a delay belongs to the host, which owns the invocation ' +
+      'deadline and ToolContext.signal. Durable work is a job (10 §3.2.5).',
+  },
+  {
+    name: 'setInterval',
+    message:
+      'the plugin SDK does not schedule: recurring work is a job definition, where it is durable ' +
+      'and visible, rather than a timer inside a process the host may restart.',
+  },
+  {
+    name: 'setImmediate',
+    message:
+      'a Node-only global in a package third parties compile against, some of them for a browser ' +
+      'target (01 §14 A11). Nothing here needs to defer a tick.',
+  },
+  {
+    name: 'Buffer',
+    message:
+      'a Node-only global in a package third parties compile against (01 §14 A11). Use ' +
+      'Uint8Array, which is what the SDK surface already names.',
+  },
+] as const;
+
+export const SDK_PURITY_RULES: Linter.RulesRecord = {
+  // Both sets, for the reason `CORE_PURITY_RULES` spells out: flat config replaces a rule's
+  // options rather than merging them, so this block has to be self-sufficient or `FETCH_BAN`
+  // would silently take the bans above away.
+  'no-restricted-globals': ['error', ...SDK_RESTRICTED_GLOBALS, ...FETCH_RESTRICTED_GLOBALS],
+  'no-restricted-properties': [
+    'error',
+    {
+      object: 'Math',
+      property: 'random',
+      message:
+        'the plugin SDK is deterministic: an id or a jitter comes from the host, so a plugin ' +
+        'invocation can be replayed exactly in the test kit (10 §3.12).',
+    },
+  ],
+};
+
+/**
  * Where the `fetch` global may be used. Everywhere else must route through `shared/net`'s
  * `safeFetch`, which applies the egress allowlist — the thing that makes invariant **I5 (guarded
  * egress)** structural. `--allow-net` cannot do this: it is all-or-nothing with no host scoping
@@ -93,7 +195,12 @@ export const CORE_PURITY_RULES: Linter.RulesRecord = {
  */
 export const FETCH_ALLOWED_GLOBS: readonly string[] = [
   'packages/shared/src/net/**',
-  'packages/models/src/providers/**',
+  // `packages/models/src/providers/**` was here until `M2-T12`. It never matched anything: the
+  // adapters live at `packages/models/src/<provider>/` (amended at `M2-T6`, as `05` §3.5.3 names
+  // them), so the entry was a licence nobody could use pointing at a directory that does not
+  // exist. Removed rather than repointed — `@comvivo/models` reaches the network through the
+  // provider SDKs and, for the one host-supplied URL in the layer, through `safeFetch` with the
+  // `local-model` purpose. Neither needs a raw socket, so the narrower allowlist is the true one.
   'packages/channels/*/src/**',
   'packages/mcp/src/client/**',
   'packages/mcp-bridge/src/**',

@@ -35,6 +35,7 @@ export {
   EMPTY_POLICY,
   type EmbeddedIpv4,
   embeddedIpv4,
+  isLoopbackHost,
 } from './classify.js';
 export { type LookupAddress, pinnedLookup } from './pinning-agent.js';
 export {

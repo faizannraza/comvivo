@@ -1,0 +1,58 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/api-extractor/v7/api-extractor.schema.json",
+
+  // `10` §3.2.1: the public API report. `pnpm api:check` fails when the committed report and the
+  // built `.d.ts` disagree, so every change to what plugin authors can import arrives as a diff in
+  // a reviewed file. `pnpm api:update` rewrites it.
+  //
+  // The entry point is the built declaration rather than `src/index.ts`, because the report must
+  // describe what we actually ship: a type that `tsc` widens, or an `exports` map that hides a
+  // module, shows up here and nowhere else.
+  "mainEntryPointFilePath": "<projectFolder>/dist/index.d.ts",
+
+  "apiReport": {
+    "enabled": true,
+    "reportFolder": "<projectFolder>/../../etc/",
+    // `reports/` is gitignored: this is API Extractor's scratch copy, not the artefact.
+    "reportTempFolder": "<projectFolder>/../../reports/api-extractor/"
+  },
+
+  // LF, so the committed report and a regenerated one are byte-identical. API Extractor defaults
+  // to CRLF and its comparison is line-ending insensitive, so `api:check` passes either way — but
+  // `pnpm api:update` would otherwise leave a whole-file diff behind on every run.
+  "newlineKind": "lf",
+
+  "docModel": { "enabled": false },
+  "dtsRollup": { "enabled": false },
+  "tsdocMetadata": { "enabled": false },
+
+  "messages": {
+    "compilerMessageReporting": {
+      "default": { "logLevel": "warning" }
+    },
+    "extractorMessageReporting": {
+      "default": { "logLevel": "warning" },
+
+      // Release tags (`@public`, `@beta`, `@internal`) are not used in this package. The root entry
+      // point *is* the public surface — that is what `01` §14 A11 and §3.2.1 mean by separating
+      // `./rpc` and `./runtime` into their own entry points — so a per-symbol tag would restate the
+      // file it is in. API Extractor stamps `@public` by default, which is correct here.
+      "ae-missing-release-tag": { "logLevel": "none" },
+
+      // A forgotten export is a real defect: a public signature naming a type the entry point does
+      // not export leaves a plugin author unable to write the variable that holds it.
+      "ae-forgotten-export": { "logLevel": "error" },
+
+      // Not an error for a package whose job is to re-export: `@comvivo/shared`'s converter and
+      // `@comvivo/core`'s capability vocabulary appear in this surface on purpose (§3.2.1's
+      // "dependencies are `zod` (peer), `core`, `shared` and `channel-sdk`").
+      "ae-unresolved-link": { "logLevel": "none" }
+    },
+    "tsdocMessageReporting": {
+      // The prose in this package is written for people reading the source, not for a TSDoc
+      // renderer: it uses Markdown headings and emphasis that TSDoc's stricter grammar objects to.
+      // `docModel` is off, so nothing consumes the parse.
+      "default": { "logLevel": "none" }
+    }
+  }
+}

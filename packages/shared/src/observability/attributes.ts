@@ -191,6 +191,35 @@ export function sanitizeAttributes(
   return out;
 }
 
+/**
+ * Merge attribute bags that are each already typed `Attributes`.
+ *
+ * ## Why this has to exist
+ *
+ * `Attributes` is an open index signature intersected with `Partial<Record<Forbidden, never>>`, and
+ * those two halves fight when you compose: spreading one bag into an object literal gives the
+ * literal an index signature of `AttributeValue`, which is not assignable to `never`, so
+ * `{ ...endpointAttributes(url), 'gen_ai.request.model': model }` does not typecheck even though
+ * every key in it was already checked. `M2-T15` hit this on its first span and it will recur for
+ * every emitter — a span assembled from a request half and a response half is the normal shape.
+ *
+ * The fix is a sanctioned merge rather than a looser type. The compile-time guarantee is worth
+ * keeping exactly as it is: it lives where a developer *writes* an attribute name, which is where
+ * the mistake happens.
+ *
+ * The cast is **checked, not promised.** Every bag has already passed the type, and
+ * `sanitizeAttributes` re-applies the denylist to the merged result — throwing in test mode — so
+ * the only way a forbidden key reaches the return value is if the denylist itself is empty.
+ *
+ * Later bags win on a key collision, which is what a response half overwriting a placeholder from
+ * a request half should do.
+ */
+export function mergeAttributes(...bags: readonly Attributes[]): Attributes {
+  const merged: Record<string, AttributeValue> = {};
+  for (const bag of bags) Object.assign(merged, bag);
+  return sanitizeAttributes(merged) as Readonly<Record<string, AttributeValue>> as Attributes;
+}
+
 function sanitizeValue(value: unknown): AttributeValue | undefined {
   if (typeof value === 'string') return truncate(scrubSecretShapes(value));
   if (typeof value === 'boolean') return value;

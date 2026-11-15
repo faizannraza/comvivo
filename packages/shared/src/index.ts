@@ -65,6 +65,8 @@ export {
   type SecretSource,
   scrubSecretsFromEnv,
 } from './config/secrets.js';
+// --- Copy helpers for host-facing text (M2 second-pass review) ---------------------------------
+export { listOf, noun, plural } from './copy.js';
 export {
   AppError,
   BugError,
@@ -281,6 +283,24 @@ export {
   timestampOf,
   UuidV7Source,
 } from './uuidv7.js';
+export type { StrictJsonSchema, StrictJsonSchemaType } from './zod/strict-json-schema.js';
+export {
+  explainStrictViolations,
+  isStrictCompatible,
+  lintStrictSchema,
+  MAX_REF_DEPTH,
+  MAX_STRICT_SCHEMA_BYTES,
+  StrictSchemaRootSchema,
+  type StrictViolation,
+} from './zod/strict-lint.js';
+export {
+  denull,
+  KEPT_FORMATS,
+  STRIPPED_KEYWORDS,
+  type StrictConversion,
+  type ToStrictOptions,
+  toStrictJsonSchema,
+} from './zod/to-strict.js';
 export {
   type Branded,
   capped,

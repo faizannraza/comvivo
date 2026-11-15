@@ -88,9 +88,28 @@ const PURE_PACKAGES =
  * Where network calls may be made (`08` PSC-8 → A11). Everything else must route through
  * `shared/net`'s `safeFetch`, which is what makes invariant **I5 (guarded egress)** structural
  * rather than a convention — and `--allow-net` cannot do it, being all-or-nothing (`01` §14 A31).
+ *
+ * Every entry here is a module that genuinely imports one of the banned core modules. The M2
+ * review found two that did not: `^packages/models/src/providers/` (the adapters live at
+ * `src/{anthropic,openai,google,openai-compatible}/` and reach the network through their SDKs and
+ * `safeFetch`, never a socket) and `^packages/evals/src/chaos/` (`FakeProviderServer` moved to
+ * `@comvivo/models/testing` at `M2-T14`). Both were removed. A dead exemption is worse than none:
+ * it reads as a reviewed decision that something there needs a socket, and the next person widens
+ * the real rule to match the fiction.
+ *
+ * `FakeProviderServer` still opens a loopback server — it binds one so an adapter's real SDK retry
+ * paths can be exercised against 429s, overloads and streams cut mid-response (`11` Q21). It is
+ * exempt because it is **test-shaped** (`/testing/`), not because of a path listed here, and that
+ * is the honest description: `TEST_SHAPED` lets any test open a socket. Acceptable, because a test
+ * is not an egress path a group's data flows through, and narrowed in practice by the file itself —
+ * it imports `node:http` and nothing else, and binds `127.0.0.1` with a test asserting the bound
+ * address is loopback. The `fetch` global stays banned there by `comvivo/guarded-egress`.
+ *
+ * `channels/simulator` is covered by `^packages/channels/[^/]+/src/`: it is a fake platform, not an
+ * egress path.
  */
 const NET_ALLOWED =
-  '(^packages/shared/src/net/|^packages/models/src/providers/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/)';
+  '(^packages/shared/src/net/|^packages/channels/[^/]+/src/|^packages/mcp/src/client/|^packages/mcp-bridge/src/|^apps/server/src/http/)';
 
 /** Where cryptography may be implemented (`08` PSC-8 → A11). */
 const CRYPTO_ALLOWED = '(^packages/shared/src/crypto/|^packages/storage/src/crypto/)';
@@ -164,10 +183,16 @@ module.exports = {
       name: 'no-dev-dep-in-src',
       comment:
         'Production code may import only runtime dependencies. A devDependency that ships is a ' +
-        'broken install for every user.',
+        'broken install for every user. A **peer** dependency is exempt: it is a declared runtime ' +
+        'requirement of the consumer, not something we ship, and the workspace still needs it as ' +
+        'a devDependency to compile. `@comvivo/plugin-sdk` is the first package to need this ' +
+        '(`10` §3.2.1 makes `zod` a peer, and it has to be: a plugin builds its schemas with its ' +
+        'own copy of zod, and a second copy resolved under the SDK would walk a schema object it ' +
+        'did not create). A devDependency that is *not* also a peer still fails — the planted ' +
+        '`vitest` import in `test/boundaries/fixtures.int.test.ts` proves it.',
       severity: 'error',
       from: { path: '^(packages|apps)/', pathNot: `(${TEST_SHAPED}|${PACKAGE_BUILD_TOOLING})` },
-      to: { dependencyTypes: ['npm-dev'] },
+      to: { dependencyTypes: ['npm-dev'], dependencyTypesNot: ['npm-peer'] },
     },
 
     // --- 01 §4: the package graph, bottom up ---------------------------------------------------
@@ -428,6 +453,21 @@ module.exports = {
         'because both are consumed outside Node.',
       severity: 'error',
       from: { path: PURE_PACKAGES, pathNot: TEST_SHAPED },
+      to: { dependencyTypes: ['core'] },
+    },
+    {
+      name: 'no-node-builtins-in-plugin-sdk-testing',
+      comment:
+        "A11 and `10` §3.2.1 say the plugin SDK's **root and `./testing`** entry points must not " +
+        'import `node:*`; only `./runtime` and `src/cli/` may. The rule above could not carry the ' +
+        '`./testing` half, because its `pathNot: TEST_SHAPED` exempts every `/testing/` directory ' +
+        '— correctly, for the test doubles in every other package, which never ship. The plugin ' +
+        "SDK's is different: §3.2.1 marks it a **PUBLIC** entry point, so it is shipped product " +
+        'that `@comvivo/tools` imports, and a `node:*` in it would break the browser target A11 ' +
+        'exists to protect. Found at `M2-T5`, while checking the AC clause that names it. ' +
+        "`*.test.ts` files inside it are still exempt: those are the subpath's own tests.",
+      severity: 'error',
+      from: { path: '^packages/plugin-sdk/src/testing/', pathNot: '\\.test\\.ts$' },
       to: { dependencyTypes: ['core'] },
     },
 

@@ -118,7 +118,14 @@ export async function cruisePlanted(planted: readonly PlantedFile[]): Promise<Cr
               // noUndeclaredDependencies rule can stay on), which is what makes it classify as
               // `npm-dev` here. Without this the `no-dev-dep-in-src` fixture cannot fire, because
               // depcruise would see an undeclared dependency instead of a dev one.
-              devDependencies: { vitest: '*' },
+              //
+              // `zod` is declared as **both** a peer and a dev dependency, which is the shape
+              // `@comvivo/plugin-sdk` really has (`10` §3.2.1 makes it a peer, and pnpm resolves a
+              // peer through the matching devDependency). It is what gives
+              // `no-dev-dep-in-src`'s `dependencyTypesNot: ['npm-peer']` a positive control: an
+              // import of `zod` must *not* fire while an import of `vitest` must.
+              peerDependencies: { zod: '*' },
+              devDependencies: { vitest: '*', zod: '*' },
             },
             null,
             2,

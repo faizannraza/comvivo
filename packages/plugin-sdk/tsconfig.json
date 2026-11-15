@@ -3,7 +3,17 @@
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "dist",
-    "tsBuildInfoFile": "dist/.tsbuildinfo"
+    "tsBuildInfoFile": "dist/.tsbuildinfo",
+    // `ToolContext.signal` is an `AbortSignal` and `EgressHttp.fetch` returns a `Response`
+    // (`10` §3.2.4) — platform types in neither `lib.es2024` nor an empty `types` array. Node's
+    // types are the narrowest way to get them; the DOM lib would bring `window` and `document`
+    // into a package that third parties compile against.
+    //
+    // This does **not** relax the purity rule, which is lint-enforced: `comvivo/plugin-sdk-purity`
+    // in `eslint.config.ts` bans `Date`, `process`, `fetch`, `Math.random` and the timers over
+    // `packages/plugin-sdk/**`, because an SDK that reaches for a global is an SDK teaching every
+    // plugin author to do the same. `test/boundaries/lint-bans.int.test.ts` proves each bites.
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "references": [

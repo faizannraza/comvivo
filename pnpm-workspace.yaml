@@ -74,6 +74,19 @@ allowBuilds:
   # This entry is an addition to `08` §3.15's original list — see STATUS → Plan changes.
   esbuild: true
 
+  # DENIED, and it costs nothing. Arrives transitively through `@google/genai` (the Google
+  # adapter, `M2-T13`). Its `postinstall` is `node scripts/postinstall`, which was read before
+  # this entry was written: it loads its own `package.json`, returns immediately unless a
+  # `versionScheme` field is present, and otherwise prints a **warning** if a dependent pinned it
+  # with the wrong range operator. It writes nothing, downloads nothing and produces no artefact
+  # the package needs.
+  #
+  # Declared rather than left unlisted because `strictDepBuilds` is on (`01` §14 A31): an
+  # undeclared install script is a hard install failure, which is the behaviour `08` §3.15 wants —
+  # it surfaced on CI as `ERR_PNPM_IGNORED_BUILDS` the first time the lockfile was regenerated
+  # after `@google/genai` landed, which is exactly when a human should have to look at it.
+  protobufjs: false
+
   # NOT listed, deliberately, because they need no build script:
   #   better-sqlite3-multiple-ciphers  ships bundled N-API prebuilds for every target
   #   sqlite-vec                        a loadable extension, ABI-free, per-platform optional deps
@@ -147,6 +160,34 @@ catalog:
   # devDependency of `@comvivo/shared` and cross-decrypts between the two implementations in both
   # directions. No install script and no compiler: it loads a prebuilt addon via `require-addon`.
   sodium-native: 5.2.0
+  # --- models (M2) ------------------------------------------------------------------------------
+  # Exact minor, per `05` §3.5.3.1. The adapter sends beta-only request fields (`fallbacks`,
+  # per-message `output_config`, `clear_at`, `block_binding`) that are ahead of the published
+  # typings, so `request.ts` casts once at a local wire type — and a silent minor bump is exactly
+  # what would move those shapes under the cast without a test noticing. Renovate opens a PR per
+  # bump (grouped, `minimumReleaseAge: 3 days`, no auto-merge) so the contract fixtures re-run.
+  #
+  # 1.7.0 chosen at `M2-T6` over the newest published 1.8.0, which `minimumReleaseAge` refuses:
+  # 1.8.0 went out 2026-11-10 and the cutoff that day was 2026-11-10T06:16Z. The guardrail is
+  # working as `08` §3.15 intends; the version moves up when Renovate's PR matures.
+  "@anthropic-ai/sdk": 1.7.0
+  # Exact minor for the same reason as the Anthropic pin, plus one of its own: the Responses API's
+  # reasoning items are **opaque** (`05` §3.5.4 — every `output` item is replayed verbatim), so a
+  # minor that changed an item's shape would break replay without touching a type we read.
+  #
+  # 7.55.0 chosen at `M2-T11` over the newest published 7.56.0, which `minimumReleaseAge` refuses:
+  # 7.56.0 went out 2026-11-12T19:37Z, under the 3-day cutoff. Same guardrail, same resolution as
+  # `@anthropic-ai/sdk` — the version moves up when Renovate's PR matures.
+  openai: 7.55.0
+  # Exact minor, same reasoning as the two above, and one specific to this provider: Gemini 3
+  # **rejects a function-call turn whose `thoughtSignature` is missing with a 400**, so the parts
+  # array is replayed verbatim and a minor that reshaped a part would break the tool loop without
+  # touching a type we read.
+  #
+  # 3.0.0 chosen at `M2-T13`: 3.1.0, 3.2.0 and 3.3.0 are all inside the 3-day `minimumReleaseAge`
+  # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
+  # every shape below was read off the installed typings rather than carried over from 2.x.
+  "@google/genai": 3.0.0
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2

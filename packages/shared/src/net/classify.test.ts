@@ -21,6 +21,7 @@ import {
   type EgressReason,
   EMPTY_POLICY,
   embeddedIpv4,
+  isLoopbackHost,
 } from './classify.js';
 
 /** The host's allowlist in the §3.9 example, plus a loopback port for the fetch tests. */
@@ -300,5 +301,66 @@ describe('fuzz.ssrf.classify (08 §3.9)', () => {
       ),
       fcConfig({ numRuns: 500 }),
     );
+  });
+});
+
+describe('isLoopbackHost (M2-T16)', () => {
+  it('accepts the whole 127.0.0.0/8 block and localhost', () => {
+    for (const host of [
+      '127.0.0.1',
+      '127.0.0.2',
+      '127.1.2.3',
+      '127.255.255.254',
+      'localhost',
+      'LOCALHOST',
+      'localhost.',
+    ]) {
+      expect(isLoopbackHost(host), host).toBe(true);
+    }
+  });
+
+  it('accepts IPv6 loopback in both spellings', () => {
+    expect(isLoopbackHost('::1')).toBe(true);
+    expect(isLoopbackHost('[::1]')).toBe(true);
+    // The URL parser re-spells `::ffff:127.0.0.1` in hex, which is the form that reaches here.
+    expect(isLoopbackHost('::ffff:7f00:1')).toBe(true);
+    expect(isLoopbackHost('::ffff:127.0.0.1')).toBe(true);
+  });
+
+  it('refuses a name that merely starts with the loopback digits', () => {
+    // The bug this function exists to prevent. `/^127\./` matches all of these, and every one is
+    // a name whose owner decides where it resolves — so a `privacy.localOnly` check built on a
+    // regex would accept a route to somebody else's server as "this machine".
+    for (const host of [
+      '127.0.0.1.evil.example',
+      '127.0.0.1.nip.io',
+      '127.0.0.1x',
+      '127.0.0',
+      '1270.0.0.1',
+    ]) {
+      expect(isLoopbackHost(host), host).toBe(false);
+    }
+  });
+
+  it('refuses every other address and name', () => {
+    for (const host of [
+      '10.0.0.1',
+      '192.168.1.1',
+      '169.254.169.254',
+      '::',
+      'fd00::1',
+      'example.com',
+      'gpu.lan',
+      '',
+    ]) {
+      expect(isLoopbackHost(host), host).toBe(false);
+    }
+  });
+
+  it('refuses a name that resolves to loopback, because DNS can change', () => {
+    // A destination decided by DNS is a destination that can change between the check and the
+    // connection. `safeFetch` re-checks the resolved address for exactly that reason, and this
+    // function deliberately does not resolve anything.
+    expect(isLoopbackHost('localtest.me')).toBe(false);
   });
 });

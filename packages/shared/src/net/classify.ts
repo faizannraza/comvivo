@@ -271,6 +271,49 @@ export function embeddedIpv4(address: string): EmbeddedIpv4 | undefined {
  * audit event saying `169.254.169.254 via NAT64` tells a host what happened, and one saying
  * `64:ff9b::/96` makes them go and look it up.
  */
+/**
+ * Whether a URL's host names **this machine** (added at `M2-T16`).
+ *
+ * Lives here rather than in its caller because the question needs `node:net`'s `isIP`, and
+ * answering it with a regex is how a hole gets opened: `/^127\./` matches
+ * `127.0.0.1.evil.example`, which is a name that resolves wherever its owner wants. `M2-T16`'s
+ * Local-only check had exactly that bug and a test caught it — a host who turned on
+ * `privacy.localOnly` would have had a route to that name accepted as loopback.
+ *
+ * Accepts, and nothing else:
+ *
+ *  - `localhost`, which every platform resolves to loopback;
+ *  - a real IPv4 **literal** in `127.0.0.0/8` — the whole block, not just `127.0.0.1`;
+ *  - a real IPv6 literal that is `::1`, or an IPv4-mapped one whose embedded address is loopback
+ *    (`::ffff:127.0.0.1`, which the URL parser re-spells in hex as `::ffff:7f00:1`).
+ *
+ * A **name** other than `localhost` is never loopback here, even one that resolves to it: that is
+ * a DNS answer, and a destination decided by DNS is a destination that can change between the
+ * check and the connection. `safeFetch` re-checks the resolved address for exactly that reason.
+ */
+export function isLoopbackHost(host: string): boolean {
+  const normalized = host
+    .toLowerCase()
+    .replace(/\.$/, '')
+    .replace(/^\[|\]$/g, '');
+  if (normalized === 'localhost') return true;
+
+  const kind = isIP(normalized);
+  if (kind === 4) return LOOPBACK_V4.test(normalized);
+  if (kind !== 6) return false;
+  if (normalized === '::1') return true;
+  const embedded = embeddedIpv4(normalized);
+  return embedded !== undefined && LOOPBACK_V4.test(embedded.address);
+}
+
+/**
+ * `127.0.0.0/8`, as a shape test over something already known to be an IPv4 literal.
+ *
+ * Safe as a regex **only** because `isIP` has already established the string is a dotted quad —
+ * which is the distinction that makes the same pattern a bug one line earlier.
+ */
+const LOOPBACK_V4 = /^127\./;
+
 export function classifyAddress(address: string, target: ClassifiedUrl): EgressRefusal | undefined {
   if (isIP(address) === 0) {
     // A resolver that returned something that is not an address, or a caller that passed a name.

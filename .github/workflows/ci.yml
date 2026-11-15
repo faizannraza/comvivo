@@ -226,6 +226,13 @@ jobs:
       - name: Build
         run: pnpm run build
 
+      # `10` §3.2.1: the plugin SDK's public API report. It runs here rather than in the lint job
+      # because API Extractor reads the built `.d.ts` — the point being that the report describes
+      # what we actually ship, not what `src/index.ts` looks like. Fails when the committed report
+      # and the build disagree, so a change to what plugin authors can import arrives as a diff.
+      - name: API report
+        run: pnpm run api:check
+
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist

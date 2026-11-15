@@ -35,6 +35,8 @@
     "@comvivo/plugin-sdk": "workspace:*"
   },
   "devDependencies": {
+    "@comvivo/models": "workspace:*",
+    "fast-check": "catalog:",
     "vitest": "catalog:"
   }
 }

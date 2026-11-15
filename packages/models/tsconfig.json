@@ -6,7 +6,11 @@
     "tsBuildInfoFile": "dist/.tsbuildinfo",
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"],
+  // `*.json` too, because `05` §3.5.2's capability registry and presets are **data**: zod-validated
+  // at load (`registry/capabilities.ts`) and imported with `with { type: 'json' }` so a typo in
+  // either file is a build error rather than a runtime surprise. `resolveJsonModule` is on in the
+  // base config, and `tsc` copies an included JSON file into `outDir`, so `dist` ships them.
+  "include": ["src/**/*.ts", "src/**/*.json"],
   "references": [
     {
       "path": "../../packages/core"

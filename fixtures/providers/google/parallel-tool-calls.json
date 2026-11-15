@@ -1,0 +1,41 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "functionCall": {
+              "args": {
+                "q": "Lisbon"
+              },
+              "id": "call_1",
+              "name": "get_forecast"
+            },
+            "thoughtSignature": "sig_fake_call_1"
+          },
+          {
+            "functionCall": {
+              "args": {
+                "q": "Porto"
+              },
+              "id": "call_2",
+              "name": "get_forecast"
+            },
+            "thoughtSignature": "sig_fake_call_2"
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "modelVersion": "gemini-3.8-flash",
+  "responseId": "resp_fixture_1",
+  "usageMetadata": {
+    "cachedContentTokenCount": 0,
+    "candidatesTokenCount": 0,
+    "promptTokenCount": 0,
+    "totalTokenCount": 0
+  }
+}

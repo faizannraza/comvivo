@@ -143,7 +143,10 @@ describe('BRAND', () => {
       (BRAND as { slug: string }).slug = `${slug}-mutated`;
     }).toThrow(TypeError);
     expect(() => {
-      (BRAND.botDefaultAliases as string[]).push(`${slug}-mutated`);
+      // `as unknown as` because `BRAND` is now `as const` (brand.ts explains why): the aliases are
+      // a `readonly ["comvivo"]` tuple, which a single-step assertion to `string[]` rightly
+      // refuses. The point of the test is the runtime freeze, so the cast has to be deliberate.
+      (BRAND.botDefaultAliases as unknown as string[]).push(`${slug}-mutated`);
     }).toThrow(TypeError);
     expect(BRAND.slug).toBe(slug);
     expect(BRAND.botDefaultAliases).toHaveLength(1);

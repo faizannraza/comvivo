@@ -793,7 +793,36 @@ The profile is part of the prompt-asset hash.
 
 The middleware chain, in order:
 1. `limiter`: the priority queue from §3.3.3.
+
+> **The order of the four stages is load-bearing** (recorded at `M2-T9`). `limiter` first, because
+> a call that is going to wait should wait before it consumes anything else — queueing behind the
+> breaker would mean a queued call acted on a breaker decision made thirty seconds earlier.
+> `breaker` second, so a provider that is down is refused **without taking a limiter slot for the
+> length of a timeout**: that is the difference between an outage that degrades one provider and one
+> that stalls the host. `trace-hook` inside both, so the recorded duration is the provider's and not
+> the queue's — a trace that included queue time would make every busy minute look like a slow
+> provider. `usage-hook` innermost, because it needs the result.
+>
+> The optional port members (`countTokens`, the Batches trio) pass **straight through**: none is a
+> turn-path model call, and putting a nightly job in a queue sized for turn concurrency would let it
+> stall a member's question.
 2. `breaker`: one per provider. It opens after 5 consecutive infrastructure failures within 60 s and goes half-open after 30 s.
+
+> **Which failures count** (recorded at `M2-T9`; `COUNTS_TOWARD_BREAKER` is a total map over
+> `ModelCallErrorKind`, so a new kind is a compile error rather than a silent default). Counting:
+> `timeout`, `network`, `overloaded`, `server`, `unknown` — the failures where waiting helps. Not
+> counting: a **429**, which is back-pressure from a provider that is up and said when to come back
+> (a breaker that opened on rate limits would turn a busy minute into a five-minute outage); an
+> **abort**, which is the caller's decision; and a **400/401/403/404/413**, which is our bug or the
+> host's configuration and which a circuit would hide behind "provider unavailable" for thirty
+> seconds before failing the same way again.
+>
+> A non-counting failure does not **reset** the streak either: a 429 between two timeouts does not
+> make the provider healthy, and clearing the count there would stop the breaker opening during
+> exactly the degraded minute it exists for.
+>
+> Half-open admits **one** trial request. Letting several through would meet a provider returning
+> from an outage with the whole backlog at once, which is how an outage repeats itself.
 3. `trace-hook`: timings and request hash.
 4. `usage-hook`: turns usage into `UsageRecord`s, written in their own transaction immediately, so cost is counted even if the process crashes afterwards.
 
@@ -810,15 +839,28 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
       "thinking": "adaptive_always", "tools": "native_strict", "structured": "native", "parallelTools": true, "forcedToolChoice": false,
       "midConversationSystem": true, "perMessageEffort": true, "turnScopedSystem": true, "serverFallback": "default",
       "promptCaching": "explicit", "minCacheableTokens": 512, "maxBreakpoints": 4, "vision": true, "pdf": true,
-      "batches": true, "countTokens": true, "sampling": "forbidden", "prefill": false, "preservedThinking": true, "priceKey": "anthropic/claude-opus-5-5" },
+      "batches": true, "countTokens": true, "prefill": false, "preservedThinking": true, "priceKey": "anthropic/claude-opus-5-5" },
     "anthropic/claude-sonnet-5-5": { "…": "same as Opus 5.5 except", "defaultEffort": "high", "serverFallback": "default" },
     "anthropic/claude-haiku-5-5":  { "…": "same except", "defaultEffort": "medium", "serverFallback": "none", "forcedToolChoice": true },
     "openai/<model>":   { "tools": "native_strict", "structured": "native", "midConversationSystem": "developer_role", "promptCaching": "automatic", "thinking": "reasoning_items", "…": "…" },
     "google/<model>":   { "tools": "native", "structured": "native", "midConversationSystem": false, "promptCaching": "implicit", "thinking": "thought_signatures", "…": "…" },
-    "local/*":          { "tools": "probe", "structured": "probe", "midConversationSystem": false, "promptCaching": "server_prefix", "sampling": "allowed", "…": "…" }
+    "local/*":          { "tools": "probe", "structured": "probe", "midConversationSystem": false, "promptCaching": "server_prefix", "…": "…" }
   }
 }
 ```
+
+> **Amended 2026-11-14 (M2 independent review; the field is `M2-T2`'s): `sampling` is gone.** The field recorded whether a server
+> *would* accept sampling parameters, which `01` §2.1 forbids us from sending to any provider with
+> no exception — so nothing read it, and its presence invited the misreading it got: the local
+> adapter grew a `temperatureOverride` for a "registry override" the field never authorised. A row
+> whose only possible consumer would break a non-negotiable is better deleted than documented.
+>
+> **`priceKey` stayed and now has a reader.** It was in the same condition — written by every row,
+> read by nothing — but its purpose is real: a host who pins a dated snapshot through
+> `models.registryOverrides` needs it to point at a price row, because the price tables carry exact
+> ids and no `openai/*` family. It is read through `RouteBinding.priceId`, by `doctor`'s
+> `models.prices` check and by the usage hook, which ignores it for an iteration a refusal fallback
+> served (that model's own rates were charged).
 
 **Presets** (`registry/presets.json`; spine §2.1). Each preset fills `{chat, chatEconomy, route, extract, declassify, guard, consolidate}`:
 
@@ -834,7 +876,7 @@ Adapters implement `ProviderAdapter` (§4.1). They are pure mappers around offic
 
 | Route | Requirement |
 |---|---|
-| `chat` | `tools ∈ {native_strict, native, envelope}` |
+| `chat` | `tools ∈ {native_strict, native, envelope, probe}` — **`probe` added at `M2-T2`**: the `local/*` family reports `probe` because what a local server supports is unknowable until §3.5.6's ladder asks it, so reading this row literally made the `local` preset fail boot on every machine. `probe` means *deferred*, and the requirement is enforced after the probe, where "your server supports no tool mode we can use" is actionable |
 | `route`, `extract`, `declassify`, `guard` | `structured ≠ none` |
 | `consolidate` | prefers `batches`, else synchronous |
 
@@ -855,6 +897,27 @@ const client = new Anthropic({            // credentials: ANTHROPIC_API_KEY (or 
 - Per call: `client.beta.messages.stream(params, { signal, timeout: attemptTimeoutMs, maxRetries: binding.maxRetries }).finalMessage()` for `chat`, and `client.messages.create(params, {signal, timeout, maxRetries})` for structured routes.
 - Wall-clock time can reach `timeout × (maxRetries + 1)` [R1]. The turn signal bounds it.
 - Beta-only request fields (`fallbacks`, per-message `output_config`, `clear_at`, `block_binding`) may be ahead of the SDK typings. `request.ts` builds a local `AnthropicWireRequest` type and casts once at the boundary in `toSdkParams()`, which has its own unit tests. It never scatters `@ts-expect-error`.
+
+> **Measured at `M2-T6` against `@anthropic-ai/sdk` 1.7.0: there is no such cast, and the drift
+> runs the other way.** All four beta-only fields are typed —
+> `BetaFallbacksParam = Array<BetaFallbackParam> | 'default'`, `BetaSystemMessageParam` carries
+> `clear_at` and `output_config`, `BetaThinkingConfigAdaptive` carries `block_binding` — so
+> `request.ts` builds the SDK's own `Omit<MessageCreateParamsNonStreaming, 'stream'>` and `tsc`
+> checks the whole of §3.5.3.2's mapping. `temperature`, `top_p` and `top_k` are **absent from the
+> beta params type entirely**, which makes the SDK's typings the first guard on `01` §2.1,
+> `assertWireInvariants` the second and the provider's 400 the third.
+>
+> The published types are instead *too confident* about a **response**: a message assembled by the
+> SDK's stream accumulator carries only the fields the stream actually sent, so `usage.iterations`
+> is `undefined` where `BetaUsage` promises `BetaIterationsUsage | null`. `response.ts` reads usage
+> through one documented local wire type whose numeric fields are all optional — the cast §3.5.3.1
+> anticipated, in the place it was actually needed. Found by the contract test against a real
+> socket; a unit test with a hand-built `Message` sets `null` and cannot find it.
+>
+> Three smaller corrections, same source: the **five beta names in §3.5.3.9 are all real and
+> verbatim** in the SDK's `AnthropicBeta` union; the scalar `fallbacks: 'default'` form pairs with
+> `server-side-fallback-2026-07-01` specifically (the array form takes `-06-01`, and crossing them
+> is a 400); and `BetaStopReason` has **eight** members, adding `compaction` to §3.5.3.4's table.
 
 **3.5.3.2 Request mapping.**
 
@@ -929,7 +992,7 @@ for (const it of iters) record({
 - **Submit.** `client.messages.batches.create({ requests: [{ custom_id, params }] })`, where `custom_id = <jobId>:<n>` (≤ 64 chars, `[A-Za-z0-9_-]`). `params` are structured-route params with no `fallbacks` (rejected on Batches [R1]).
 - **Handle.** `BatchHandle {provider:'anthropic', batchId, customIds, submittedAt}` is persisted in the job payload.
 - **Poll.** A `consolidate.poll` job runs every 5 min: `batches.retrieve(id)` until `processing_status === 'ended'`.
-- **Results.** Then `for await (const r of await client.messages.batches.results(id))`, keyed by `custom_id`, because results arrive in any order [R4].
+- **Results.** Then `for await (const r of await client.messages.batches.results(id))`, keyed by `custom_id`, because results arrive in any order [R4]. The SDK makes **two** requests here: it retrieves the batch to learn `results_url`, then fetches that URL as JSONL — so reading results before a batch has ended fails with "No batch `results_url`" rather than returning nothing (measured at `M2-T8`). `batchResults` takes a `schemaFor` resolver, because producing a `StructuredResult` needs the zod type the request was made with: the handle is persisted in a job payload and survives a restart, the schema lives in code and does not.
   - `succeeded` → validate with zod.
   - `errored` with `invalid_request` → drop and trace.
   - Other `errored`, or `expired` → resubmit once in the next nightly window.
@@ -965,7 +1028,7 @@ At boot, and again in `village doctor`, a minimal real request (`max_tokens: 64`
 | `Anthropic.APIConnectionTimeoutError` | `timeout` | breaker failure |
 | `Anthropic.APIConnectionError` | `network` | breaker failure |
 | `Anthropic.RateLimitError` (429) | `rate_limited{retryAfterMs}` from the `retry-after` header | back-pressure; not a breaker failure |
-| `Anthropic.InternalServerError` with `.type==='overloaded_error'` (529) | `overloaded` | breaker failure |
+| `Anthropic.OverloadedError` (529) | `overloaded` | breaker failure |
 | `Anthropic.InternalServerError` (other 5xx) | `server` | breaker failure |
 | `Anthropic.AuthenticationError` (401) | `auth` | fail fast; admin notice `admin.provider_auth` |
 | `Anthropic.PermissionDeniedError` (403) | `permission` | fail fast; admin notice |
@@ -974,6 +1037,22 @@ At boot, and again in `village doctor`, a minimal real request (`max_tokens: 64`
 | `APIError` status 402 | `billing` | fail fast; admin notice |
 | `APIError` status 413 | `request_too_large` | `shrinkContextOnce` |
 | other `APIError` | `unknown` | breaker failure |
+
+> **Typed classes, not string matches** (amended at `M2-T6`). 1.7.0 has a dedicated
+> `OverloadedError extends InternalServerError` with `readonly status: 529`, and its error factory
+> maps 529 to it — so the 529 row is an `instanceof`, not a `.type === 'overloaded_error'` check on
+> an error body. 413 gains `ContentTooLargeError` and 408 `RequestTimeoutError`; 402 still has no
+> class, so billing stays a status check. **Order is load-bearing**: four classes extend
+> `InternalServerError` and `APIConnectionTimeoutError` extends `APIConnectionError`, so a chain
+> written base-first reports a timeout as a generic network failure and a 529 as a plain 5xx — and
+> the breaker treats those differently. `APIError`'s own `type`, `errorCode` and `details` fields
+> are parsed from the body by the SDK, and its doc comment says to branch on those rather than on
+> the message; `detail.type` carries `errorCode ?? type`.
+>
+> `errors.ts` lands at `M2-T6` rather than `M2-T9`: `ModelGateway.run` is documented to reject with
+> a `ModelCallError`, so an adapter that let a raw `APIError` escape would make every caller reach
+> into somebody else's SDK to decide whether to retry. `M2-T9` keeps the middleware — the priority
+> limiter, the breaker, the usage and trace hooks — which is that task's substance.
 
 Interactive routes do no retries of their own beyond the SDK's. Background routes rely on job-queue retries with backoff (spine ADR-012).
 
@@ -985,6 +1064,13 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 
 #### 3.5.4 OpenAI adapter (Responses API)
 **Why Responses.** OpenAI recommends Responses for all new projects. Chat Completions remains supported, but new capabilities land on Responses [R10]. Reasoning models require reasoning items to be passed back with tool outputs [R11][R12].
+
+> **Re-measured at `M2-T11` (2026-11-13) against the installed `openai` 7.55.0 and the official
+> pricing page.** Eleven facts below were verified; six had moved since this section was written on
+> 2026-11-01 and are corrected in place. The SDK is pinned to an exact minor in the catalog for the
+> same reason as `@anthropic-ai/sdk`, plus one of its own: reasoning items are **opaque** and
+> replayed verbatim, so a minor that changed an item's shape would break replay without touching a
+> type we read.
 
 - **Client.** `new OpenAI({ apiKey: env.OPENAI_API_KEY, baseURL?, maxRetries: 2, timeout })`. Calls are `client.responses.create(params, { signal, timeout })`.
 - **Request mapping:**
@@ -999,18 +1085,28 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
   | effort | `reasoning: { effort }` (values per model, from the registry [R12][R13]) |
   | `maxOutputTokens` | `max_output_tokens` (reasoning counts toward it [R12]) |
   | structured | `text: { format: { type:'json_schema', name, strict:true, schema } }` [R10] |
-  | state | `store: false`. Every `output` item (reasoning items carrying `encrypted_content`, `function_call`, `message`) is kept **verbatim** as the opaque assistant `raw` and replayed in `input` [R12]. |
+  | state | `store: false`, unconditionally — there is no config key that turns it on (`08` §3.11). Every `output` item is kept **verbatim** as the opaque assistant `raw` and replayed in `input` [R12]. |
+  | reasoning replay | `include: ['reasoning.encrypted_content']` (**added at `M2-T11`**). Without it a stateless reasoning turn gets no `encrypted_content` back and loses its chain of thought between tool steps — `store: false` and the `include` are a pair, and this section named only the first. Omitted on structured calls, which are a single round trip nobody replays. |
   | tool results | `{type:'function_call_output', call_id, output: string}`. There is no `is_error` flag; errors use the same JSON error envelope (§3.6.4). |
-  | caching | Automatic prefix caching. `prompt_cache_key: "village:<instanceId>:<route>"` (verify the parameter at implementation time). |
+  | caching | Automatic prefix caching. `prompt_cache_key: "village:<instanceId>:<route>"` — **parameter verified at `M2-T11`**; it is real, and the older `user` field is deprecated in its favour. Instance and route only: a per-group key would tell OpenAI how many groups a host runs *and* stop two groups with the same catalogue from sharing a prefix, which is the point of `01` §14 A13. |
+  | sampling | `temperature`, `top_p` and `top_logprobs` **exist** on `ResponseCreateParams`, unlike Anthropic's beta params type where they are absent entirely. So `01` §2.1's ban is enforced by a runtime assertion over the **built** request (`assertWireInvariants`), not by the type system. `tool_choice` is checked against an **allowlist** of `auto`/`none` rather than a denylist: `ToolChoice` already has six members and gains more. |
 
 - **Response mapping:**
-  - `function_call` items → `toolCalls` (`JSON.parse(arguments)`).
+  - `function_call` items → `toolCalls`, keyed on **`call_id`** and not `id` (they are different fields; `function_call_output` matches on `call_id`). `JSON.parse(arguments)`; a call whose arguments do not parse is **dropped**, because the tools are strict and a tool executed with a malformed input is worse than one that did not run.
   - `message` output text → `text`.
-  - Refusal content → `refusal`.
-  - `status:'incomplete'` with `incomplete_details.reason:'max_output_tokens'` → `max_tokens`. Other incomplete reasons (content filter) → `refusal{category:'provider_filter'}` [R12].
-- **Usage.** `input_tokens` includes cached tokens; `input_tokens_details.cached_tokens`; `output_tokens` includes `output_tokens_details.reasoning_tokens` [R12]. Cost = (input − cached) × in + cached × cachedIn + output × out.
-- **Errors.** The `openai` SDK uses the same class family (`OpenAI.RateLimitError`, `APIConnectionTimeoutError`, `APIUserAbortError`, …) and maps to the same kinds.
-- **Models.** As of 2026-11 OpenAI lists `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna` [R13]. The registry ships verified entries only for models covered by contract tests. Prices must be filled from the official pricing page in M2-T9; until then `null` means unknown (§3.9.2).
+  - Refusal content → `refusal`. On this provider a refusal is **content inside the message**, not a status.
+  - **`incomplete_details.reason` has four members, not two** (corrected at `M2-T11`): `max_output_tokens` → `max_tokens`; `max_messages` → `context_overflow`; `content_filter` → `refusal{category:'provider_filter'}`; **`steered`** → `pause_turn`. `steered` is new and is *not* a failure — the server stopped at a safe output boundary after a WebSocket `response.steer` and will continue with the queued input, which is the same control flow as Anthropic's `pause_turn`. Reading it as a finished turn would silently drop the rest of the answer.
+  - `failed` and `cancelled` map to `other`, never to `end_turn`.
+  - **`ResponseOutputItem` is a 28-member union** at 7.55.0 and grows with each release (programs, shell calls, apply-patch calls, compaction items, MCP calls). We read three kinds and keep every item whole: `ResponseOutputItem.Program` documents its own field as "opaque program replay fingerprint that must be round-tripped", which is what "verbatim" means here.
+- **Usage.** `input_tokens` includes cached tokens; `output_tokens` includes `output_tokens_details.reasoning_tokens` [R12].
+  - **Corrected at `M2-T11`.** `input_tokens_details` now carries **`cache_write_tokens`** as well as `cached_tokens`, with a `cache_write_tokens_details` split into `ttl_30m_tokens` and `ttl_12h_tokens`. The formula this section carried — `(input − cached) × in + cached × cachedIn + output × out` — predates those fields existing and charges cache writes at **zero**, under-reporting every cold prefix. Cost is computed through the shared `costIteration`, with 30m/12h mapped onto the `cacheWrite5m`/`cacheWrite1h` columns **by slot** (short and long priced slots), not by equal duration.
+- **Errors.** The `openai` SDK uses the same class family (`OpenAI.RateLimitError`, `APIConnectionTimeoutError`, `APIUserAbortError`, …) and maps to the same kinds — **with four differences measured at `M2-T11`**:
+  - There is **no `RequestTimeoutError`**; a client-side timeout is `APIConnectionTimeoutError`, which extends `APIConnectionError`, so the `instanceof` order matters as it does on Anthropic.
+  - There is **no overload class**. Anthropic has `OverloadedError` (529); OpenAI returns 503 through the generic `InternalServerError`. So `overloaded` is a **status check**, and getting it wrong matters — the circuit breaker treats a server fault and back-pressure differently.
+  - No 413 class either, so `request_too_large` is a status check too, as is 402 → `billing`.
+  - `LengthFinishReasonError` and `ContentFilterFinishReasonError` extend `OpenAIError`, **not** `APIError`, and are not exported from the package root (use `openai/error`). They are mapped explicitly: falling through to `unknown` would make a truncated structured output look like a provider outage and trip the breaker on a healthy provider.
+- **Effort.** `ReasoningEffort` is `'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max' | null` at 7.55.0. The adapter maps our five-level `Effort` through a **total** `Record`, so adding a level to the canonical union is a compile error here rather than a 400 at run time. The `openai/*` registry row stays conservative at `low|medium|high` because a wildcard family row has to hold for every model behind it.
+- **Models.** As of 2026-11 OpenAI lists `gpt-6-astra`, `gpt-6.1-sol`, `gpt-6.1-terra` and `gpt-6-luna` [R13]. The registry ships verified entries only for models covered by contract tests. **Prices filled at `M2-T11`** from developers.openai.com/api/docs/pricing on 2026-11-13 — all four, standard speed, with the 30m/12h cache-write columns and a 0.5 batch multiplier (the Batch column is exactly half the standard one on every one of the four). `service_tier` is never sent, so the standard column is the one that applies.
 
 #### 3.5.5 Google adapter (`@google/genai`, `models.generateContent`)
 **Decision (D19).** Use `generateContent`, not the Interactions API.
@@ -1019,7 +1115,12 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 - `generateContent` is stateless, fully supported, and documents thought-signature replay for manual histories [R16].
 - Revisit after 1.0 (Q8).
 
-- **Client.** `const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })`. Calls are `ai.models.generateContent({ model, contents, config })`.
+> **Re-measured at `M2-T13` (2026-11-13) against the installed `@google/genai` 3.0.0 and the
+> official pricing page.** `3.0.0` is a **major** released 2026-11-06, so nothing below was carried
+> over from 2.x. Four facts had moved and are corrected in place; the biggest is `finishReason`,
+> which this section maps five members of and which now has **twenty**.
+
+- **Client.** `const ai = new GoogleGenAI({ apiKey: env.GEMINI_API_KEY })`. Calls are `ai.models.generateContent({ model, contents, config })`. `config.abortSignal` and `config.httpOptions.timeout` are **both as written** — verified, as this section asked.
 - **Mapping:**
 
   | Canonical | `generateContent` |
@@ -1030,14 +1131,26 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
   | tools | `config.tools: [{ functionDeclarations: [{ name, description, parametersJsonSchema }] }]` [R17] |
   | `toolChoice` | `config.toolConfig.functionCallingConfig.mode`: `AUTO` / `NONE` |
   | tool results | `{ functionResponse: { id, name, response: { output } \| { error } } }` parts, all in one `user` content |
-  | effort | `config.thinkingConfig.thinkingLevel` (`low` / `medium` or `high`, as mapped per model in the registry) [R17] |
+  | effort | `config.thinkingConfig.thinkingLevel`. **Upper-case** and four levels: `MINIMAL`, `LOW`, `MEDIUM`, `HIGH` (plus `THINKING_LEVEL_UNSPECIFIED`). There is no `XHIGH` or `MAX`, so our five-level `Effort` maps `xhigh` and `max` onto `HIGH` — rounding **up** to the provider's ceiling, because a route that asked for more thinking and silently got less would make a cross-provider eval compare two different questions. |
+  | sampling | `temperature`, `topP` and `topK` all exist on `GenerateContentConfig`, so `01` §2.1's ban is a runtime assertion over the built config, as on OpenAI. `functionCallingConfig.mode` is checked against an **allowlist** of `AUTO`/`NONE`: the enum has five members and `VALIDATED` is new. |
   | structured | `config.responseMimeType:'application/json'`, `config.responseJsonSchema` [R17] |
   | abort/timeout | `config.abortSignal`, `config.httpOptions.timeout` (verify the names at implementation time) |
-- **Stops.**
-  - `finishReason`: `STOP` → `end_turn` (or `tool_use` if there are `functionCall` parts); `MAX_TOKENS` → `max_tokens`; `SAFETY`/`PROHIBITED_CONTENT`/`BLOCKLIST`/`SPII`/`RECITATION` → `refusal`; `MALFORMED_FUNCTION_CALL` → step retried once.
-  - `promptFeedback.blockReason` → `refusal`.
-- **Usage.** `usageMetadata.promptTokenCount`, `cachedContentTokenCount` (implicit caching), `candidatesTokenCount`, `thoughtsTokenCount`. Thoughts are billed as output.
+- **Stops.** `finishReason` has **twenty** members at 3.0.0, and the adapter maps them through a **total** `Record` so a member Google adds next is a compile error rather than a silent `other`. The five this section named are unchanged; the ones it did not are the point:
+  - `STOP` → `end_turn`, or `tool_use` when there are `functionCall` parts. The reason is the same either way, so the **parts** are what tell them apart.
+  - `MAX_TOKENS` → `max_tokens`. `SAFETY`/`PROHIBITED_CONTENT`/`BLOCKLIST`/`SPII`/`RECITATION`/`LANGUAGE` and the three `IMAGE_*` policy stops → `refusal`, each carrying its own name as the category.
+  - **`CONTINUATION` → `pause_turn`.** New, and *not* a failure: the response hit a per-request token limit and can be continued with the returned continuation token, which is the same control flow as Anthropic's `pause_turn`. Reading it as `end_turn` silently truncates an answer the server was ready to finish.
+  - **`MALFORMED_FUNCTION_CALL`, `UNEXPECTED_TOOL_CALL` and `MALFORMED_RESPONSE` are not refusals.** They are tool-loop failures, surfaced through `isRetryableToolFailure` for the caller to act on — the adapter reports and does **not** retry itself, because an adapter that retried silently would hide a model producing malformed calls repeatedly while spending a group's budget on it. `TOO_MANY_TOOL_CALLS` is deliberately *not* retryable: calling again is how a loop becomes infinite.
+  - `promptFeedback.blockReason` → `refusal`, and it is checked **first**: a blocked prompt produces **no candidate at all**, so a reader that went to `finishReason` would see `undefined` and report a finished turn with no text.
+- **Usage.** `usageMetadata.promptTokenCount`, `cachedContentTokenCount` (implicit caching), `candidatesTokenCount`, `thoughtsTokenCount` — **and `toolUsePromptTokenCount`** (added at `M2-T13`), which is billed input for a server-tool prompt and which this section did not name.
+  - `promptTokenCount` **includes** the cached tokens, so the canonical `input` is the remainder plus the tool-use prompt.
+  - Thoughts are billed as output and are reported **outside** `candidatesTokenCount`, so the canonical `output` is the **sum**. A turn that spent 2,000 tokens thinking and 50 answering is billed for 2,050; reporting only `candidatesTokenCount` would under-report it fortyfold.
+  - There is **no billed cache-write category** — caching is implicit — so both write columns are zero. That is a fact about the provider rather than a gap in the mapping, and a test says so.
+- **Errors.** The SDK exports exactly one error class: **`ApiError`**, whose whole shape is `{ message, status }`. No rate-limit, auth, connection or timeout classes, and **no headers**. Two consequences:
+  - The mapping is a **status table**, not an `instanceof` chain. 429 is `rate_limited` and 503 is `overloaded`; an unlisted status is grouped by class (any 5xx `server`, any other 4xx `bad_request`) because the breaker must count a provider fault and must **not** count our own bad request.
+  - **`retryAfterMs` is never populated.** A `retry-after` the server sent is not reachable from the thrown value, so the middleware falls back to its own backoff. Correct, and less polite than honouring the server's number — stated here rather than left as a field that is silently always absent.
+  - An abort is `AbortSignal`'s own `AbortError`/`TimeoutError`, detected by name, and a transport failure is undici's `TypeError` with a `cause`. Without both, every network blip would map to `unknown` and drive the breaker on the wrong signal.
 - **Models.** As of 2026-11, stable: `gemini-3.8-flash`, `gemini-3.6-flash`, `gemini-3.5-flash-lite`, `gemini-4-argon`. Preview: `gemini-3.1-pro-preview` [R14]. Registry entries are added only after contract tests pass.
+  - **Prices filled at `M2-T13`** from aistudio.google.com/docs/pricing on 2026-11-13 for the four stable models. Three of those rates are **promotional with published end dates** (`gemini-4-argon` through 2026-11-30, the two 3.x flash models through 2026-12-31), so `prices.2026-12-01.json` and `prices.2027-01-01.json` ship beside the current table and `pickTable` moves to each on the day. That is this document's own §3.9.2 mechanism, used rather than a reminder: a lapsed promotional rate left in place under-reports spend, which is the direction that lets a group run past its budget unnoticed.
 
 #### 3.5.6 OpenAI-compatible local adapter (Ollama, LM Studio, llama.cpp, vLLM)
 **Transport.** Chat Completions (`client.chat.completions.create`) through the `openai` SDK with `baseURL`. Rationale:
@@ -1050,24 +1163,45 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 - `messages = [{role:'system', content: charter + group layer}, {role:'user', content: <village_operator>turn notes</village_operator> + context + trigger}, …]`. The stable system message comes first, so server-side KV prefix caching works.
 - No mid-conversation system messages, because many chat templates reject them.
 - `tool_choice` is **omitted**, since Ollama doesn't support it [R18].
-- `max_tokens` is set.
+- `max_tokens` is set — and **not** `max_completion_tokens`, which OpenAI now prefers and has deprecated the older name for. Verified at `M2-T12`: `max_tokens` is the field all four servers implement, and sending the newer name would leave the output limit silently unenforced on the servers that ignore an unknown field and 400 on the ones that do not. The deprecation is on OpenAI's own surface, where this adapter never points; the lint suppression carries that reason.
 - `reasoning_effort` is sent only if the probe says it is accepted.
-- `temperature` is omitted unless set by a registry override.
+- `temperature` is **never sent**. `01` §2.1 bans sampling parameters with no exception, and an
+  earlier version of this section said "omitted unless set by a registry override" — which
+  contradicted §2.1 in the same sentence that cited it, and the adapter grew a
+  `temperatureOverride` option to match. The M2 independent review caught both. **Amended
+  2026-11-14 (M2 independent review; this adapter is `M2-T12`'s):** no override exists, nothing
+  ever set one, and `temperature`
+  joins `top_p`, `top_k`, `tool_choice` and `user` in this adapter's `FORBIDDEN_REQUEST_KEYS`,
+  asserted over the **built** request so a value arriving from any future path is a violation.
+  It is also the right default: a local model's sampler settings are tuned by whoever packaged
+  the weights, and overriding them from here would be guessing against the packager.
 
-**Capability detection** (`probe.ts`). The result is cached in DB runtime settings for `models.local.probeTtlHours` (168), keyed by `(baseURL, model, serverVersion)`.
+> **Re-measured at `M2-T12` (2026-11-13).** All four identification endpoints verified. Three of
+> them report **more** than this section says, and the probes reach the network through
+> `safeFetch` with a new `local-model` egress purpose rather than a raw socket — the base URL is
+> host-supplied, which makes it the one destination in the model layer that is not a pinned vendor
+> endpoint, and a typo in it must not become an SSRF probe of the host's LAN (`08` §3.9).
+
+**Capability detection** (`probe.ts`). The result is cached in DB runtime settings for `models.local.probeTtlHours` (168), keyed by `(baseURL, model, serverVersion)`. **The version in that key is load-bearing** (noted at `M2-T12`): without it, the 168-hour TTL would be the only thing between a host who upgraded Ollama to a build that fixed tool calling and a week of degraded behaviour. A cached result dated in the **future** is treated as stale, because a host whose clock was wrong when the probe ran would otherwise hold an entry that never expires.
 1. **Identify the server.**
-   - `GET {root}/api/version` → Ollama.
-   - `GET {root}/props` → llama.cpp.
+   - `GET {root}/api/version` → Ollama (`{ version }`).
+   - `GET {root}/props` → llama.cpp. **Also reports** `default_generation_settings.n_ctx`, `model_alias`, `build_info` and `modalities.vision`.
+   - `GET {root}/api/v0/models` → LM Studio's own REST surface, which is versioned separately from its OpenAI-compatible one. **Also reports** per-model `type` (`llm`/`vlm`/`embeddings`), `arch`, `quantization`, `state` and `max_context_length`.
    - `GET /v1/models` with `owned_by` values `vllm` → vLLM.
-   - An LM Studio REST probe.
-   - Otherwise `generic`.
+   - Otherwise `generic` — a valid, fully usable answer, not a failure.
+   - **Three of the four volunteer a context window** (added at `M2-T12`), which this list did not say. That matters twice: where a hint reports the window the 16K needle can be skipped, and a host who is about to be truncated is told **before** a turn runs rather than after one is silently cut.
+   - Probed **sequentially**, not in parallel: four concurrent requests to a server that is down produce four connection errors and four log lines for one fact, and a cold Ollama answering its first request slowly would have the other three time out beside it.
 2. **Static hints.**
-   - Ollama: `POST {root}/api/show {model}` → `capabilities[]` (`tools`, `thinking`, `vision`) and `model_info.*.context_length`. Treat the field names as hints and verify them in M2-T10 [R18][R19].
-   - LM Studio: native vs default tool-use support [R20].
+   - Ollama: `POST {root}/api/show {model}` → `capabilities[]` (`completion`, `tools`, `thinking`, `vision`) and `model_info.<architecture>.context_length`. **Verified at `M2-T12`.** The `model_info` key is architecture-prefixed and the prefix is whatever the GGUF says, so the lookup is by **suffix** rather than against a list of architecture names that would need updating with every model release — and the value varies by **quantisation**, so a Q4_0 and a Q5_K_M of one base model can report different numbers. That is the second reason this is a hint.
+   - LM Studio and llama.cpp need **no second request**: both already reported their window and vision support during identification, so re-asking would be a round trip for data we hold.
+   - **A hint can lower the probes' work and can never raise the answer** (`M2-T12`). Tool calling depends on the server's **chat template**, not only on the weights: the same GGUF with and without llama.cpp's `--jinja` differs on whether tool calls come out at all, and nothing in the model's metadata knows how the server was started. So a model whose metadata claims `tools` can still fail the tool probe, which is the common case and the confusing one — the host can see their model supports tools and cannot see why the bot will not use them. `doctor` pairs that with the named flag (`--jinja`, or vLLM's `--enable-auto-tool-choice --tool-call-parser`).
 3. **Active probes.** These are authoritative, with two tiny requests each capped at 20 s:
    - **Tool probe:** a single tool `probe_echo{value:string}` and the instruction "Call probe_echo with value 'v1'". Pass if `tool_calls[0].function.name === 'probe_echo'` and the arguments parse. The probe also checks parallel calls.
    - **Schema probe:** `response_format:{type:'json_schema', json_schema:{name:'probe', schema, strict:true}}` and a parse check. If that fails, retry with `{type:'json_object'}`.
-4. **Context probe.** A needle at ~16K tokens. A failure means the server truncates, for example Ollama's default context. `doctor` then advises the host to raise the server context (e.g. `OLLAMA_CONTEXT_LENGTH`) or use the compact profile.
+4. **Context probe.** A needle at ~16K tokens, planted near the **start** of the prompt. The position is the whole design (`M2-T12`): a server that truncates drops the *front* of the context, so a needle at the end would come back correctly from a server that had silently discarded the charter. A failure means the server truncates — Ollama's default context is the common case — and this is the probe that earns its cost, because silent truncation produces **no error at all**: the server accepts a 16K prompt, drops the front, and answers confidently from what is left. A group would experience that as a bot that ignores its own instructions and nobody would suspect the context window.
+   - `doctor` names the **actual knob per server** (`M2-T12`), because "raise the server context" is not actionable: a host running llama.cpp cannot set `OLLAMA_CONTEXT_LENGTH`, and telling them to is worse than saying nothing. The four sentences live in `hints.ts`'s `contextAdviceFor`.
+   - The needle is **skipped** when a static hint already reports a window below 16K: spending 16K tokens to prove a server cannot hold 16K tokens costs a cold model load for an answer we hold.
+5. **Effort probe** (added at `M2-T12`). Whether `reasoning_effort` is accepted or rejected outright. `05` §3.5.6's request shape already says the field is sent "only if the probe says it is accepted"; this is the probe that says so, and it decides a request field rather than a feature.
 
 **Degradation ladder** (the selected level is recorded in the registry override and the trace):
 
@@ -1078,7 +1212,19 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 | L3 | none | `json_object` only | Envelope prompt, zod validation, one repair retry |
 | L4 | none | none | **Chat-only.** No tools; write intents get `err.local_no_tools`. Structured routes are disabled: extraction off, declassify off (no constraints), guard deterministic-only with fail-closed (doc 03), interjections off. `doctor` and the init wizard refuse L4 for `chat` unless `--force`. |
 
-**Recommended local models.** These are verified on the Ollama library on 2026-11-01. The final defaults are chosen by the M2-T14 eval (tool success, extraction F1, discretion red-team subset, latency):
+**How the level is chosen** (`M2-T12`). It is the **worse of the two axes**, not a lookup over two booleans: native tools with no schema support would leave the structured routes on `json_object`, which is L3's behaviour, and that is what makes this a ladder rather than a matrix. `LEVEL_BEHAVIOUR` records what each level permits as a total mapping, so adding a level is a compile error at every reader.
+
+**Why L4 refuses rather than degrades** (`M2-T12`). A `structured()` call at L4 throws instead of returning an empty value, and the reason is the direction of the failure: every caller of `structured()` drives a decision, so an empty extraction reads as "nothing happened today" and an empty declassification as "no constraints". Both are the unsafe direction. The engine falls back to its deterministic path, which is a decision it can make and the adapter cannot.
+
+**The envelope's three safety rules** (`M2-T12`). A text protocol that decides which tool runs is the one place in this product where prose reaches the policy engine, so:
+
+1. **`name` is a JSON-Schema `enum` of the actual tool names**, not a free string. A model that invents `delete_everything` fails the schema instead of arriving at the policy engine with a name it has to decide about. This is the difference between a text protocol and a text injection.
+2. **Per-tool zod validation is not optional.** The envelope schema can only say "`input` is an object"; it cannot carry forty input schemas as a union every local server would handle correctly. The envelope gets the model to the right *shape*, zod to the right *value*, and a failure returns an `is_error` envelope carrying the tool name and the issue — **never the input**, which is still member data and is going back into a prompt.
+3. **Call ids are generated, not asked for.** A model that invents ids eventually reuses one, and a tool result then attaches to the wrong call. They are positional (`env_<step>_<index>`), unique within a turn and reproducible in a replay.
+
+With no tools the envelope's array is constrained to `maxItems: 0` rather than left unconstrained, because a local server handed an unconstrained array will eventually fill it. The parser tolerates a code fence and surrounding prose — many chat templates add both whatever the instruction said — and refuses to guess at a missing `name` or a non-array `tool_calls`, which are the cases where guessing would mean executing something the model did not ask for.
+
+**Recommended local models.** Re-verified on the Ollama library on **2026-11-13** (`M2-T12`): all four families still exist at the stated sizes. They are written into `presets.json` as `localDefaults.tiers`, so the wizard can pre-fill something — "type a model name" is not a question anybody can answer on first install — and `doctor` can say which tier a machine falls in. **Interim**: the final defaults are chosen by the `M8-T15` eval (tool success, extraction F1, discretion red-team subset, latency). A machine below every floor gets the **smallest** tier rather than nothing, because the wizard's job there is to say so with a concrete model name and a download size next to the advice below.
 
 | Host memory | Chat model | Small routes | Notes |
 |---|---|---|---|
@@ -1087,19 +1233,31 @@ Interactive routes do no retries of their own beyond the SDK's. Background route
 | 12–16 GB | `gemma4:12b` (≈ 8 GB; tools, thinking, vision; 256K) [R23] | same | Balanced |
 | 8 GB (Pi 5 8 GB) | `gemma4:e2b` / `gemma4:e4b` (4.6–9.5 GB) [R23] | same | Slow and limited. Docs recommend a cloud preset or a separate GPU host for Pi installs. |
 
-#### 3.5.7 FakeModelGateway (`packages/models/src/fake`)
+#### 3.5.7 FakeModelGateway (`packages/models/src/testing`)
 A deterministic implementation of the full `ModelGateway` port, used by every engine test, every simulator scenario and the CI evals.
+
+> **`src/testing/`, not `src/fake/`** (amended at `M2-T7`). `11` §3.2.4 places every model double in
+> `@comvivo/models/testing`, and the subpath is what `testing-subpath-only-from-tests` guards: a
+> fake under `src/fake/` would be importable from production code, which is the one property a test
+> double must not have. `FakeProviderServer` moved to the same directory at `M2-T6` for the
+> dependency reason. The modules are `fake-gateway.ts` (the DSL), `cache-sim.ts`, `assertions.ts`,
+> `canonical-hash.ts`, `scripted-model.ts`, `cassette-model.ts` and `recorder.ts`.
+>
+> **`.andThen(…)`, not `.then(…)`** (amended at `M2-T7`). A class with a `then` member is a
+> **thenable**: `await fake.when({…}).respond(…)` would try to resolve the rule and hang or return
+> something surprising. `noThenProperty` catches it, and the hazard is not theoretical in a file
+> every test author copies from.
 
 - **Script DSL.**
   ```ts
   fake.when({ route: 'chat', purpose: 'turn.step', match: req => lastUserText(req).includes('recital') })
       .respond(r => r.thinking().toolCall('calendar_search_events', { query: 'recital', from: null, to: null }))
-      .then(r => r.text('Fri 14 Nov, 6 pm at Teatro Real.'));
+      .andThen(r => r.text('Fri 14 Nov, 6 pm at Teatro Real.'));
   fake.when({ route: 'chat' }).refuse('cyber');            // stop.reason = 'refusal'
   fake.when({ route: 'route' }).structured({ candidates: [], dominantLanguage: 'es' });
   fake.when({ route: 'chat' }).error('overloaded').times(2);
   fake.when({ route: 'chat' }).delay(70_000);               // with an injected clock: deadline tests
-  fake.when({ route: 'chat' }).pauseTurn().then(…);        // pause_turn handling
+  fake.when({ route: 'chat' }).pauseTurn().andThen(…);     // pause_turn handling
   fake.when({ route: 'chat' }).fallbackMidStream('claude-opus-5', /*partial*/ …);  // fallback-echo tests
   ```
   Tool-call ids are deterministic (`toolu_fake_0001…`). An unmatched call throws `FakeScriptExhausted`, so tests fail loudly.
@@ -1123,7 +1281,7 @@ A deterministic implementation of the full `ModelGateway` port, used by every en
 - **Extra fields beyond spine §7.4:** `activityKey` (presence copy), `effectTemplates` (keys it may emit), `compensate?` (undo), `timeoutMs?` (built-ins default 10 s; extension tools per 10 §3.2.3, default 15 s, max 60 s, always clamped to the turn deadline), `resultMaxTokens?` (default 2 000), and `parallelSafe` (reads default `true`). The shared `ToolDefinition` also carries the 01 §14 A23 fields `uses`, `confirm` and `grantsDelegation`, plus 10's extension-only fields (`outputSensitivity`, `untrustedOutput`, `effectSummary`, `exposeViaMcp`, `examples`; 10 §3.2.3).
 - **Catalog freeze.** At boot the registry builds the built-in `catalog: ToolSpec[]` in `catalog.ts` order plus its hash; per group, the built-ins plus that group's enabled extension tools form the BP1 catalog and its `catalogHash` (10 §3.5.1 step 4). CI fails if the built-in catalog exceeds 7 000 estimated tokens or any single tool (description plus schema) exceeds 300. **If** M7-T1 measures the complete §3.6.7 catalog above 7 000 tokens, the ceiling is set to the measured size + 10 % in ADR-023 (§3.4.9), and the §8.2 cost table and the Economy target are recomputed in M13-T3; the ceiling is never silently raised.
 
-#### 3.6.2 zod → strict JSON Schema (`schema/to-strict-json-schema.ts`)
+#### 3.6.2 zod → strict JSON Schema (`@comvivo/shared`'s `zod/to-strict.ts`, re-exported by `models` and `plugin-sdk`)
 1. `z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input', unrepresentable: 'throw', cycles: 'throw', reused: 'inline' })` [R26]. A recursive schema throws at registration.
 2. Walk the result:
    - every `object` gets `additionalProperties: false`;
@@ -1134,6 +1292,7 @@ A deterministic implementation of the full `ModelGateway` port, used by every en
 4. Emit **canonical JSON** (sorted keys inside schema objects, `properties` in declaration order) and freeze it. The bytes are identical on every boot.
 5. Input path: `denull(input, nullablePaths)` (null → undefined), then `def.input.safeParse`.
 6. The same converter serves structured outputs (profile `'output'`, with the same rules) for every provider.
+7. **One implementation, in `@comvivo/shared`** (plan change at `M2-T4`). This section named `models/src/schema/to-strict-json-schema.ts` and `10` §3.5.2 named `plugin-sdk/src/schema/strict.ts`; two converters producing "the same" schema is two sets of edge cases, and this schema is what a provider's `strict: true` validation is checked against — a disagreement would mean a tool whose arguments validate for the host and not for the provider. `10` §3.5.2's **linter** (for a schema we did *not* generate, arriving as JSON over RPC) is a second function beside it, `zod/strict-lint.ts`, and the test asserts that everything the converter emits passes the linter.
 
 #### 3.6.3 Execution pipeline (`tools-executor/executor.ts`)
 `executeAll(turn, calls)` handles one assistant message's calls. Calls run **in emitted order with barrier semantics**: consecutive `parallelSafe` reads run concurrently; a write waits for every earlier call; calls after a write wait for it. At most 10 calls per step; extra calls get `too_many_calls`. The results are returned as **one** user message in the same order as the `tool_use` blocks [R2].
@@ -1427,7 +1586,7 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
   "sources": { "anthropic": "https://platform.claude.com/docs/en/about-claude/pricing" },
   "models": {
     "anthropic/claude-opus-5-5":   { "in": 4.00, "out": 20.00, "cacheWrite5m": 5.00,  "cacheWrite1h": 8.00, "cacheRead": 0.20, "batchMultiplier": 0.5 },
-    "anthropic/claude-sonnet-5-5": { "in": 2.00, "out": 10.00, "cacheWrite5m": 2.50,  "cacheWrite1h": 4.00, "cacheRead": 0.20, "batchMultiplier": 0.5 },
+    "anthropic/claude-sonnet-5-5": { "in": 2.00, "out": 10.00, "cacheWrite5m": 2.50,  "cacheWrite1h": 4.00, "cacheRead": 0.10, "batchMultiplier": 0.5 },
     "anthropic/claude-haiku-5-5":  { "tiers": [
         { "maxPromptTokens": 100000, "in": 0.10, "out": 0.50, "cacheWrite5m": 0.125, "cacheWrite1h": 0.20, "cacheRead": 0.01 },
         { "in": 0.50, "out": 2.50, "cacheWrite5m": 0.625, "cacheWrite1h": 1.00, "cacheRead": 0.05 } ], "batchMultiplier": 0.5 },
@@ -1437,9 +1596,21 @@ Rows are inserted in the commit transaction (§3.3.8). Sending happens after com
   }
 }
 ```
+- **Corrected at `M2-T3`** against the published table (2026-11-12): Sonnet 5.5's cache read is **$0.10**, not the $0.20 this row carried. Cache hits on Opus 5.5 and Sonnet 5.5 are 0.05× base input, and 0.05 × $2 is $0.10. The error was in the quiet direction: cache reads are most of a warm conversation, so a doubled rate inflates the cheapest part of a family's traffic and would have had the budget guard degrade a group that had not spent its budget. The shipped table is `pricing/prices.2026-11-12.json` and `cost.test.ts` pins every rate.
 - **Units.** Prices are USD per million tokens [R1]. `costMicros = Σ round(tokens × pricePerMTok)`: dollars per MTok × tokens equals micro-USD exactly. `batchMultiplier` is applied for Batches.
 - **Haiku tier.** Chosen by total prompt tokens (input + cache read + cache write) [R1].
-- **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates, so it is conservative) and `doctor` warns.
+- **`null`** means unknown. The guard uses `pricing.unknownModelFallback` (Opus rates) and `doctor` warns.
+  **Amended 2026-11-14 (M2 independent review; the price tables are `M2-T3`'s):** this said "so it
+  is conservative", which is true only
+  relative to the table. Opus is the dearest model we publish prices for, not the dearest model
+  that can exist — `openai/gpt-6-astra` is 2.5× Opus on the same tokens — so a model dearer than
+  Opus that falls through is **under**-reported, the dangerous direction for a budget. The
+  fallback is a floor on visibility, not a ceiling on spend. What keeps a group safe is that
+  models do not fall through: `lookupPrice` resolves a provider's **bare** model id, which is how
+  every adapter reports the served model (`message.model` is `claude-opus-5-5`, never
+  `anthropic/claude-opus-5-5`) — until `M2-T16` it did not, so **every** priced iteration fell
+  through to the fallback and only coincided with the truth for Opus itself. `doctor`'s
+  `models.prices` and `models.registry` checks say so out loud when one still does.
 - **Overrides.** Hosts may set `models.pricing.overridesFile`.
 - **Updates.** New files ship with releases. The newest `version ≤ today` wins.
 
@@ -1555,7 +1726,13 @@ Copy lives in `copy/runtime.<locale>.json` (ICU) and is reviewed like UI copy.
 export type ProviderId = 'anthropic' | 'openai' | 'google' | 'openai-compatible' | 'fake';
 export type ModelRoute = 'chat' | 'route' | 'extract' | 'declassify' | 'guard' | 'consolidate';
 export type RouteVariant = 'default' | 'economy';             // economy = budget step ≥ 1 (chat only)
-export type Effort = 'low' | 'medium' | 'high';
+// Amended at `M2-T1`: **five** levels, verified against the live API documentation on 2026-11-12
+// (`output_config.effort`, GA, no beta header). All five are accepted by Opus 5.5, Sonnet 5.5 and
+// Haiku 5.5; §3.5.2's capability registry already listed five, so this line was the outlier. The
+// API default differs per model — `medium` on Opus 5.5 and Haiku 5.5, `high` on Sonnet 5.5 and
+// Fable 5.2 — which is why `ModelTurnRequest.effort` is **required** rather than optional.
+// `adaptive` is a `thinking` mode and is deliberately not an effort value.
+export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export interface CacheHint { readonly ttl: '5m' | '1h' }
 
 export interface SystemBlock { readonly id: string; readonly text: string; readonly cache?: CacheHint }
@@ -1625,7 +1802,10 @@ export interface StructuredRequest<T> {
   readonly route: ModelRoute; readonly variant?: RouteVariant; readonly purpose: string;
   readonly system: readonly SystemBlock[];
   readonly input: readonly UserPart[];
-  readonly schema: z.ZodType<T>; readonly schemaName: string;
+  // `SchemaLike<T>` (a `safeParse`), not `z.ZodType<T>`: amended at `M2-T1`, because
+  // `@comvivo/core` must not take a validation library's type surface into a port. The engine
+  // passes whatever zod gives it and `@comvivo/models` does the parsing.
+  readonly schema: SchemaLike<T>; readonly schemaName: string;
   readonly effort: Effort; readonly maxOutputTokens: number;
   readonly correlation: { readonly groupId?: GroupId; readonly turnId?: TurnId; readonly jobId?: JobId };
 }

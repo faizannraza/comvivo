@@ -147,6 +147,22 @@ export interface OpenFramedOptions {
   readonly formatName: string;
   /** The error a truncated or over-long file raises — `BLOB_INTEGRITY` or `BACKUP_INTEGRITY`. */
   readonly integrity: (message: string, hint: string) => StorageError;
+  /**
+   * Called once at the end with the total bytes `memcpy`'d into the pending buffer.
+   *
+   * This exists so the linearity claim in this file's header comment is **checkable**. The comment
+   * says "every byte is copied once on the way in, plus at most one chunk per capacity-worth of
+   * input", and `blob-format.test.ts` asserted it with a wall-clock budget — which made the gate
+   * depend on which half of `pnpm verify` you read: `pnpm test` passed and `pnpm coverage` failed
+   * the same commit, because coverage instruments every call and a 1 MiB file read a byte at a
+   * time is 1 048 576 of them.
+   *
+   * A byte count is deterministic, machine-independent and instrumentation-independent, and it
+   * catches what a clock cannot distinguish: the quadratic `concat` accumulator **and** a
+   * constant-factor blowup like compacting on every append, which a scale-free timing ratio reads
+   * as perfectly linear. Omitted by every production caller; one `+=` per append when it is not.
+   */
+  readonly onBytesCopied?: (bytes: number) => void;
 }
 
 /** Open a framed file, yielding plaintext chunks. */
@@ -157,6 +173,7 @@ export async function* openFramed(options: OpenFramedOptions): AsyncGenerator<Ui
     for (const message of framer.accept(piece)) yield message;
   }
   for (const message of framer.finish()) yield message;
+  options.onBytesCopied?.(framer.bytesCopied);
 }
 
 /**
@@ -175,6 +192,8 @@ class StreamFramer {
   #end = 0;
   #first = true;
   #sawFinal = false;
+  /** Total bytes `memcpy`'d into `#pending`. Reported to `onBytesCopied`; see its doc comment. */
+  #copied = 0;
 
   constructor(options: OpenFramedOptions) {
     this.#options = options;
@@ -217,14 +236,21 @@ class StreamFramer {
   /** Copy as much of `piece` from `offset` as fits, compacting first if it must. */
   #append(piece: Uint8Array, offset: number): number {
     if (this.#end === this.#capacity) {
+      this.#copied += this.#end - this.#start;
       this.#pending.copyWithin(0, this.#start, this.#end);
       this.#end -= this.#start;
       this.#start = 0;
     }
     const take = Math.min(this.#capacity - this.#end, piece.length - offset);
+    this.#copied += take;
     this.#pending.set(piece.subarray(offset, offset + take), this.#end);
     this.#end += take;
     return take;
+  }
+
+  /** The copy total, read once the source is exhausted. */
+  get bytesCopied(): number {
+    return this.#copied;
   }
 
   /** Read the head once it has arrived, then yield every chunk that is certainly complete. */

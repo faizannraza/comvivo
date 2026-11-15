@@ -1,0 +1,43 @@
+{
+  "choices": [
+    {
+      "finish_reason": "tool_calls",
+      "index": 0,
+      "logprobs": null,
+      "message": {
+        "content": null,
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "function": {
+              "arguments": "{\"q\":\"Lisbon\"}",
+              "name": "get_forecast"
+            },
+            "id": "call_1",
+            "type": "function"
+          },
+          {
+            "function": {
+              "arguments": "{\"q\":\"Porto\"}",
+              "name": "get_forecast"
+            },
+            "id": "call_2",
+            "type": "function"
+          }
+        ]
+      }
+    }
+  ],
+  "created": 1767225600,
+  "id": "fixture_1",
+  "model": "gemma4:12b",
+  "object": "chat.completion",
+  "usage": {
+    "completion_tokens": 0,
+    "prompt_tokens": 0,
+    "prompt_tokens_details": {
+      "cached_tokens": 0
+    },
+    "total_tokens": 0
+  }
+}

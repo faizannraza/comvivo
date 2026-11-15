@@ -97,8 +97,27 @@ export default defineConfig({
         test: {
           ...sharedTest,
           name: 'unit',
-          // Threads: `core` and `shared` are pure, and Stryker requires them.
-          pool: 'threads',
+          /*
+           * Forks, since 2026-11-14.
+           *
+           * This was `threads`, justified as "`core` and `shared` are pure, and Stryker requires
+           * them". Both halves were false, and the `include` below says so: the glob is every
+           * package, app, script and tool plus the `test/` tree, not two pure packages. And
+           * Stryker does not use this project at all — `packages/core/stryker.config.json` points
+           * at `packages/core/vitest.mutation.config.ts` and sets `"pool": "forks"` itself, which
+           * is the opposite of what the comment claimed it needed.
+           *
+           * It matters because `vitest run` died twice in two days with exit 139 and exit 138,
+           * both times partway through **this** tier (`M2-T11`'s gate on 2026-11-13, `M2-T19`'s on
+           * 2026-11-14), with no failing test and the next run green. Not reproduced since: 10
+           * dedicated runs of this project plus three full `pnpm verify` runs on Node 26.13.0 are
+           * all clean, so this is not a claimed fix. It removes the one difference between this
+           * tier and the four below it that had no reason behind it, and process isolation is the
+           * safer default for a tier this broad.
+           *
+           * Measured cost: 15.4 s → 16.7 s for 3 979 tests, +9%.
+           */
+          pool: 'forks',
           include: [
             'packages/**/src/**/*.test.ts',
             'apps/*/src/**/*.test.ts',

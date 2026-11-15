@@ -452,6 +452,8 @@ export interface ModelGateway {
 ```
 `ModelTurnRequest` is provider-neutral: layered system blocks with cache hints, messages with content parts (text, image, document, tool_use, tool_result, opaque provider blocks such as thinking that must be round-tripped unchanged), tool catalog, effort hint, and max output. Adapters map it to the native API and back.
 
+**The effort hint has five levels** (`low`, `medium`, `high`, `xhigh`, `max`) and is **required**, not optional — amended at `M2-T1` against the live API, where the default differs per model. The request type also deliberately cannot express a sampling parameter, an assistant prefill or a forced tool choice: §2.1's rules are enforced first by the absence of a field, then by `M2-T6`'s assertions over captured requests, and only then by the provider's 400.
+
 ---
 
 ## 8. Process, concurrency and reliability

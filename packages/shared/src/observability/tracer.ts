@@ -146,7 +146,8 @@ export interface RecordingTracer extends Tracer {
  *
  * This is the substitute for an OTel in-memory exporter, and a better one for our purposes: it
  * records what *we* asked for, so a test asserting the span shape in `11` §3.10.2 fails for the
- * reason it claims rather than because an SDK renamed a field.
+ * reason it claims rather than because an SDK renamed a field. `M2-T15`'s span-shape and
+ * no-content-attribute assertions run against it; see `packages/models/src/telemetry.test.ts`.
  */
 export function recordingTracer(): RecordingTracer {
   const spans: RecordedSpan[] = [];
@@ -299,12 +300,20 @@ export type BackendLoader = () => Promise<TracerBackendModule>;
  *
  * The OpenTelemetry SDK is not a dependency of `@comvivo/shared` and must not become one — `01` §4
  * keeps this package at the bottom of the graph, and every package imports it. The backend module
- * is installed alongside the server, and `M2-T15` is the task that adds it, being the first
- * consumer (it asserts model span shapes against a real exporter).
+ * is installed alongside the server, and **`M9-T42`** is the task that adds it.
  *
- * Until then `observability.otel.enabled` is refused at startup with the message below rather than
- * silently doing nothing. Refusing is the right behaviour: a host who turned tracing on and saw no
- * traces would spend an hour on their collector before suspecting us.
+ * `M2-T15` was originally named here as that task, on the reasoning that the first consumer should
+ * bring the backend. That was wrong on inspection: the OTel backend is host infrastructure of
+ * exactly the kind `11` §3.10.3 already assigns to `M9-T36` (the prom-client `/metrics` backend),
+ * and `M2-T15` is a model-gateway task whose single listed file is `packages/models/src/telemetry.ts`.
+ * Shipping a lazily-loaded OTLP exporter from inside the model package would put six runtime
+ * dependencies in the wrong milestone and the wrong layer. So `M2-T15` instruments, `M9-T42`
+ * exports, and `recordingTracer()` below is what the span-shape assertions run against — which is
+ * the better substrate for them anyway, because it records what *we* asked for.
+ *
+ * Until `M9-T42`, `observability.otel.enabled` is refused at startup with the message below rather
+ * than silently doing nothing. Refusing is the right behaviour: a host who turned tracing on and
+ * saw no traces would spend an hour on their collector before suspecting us.
  */
 const defaultLoader: BackendLoader = async () => {
   // Built at runtime so the bundler and `pnpm depcruise` do not treat this as a static edge to a

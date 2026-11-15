@@ -7,9 +7,10 @@ import {
   FORBIDDEN_ATTRIBUTE_NAMES,
   isForbiddenAttribute,
   MAX_ATTRIBUTE_LENGTH,
+  mergeAttributes,
   sanitizeAttributes,
 } from './attributes.js';
-import { GENAI } from './semconv-genai.js';
+import { ATTR, GENAI } from './semconv-genai.js';
 
 /**
  * Layer 1 — the type.
@@ -224,5 +225,49 @@ describe('sanitizeAttributes', () => {
       expect(message).toContain('body');
       expect(message).toContain('gen_ai.input.messages');
     }
+  });
+});
+
+describe('mergeAttributes (M2-T15)', () => {
+  it('merges two bags, with the later one winning a collision', () => {
+    expect(mergeAttributes({ 'a.x': 1, 'a.y': 2 }, { 'a.y': 3, 'a.z': 4 })).toEqual({
+      'a.x': 1,
+      'a.y': 3,
+      'a.z': 4,
+    });
+  });
+
+  it('accepts a bag whose keys are computed from brand-namespaced constants', () => {
+    // The reason this function exists. `Attributes` is an open index signature intersected with
+    // `Partial<Record<Forbidden, never>>`, and the two halves fight when you compose: spreading one
+    // bag into a literal gives the literal a `string` index signature, which is not assignable to
+    // `never`. Every span is assembled from a request half and a response half, so without a
+    // sanctioned merge nothing could emit `ATTR.*` at all (found at `M2-T15`).
+    expect(
+      mergeAttributes({ [ATTR.MODEL_ROUTE]: 'chat' }, { [ATTR.MODEL_EFFORT]: 'medium' }),
+    ).toEqual({ [ATTR.MODEL_ROUTE]: 'chat', [ATTR.MODEL_EFFORT]: 'medium' });
+  });
+
+  it('is a no-op on no bags, and on one', () => {
+    expect(mergeAttributes()).toEqual({});
+    expect(mergeAttributes({ 'a.x': 1 })).toEqual({ 'a.x': 1 });
+  });
+
+  it('re-applies the denylist, which is what makes the cast inside it safe', () => {
+    // A bag assembled from `unknown` data loses the type on the way in, so the merge has to check
+    // again rather than trust that every caller came through the compile-time layer.
+    expect(() =>
+      mergeAttributes({ 'a.x': 1 }, JSON.parse('{"gen_ai.input.messages":"the recital"}')),
+    ).toThrow(/forbidden/i);
+  });
+
+  it('bounds and scrubs values exactly as sanitizeAttributes does', () => {
+    const merged = mergeAttributes({ 'a.long': 'x'.repeat(MAX_ATTRIBUTE_LENGTH + 50) });
+    expect((merged['a.long'] as string).length).toBe(MAX_ATTRIBUTE_LENGTH);
+  });
+
+  it('refuses a content attribute at compile time', () => {
+    // @ts-expect-error -- `gen_ai.output.messages` is an opt-in content attribute.
+    expect(() => mergeAttributes({ 'gen_ai.output.messages': 'hi' })).toThrow();
   });
 });

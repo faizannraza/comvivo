@@ -417,9 +417,26 @@ function unrunnable(kind: string): ErrorInfo {
   };
 }
 
-/** A platform's `Retry-After`, when the thrown error carries one (`02` §3.10.3). */
+/**
+ * A platform's `Retry-After`, when the thrown error carries one (`02` §3.10.3).
+ *
+ * **Both shapes**, because the two error types that carry one disagree about where it lives.
+ * `ModelCallError` puts it in `detail.retryAfterMs` (`01` §7.5) and a channel's send error puts it
+ * at the top level. This read only the top level, so a provider 429 on a background route — every
+ * `extract`, `consolidate` and `embed` job — got the queue's own jittered backoff instead of the
+ * time the provider asked for. Found at the M2 second-pass review, which measured
+ * `new ModelCallError('rate_limited', 'anthropic', { retryAfterMs: 4000 }).retryAfterMs` as
+ * `undefined` while `.detail.retryAfterMs` was 4000.
+ *
+ * `computeBackoff` takes the larger of the two, so honouring it can only ever delay a retry, never
+ * hurry one — which is the safe direction when a provider has told us it is overloaded.
+ */
 function retryAfterOf(error: unknown): number | undefined {
   if (typeof error !== 'object' || error === null) return undefined;
-  const value = (error as { retryAfterMs?: unknown }).retryAfterMs;
+  const shaped = error as { retryAfterMs?: unknown; detail?: { retryAfterMs?: unknown } };
+  return positiveMs(shaped.retryAfterMs) ?? positiveMs(shaped.detail?.retryAfterMs);
+}
+
+function positiveMs(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined;
 }

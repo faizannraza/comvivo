@@ -1,0 +1,28 @@
+{
+  "candidates": [
+    {
+      "content": {
+        "parts": [
+          {
+            "text": "weighing it up",
+            "thought": true
+          },
+          {
+            "text": "Yes."
+          }
+        ],
+        "role": "model"
+      },
+      "finishReason": "STOP",
+      "index": 0
+    }
+  ],
+  "modelVersion": "gemini-3.8-flash",
+  "responseId": "resp_fixture_1",
+  "usageMetadata": {
+    "cachedContentTokenCount": 0,
+    "candidatesTokenCount": 0,
+    "promptTokenCount": 0,
+    "totalTokenCount": 0
+  }
+}

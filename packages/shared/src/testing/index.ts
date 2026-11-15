@@ -26,4 +26,10 @@ export {
   vectorKey,
 } from './secretstream-vector.js';
 export { childSeed, fnv1a32, SeededRng, seedForScenario } from './seeded-rng.js';
+export {
+  type RecordedLine,
+  type RecordingLogger,
+  recordingLogger,
+  silentLogger,
+} from './silent-logger.js';
 export { VirtualClock } from './virtual-clock.js';
