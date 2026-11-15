@@ -188,6 +188,21 @@ catalog:
   # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
   # every shape below was read off the installed typings rather than carried over from 2.x.
   "@google/genai": 3.0.0
+  # --- HTTP (M3) -------------------------------------------------------------------------------
+  # `09` D-02 and §9's dependency table name all three. Carets: `apps/server/src/http`'s tests
+  # assert the header set, the status per problem code and the validation shape against the spec,
+  # so a minor that moved any of them fails here rather than at a host — unlike the exact pins
+  # above, which protect bytes that are persisted or replayed verbatim. (`api:check` is
+  # `plugin-sdk`'s API-extractor report and covers none of this; the OpenAPI drift gate arrives
+  # with `M3-T36`'s `openapi-emit.ts`.)
+  #
+  # `09` §9 pins `hono` 4.13.16 and `@hono/node-server` 2.1.5; both have moved (4.13.18 and 2.1.8
+  # as of 2026-11-14) and the ranges below take whichever `minimumReleaseAge` allows — 2.1.8 went
+  # out 2026-11-12 and is inside the 3-day window, so pnpm resolves 2.1.7. The facts `09` §9
+  # records about each API were re-verified at implementation time (`CLAUDE.md` §6).
+  hono: ^4.13
+  "@hono/node-server": ^2.1
+  "@hono/zod-openapi": ^1.6
   # --- CLI (M3) --------------------------------------------------------------------------------
   # `09` §3.11.1 names commander with `@commander-js/extra-typings` and `picocolors`. Carets: none
   # of the three touches a byte that is persisted or replayed, and the CLI's exit codes and copy

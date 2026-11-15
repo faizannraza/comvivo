@@ -215,6 +215,24 @@ export const configSchema = z.strictObject({
     })
     .prefault({}),
   dashboard,
+  /**
+   * `09` §5.1's `api` block, added at `M3-T14`.
+   *
+   * `maxBodyKb` is `09` §3.2's "JSON only, ≤ 256 KB by default" as a number the middleware reads
+   * (`hono/body-limit`). A **minimum of 16**: the constitution is sent as a JSON string field
+   * (`09` §3.2), and a host who set this to 1 would make their own governance document
+   * unsubmittable — with a 413 that named a body size rather than the setting that caused it.
+   *
+   * `idempotencyTtlHours` is `09` §3.2's replay window. Not read until `M3-T36` registers the
+   * middleware; declared here because the two keys are one block in `09` §5.1 and a config file
+   * that validated one and rejected the other would be the worse surprise.
+   */
+  api: z
+    .strictObject({
+      maxBodyKb: z.number().int().min(16).max(8_192).default(256),
+      idempotencyTtlHours: z.number().int().min(1).max(168).default(24),
+    })
+    .prefault({}),
   ics: z
     .strictObject({ bind: z.string().nullable().default(null), port: port.default(7778) })
     .prefault({}),

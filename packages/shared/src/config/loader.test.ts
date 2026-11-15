@@ -70,7 +70,7 @@ describe('defaultConfig', () => {
     expect(config.privacy.localOnly).toBe(false);
     expect(config.logging.file.enabled).toBe(false);
 
-    // The twenty-three top-level sections, pinned: a section added without a default would
+    // The twenty-four top-level sections, pinned: a section added without a default would
     // otherwise appear here with whatever zod inferred, and a section removed would take its
     // defaults with it unnoticed.
     expect(Object.keys(config)).toEqual([
@@ -81,6 +81,8 @@ describe('defaultConfig', () => {
       'channels',
       'email',
       'dashboard',
+      // `M3-T14`: `09` §5.1's `api` block, which the body-limit middleware reads.
+      'api',
       'ics',
       'privacy',
       'traces',

@@ -65,7 +65,6 @@ function loadConfig(): readonly Rule[] {
 const PENDING: ReadonlyMap<string, string> = new Map([
   ['packages/mcp/src/client', 'the MCP client (10 §3.4) — M9'],
   ['packages/mcp/src/client/stdio', 'the stdio transport (10 §3.4.2) — M9'],
-  ['apps/server/src/http', 'the HTTP server (09 §3.2) — M3'],
   ['packages/plugin-host/src/sandbox', 'the plugin sandbox (10 §3.6) — M10'],
   ['packages/engine/src/media/transcription', 'the transcription runner (06 §3.9) — M6'],
   ['apps/server/src/test-mode', 'test-mode guards (11 §4.3, 01 §14 A15) — M3-T45'],

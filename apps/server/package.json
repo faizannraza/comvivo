@@ -36,7 +36,11 @@
     "@comvivo/mcp": "workspace:*",
     "@comvivo/channel-telegram": "workspace:*",
     "@comvivo/channel-web": "workspace:*",
-    "@comvivo/channel-simulator": "workspace:*"
+    "@comvivo/channel-simulator": "workspace:*",
+    "hono": "catalog:",
+    "@hono/node-server": "catalog:",
+    "@hono/zod-openapi": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "vitest": "catalog:"

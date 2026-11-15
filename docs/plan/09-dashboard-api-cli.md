@@ -215,6 +215,8 @@ The metadata is kept in a typed side-table and also emitted as the `x-comvivo` s
 }
 ```
 
+The extra members are **top-level** members of the problem object, as RFC 9457 §3.2 extension members and as the example above shows for `errors[]` — a client reads `problem.retryAfter`, never `problem.extra.retryAfter`. An extension member can never shadow `type`, `title`, `status`, `detail`, `instance`, `code`, `requestId` or `errors`.
+
 | `code` | HTTP | When | Extra members |
 |---|---|---|---|
 | `validation_failed` | 400 | zod failure from `defaultHook`, or an unknown query parameter | `errors[]` |
@@ -236,6 +238,7 @@ The metadata is kept in a typed side-table and also emitted as the `x-comvivo` s
 | `internal` | 500 | A bug. No stack trace; the error is logged with `requestId`. | — |
 | `actor_busy` | 503 | The group actor didn't accept the command within 8 s and the command was not enqueued | `Retry-After` |
 | `server_draining` | 503 | Shutdown is in progress | `Retry-After` |
+| `not_ready` | 503 | `/readyz` before the DB is open, migrations are at head, the scheduler has a heartbeat and the actor system has started (§3.8); also whenever `phase` is `recovery`, whatever the checks say. Deliberately **not** `internal` — a 503 here is the ordinary answer during boot, and reporting it as a bug would make every cold start look like a crash. No `Retry-After`: a failing check is not a timing problem. | `failing[]` (check ids only, never messages), `degraded[]`, or `phase: 'recovery'` |
 
 ### 3.3 Information-flow control on the API
 
@@ -2166,6 +2169,8 @@ Constraints enforced by zod:
 - `magicLinks: https` requires an `https://` `publicUrl` or direct TLS.
 - `basePath` must start with `/` and has no trailing slash, except `/` itself.
 - `publicUrl` is http(s) only, with no path when `basePath ≠ /`; the base path is configured separately.
+- `api.maxBodyKb` is 16–8192. The floor is above the largest legitimate body in the route table (a constitution YAML string) so a typo cannot make the API reject its own dashboard; the ceiling keeps a single request's buffer well under the smallest supported heap (12 §4.4's `COMVIVO_HEAP_MB`).
+- `api.idempotencyTtlHours` is 1–168. §3.2 fixes the stored-replay window at 24 h; the range allows a host to shorten it, and caps it at a week because the replay store is unbounded in rows until the TTL expires them.
 
 ### 5.2 Environment variables
 

@@ -171,6 +171,25 @@ export const LOG_EVENTS = {
   /** The degradation ladder level a local server was placed at (`05` §3.5.6). */
   'model.local_level': 'a local model server was placed on the degradation ladder',
 
+  // --- HTTP (M3-T14) ---------------------------------------------------------------------------
+  /**
+   * A request ended in a failure nobody anticipated (`09` §3.2.1's `internal`).
+   *
+   * `error`, because the client got a 500 and the only explanation is this line: `09` §3.2.1
+   * gives `internal` a fixed sentence and "No stack trace", so the `requestId` in the body and
+   * the `requestId` here are the whole of what connects a host's complaint to the cause. The
+   * error's **class and message** are logged and nothing else — `08` §3.10 layer 3 keeps a
+   * provider's response body out of a log.
+   */
+  'http.request_failed': 'a request failed unexpectedly',
+  /**
+   * A request was refused for a reason the API has a code for (`09` §3.2.1).
+   *
+   * `debug`, not `warn`: a 404, a 412 or a 429 is the API working as specified, and a line per
+   * one would bury the failures that are not. The path and the code, never the body.
+   */
+  'http.request_refused': 'a request was refused',
+
   // --- Turn traces (M3-T20) --------------------------------------------------------------------
   /**
    * A trace row was shortened to fit `02` §3.3.9's 512 KiB combined budget (`05` §3.10.1).
