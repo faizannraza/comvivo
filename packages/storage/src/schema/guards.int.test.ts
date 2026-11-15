@@ -16,7 +16,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { StorageError } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
-import { MIGRATION_PATH, renderMigration } from '../../../../scripts/gen-guard-triggers.js';
+import { MIGRATION_PATH, renderedWaves } from '../../../../scripts/gen-guard-triggers.js';
 import {
   assertValidSpace,
   createVec0SpaceSql,
@@ -40,9 +40,19 @@ import { seedGroup, withMigratedDb } from './testing/migrated-db.js';
 const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../../..');
 
 describe('the committed migration is generated, not hand-written', () => {
-  it('matches what the generator produces from the current schema', () => {
-    const committed = readFileSync(resolve(REPO_ROOT, MIGRATION_PATH), 'utf8');
-    expect(committed).toBe(renderMigration());
+  it('matches what the generator produces, for every wave', () => {
+    // **Per wave since `M3-T1`.** A trigger cannot be created before its table, and from M3 the
+    // tables arrive in waves: the M1 baseline in `0000` (guards in `0001`), the channel and
+    // onboarding tables in `0002` (guards in `0003`). Comparing only `0001` against a whole-schema
+    // render would have failed the moment a later table needed a guard — and "fix" it by writing
+    // a trigger for `chat_bindings` into a migration that runs before `chat_bindings` exists,
+    // which is what the generator did before it learned about waves.
+    for (const wave of renderedWaves()) {
+      const committed = readFileSync(resolve(REPO_ROOT, wave.path), 'utf8');
+      expect(committed, `${wave.path} is stale`).toBe(wave.text);
+    }
+    // Both waves exist, so a render that silently produced one file would not pass.
+    expect(renderedWaves()).toHaveLength(2);
   });
 
   it('declares every FTS table with contentless delete and secure delete', () => {
@@ -170,7 +180,8 @@ describe('the parent lookups name real tables', () => {
     const tables = new Set(schemaTableNames());
     // 78 is the schema's table count, which `M1-T12` recorded. Pinned rather than bounded: both
     // sides of the comparison below are computed, so an empty set would make it pass over nothing.
-    expect(tables.size).toBe(78);
+    // 86 since `M3-T1` added the eight channel and onboarding tables its task title enumerates.
+    expect(tables.size).toBe(86);
     for (const lookup of parentLookups()) {
       expect(tables, `${lookup.table} is not a table in the schema`).toContain(lookup.table);
       expect(tables, `${lookup.parent} is not a table in the schema`).toContain(lookup.parent);

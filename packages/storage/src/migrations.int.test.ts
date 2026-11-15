@@ -124,12 +124,15 @@ describe('migrations.fresh-equals-migrated', { tags: ['db'] }, () => {
       expect(normalizedSchema(migrated)).toEqual(normalizedSchema(fresh));
       // Pinned, not `> 150`. A floor that low cannot tell a schema from a third of one, and the
       // number is the whole premise of the comparison above: two identical halves of *nothing*
-      // are equal. **471** is 78 tables, 125 indexes, 4 FTS5 virtual tables with their shadow
-      // tables, and 248 triggers (the I4 label guards, the FTS sync triggers, the immutability
-      // guards and the 132 group-agreement guards the M1 exit gate added). It was 317 before those
-      // — `STATUS.md`'s `M1-T14` entry records that figure, and this is where the current one
-      // lives, because a count in a document nothing runs is a count that rots.
-      expect(normalizedSchema(migrated)).toHaveLength(471);
+      // are equal. **491** at `M3-T1`: the 471 of the M1 exit gate plus the eight channel and
+      // onboarding tables of `02` §3.3.11, their ten indexes and the two I4 triggers
+      // `chat_bindings` earns by carrying both a `group_id` and a `conversation_id` — a binding
+      // whose conversation belongs to another group is a cross-group leak, and the trigger is why
+      // it cannot be written. 471 was 78 tables, 125 indexes, 4 FTS5 virtual tables with their
+      // shadow tables and 248 triggers; it was 317 before the M1 gate's group-agreement guards.
+      // `STATUS.md`'s `M1-T14` entry records that figure, and this is where the current one lives,
+      // because a count in a document nothing runs is a count that rots.
+      expect(normalizedSchema(migrated)).toHaveLength(491);
     } finally {
       migrated.close();
       fresh.close();
@@ -327,6 +330,11 @@ describe('the migration source reads both layouts', () => {
     expect(list.map((migration) => migration.id)).toEqual([
       '0000_initial_schema',
       '0001_search_and_guards',
+      '0002_channels_and_onboarding',
+      // `M3-T1`: the channel tables' guards are a **separate** migration because a trigger cannot
+      // be created before its table, and `0001` runs first. The generator emits one file per wave
+      // for that reason.
+      '0003_channel_guards',
     ]);
     for (const migration of list) {
       expect(migration.checksum).toMatch(/^[0-9a-f]{64}$/);

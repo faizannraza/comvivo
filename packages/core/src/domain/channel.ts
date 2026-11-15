@@ -9,7 +9,7 @@
  * ones". It is not a brand and it validates nothing, which is why `channelIdSchema` exists for the
  * boundary.
  */
-import { z } from '@comvivo/shared';
+import { idSchema, z } from '@comvivo/shared';
 
 /**
  * The channel ids this product ships (`00` §6.1), plus the two that are not chat platforms.
@@ -56,3 +56,80 @@ export const channelIdSchema: z.ZodType<ChannelId> = z
     /^[a-z][a-z0-9_-]{0,31}$/,
     'a channel id is 1–32 characters: a lowercase letter, then lowercase letters, digits, `_` or `-`',
   );
+
+// --- The JSON shapes `02` §3.3's channel tables store (added at `M3-T1`) -------------------------
+//
+// These live here for the reason `M1-T11` moved `RichText` here: `02` §3.3.1 and §3.3.11 make them
+// **columns**, and `packages/storage` may not import a channel package (`01` §4 as amended by
+// A11). `02` §3.3.9's JSON catalog attributes them to `06`, which owns their *semantics*; `06`
+// §4.1 is where the adapter-facing types live and it imports these.
+//
+// Two homes for one shape is what this avoids, and the cost of getting it wrong is specific: a
+// `last_probe` the adapter writes and the dashboard reads would otherwise be two schemas that
+// drift, and a drifted probe is a fix-it guide telling a host to grant a permission they have.
+
+/**
+ * One thing wrong with a chat, as `06` §3.20.3's fix-it guides and `09`'s `doctor` render it.
+ *
+ * `severity` is what decides whether setup can continue: `blocking` means the bot cannot work in
+ * this chat at all, `degraded` means it works with less, and `advisory` is worth saying once.
+ */
+export const diagnosticSchema = z.strictObject({
+  code: z.string().min(1).max(64),
+  severity: z.enum(['blocking', 'degraded', 'advisory']),
+  params: z.record(z.string().max(64), z.union([z.string().max(512), z.number()])).optional(),
+});
+export type Diagnostic = z.infer<typeof diagnosticSchema>;
+
+/**
+ * What a permission probe found (`06` §3.20.3), stored on `chat_bindings.last_probe`.
+ *
+ * Stored rather than re-probed on demand because a probe costs platform API calls and the
+ * dashboard's setup page needs it on render. `06` §3.20.3 re-probes on a schedule and on demand;
+ * this column is the last answer, and the `doctor` line says when it was taken.
+ */
+export const chatProbeSchema = z.strictObject({
+  canSend: z.boolean(),
+  /** Whether the bot sees every message, or only those addressing it (privacy mode, intents). */
+  readsAll: z.boolean(),
+  isAdmin: z.boolean().optional(),
+  title: z.string().max(512).optional(),
+  memberCount: z.int().min(0).optional(),
+  isForum: z.boolean().optional(),
+  encrypted: z.boolean().optional(),
+  /** Slack Connect / an externally shared channel, which changes who can read a reply. */
+  extShared: z.boolean().optional(),
+  diagnostics: z.array(diagnosticSchema).max(32),
+});
+export type ChatProbe = z.infer<typeof chatProbeSchema>;
+
+/**
+ * What a button press does (`06` §3.7), stored on `interaction_tokens.action`.
+ *
+ * `kind` is a **registered string**, not an enum, and that is `06` §3.7's design: each owner
+ * registers its own kinds — `05` has `confirm` and `cmd.undo`, `07` has sixteen, `06` has
+ * `setup.template` and `dm.group` — and the engine rejects an unknown kind **as expired** rather
+ * than as an error, because an unknown kind is what a token from a previous version looks like.
+ *
+ * `params` is `unknown` on purpose. Each kind's handler parses its own, which is the only place
+ * that knows the shape; a union here would be every owner's params in one type, in `core`.
+ */
+export const interactionActionSchema = z.strictObject({
+  kind: z.string().min(1).max(64),
+  params: z.unknown(),
+});
+export type InteractionAction = z.infer<typeof interactionActionSchema>;
+
+/**
+ * Who may press a button (`06` §3.7), stored on `interaction_tokens.allowed_clickers`.
+ *
+ * `'any_member'` or an explicit list. **Re-checked by policy on every click** (invariant I3,
+ * requester authority): this column narrows who the button was *offered* to, and it is not the
+ * authorisation — a member whose role changed between the render and the press must be refused,
+ * and only policy knows that.
+ */
+export const allowedClickersSchema = z.union([
+  z.literal('any_member'),
+  z.array(idSchema('mbr')).min(1).max(64),
+]);
+export type AllowedClickers = z.infer<typeof allowedClickersSchema>;

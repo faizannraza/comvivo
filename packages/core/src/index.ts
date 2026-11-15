@@ -167,9 +167,17 @@ export {
 // layout under `src/domain/` is the one `02` §3.3.9 and `12` §P1 describe.
 export { AUDIT_ACTOR_MAX_BYTES, type AuditActor, AuditActorSchema } from './domain/audit.js';
 export {
+  type AllowedClickers,
+  allowedClickersSchema,
   CHANNEL_IDS,
   type ChannelId,
+  type ChatProbe,
   channelIdSchema,
+  chatProbeSchema,
+  type Diagnostic,
+  diagnosticSchema,
+  type InteractionAction,
+  interactionActionSchema,
   isKnownChannelId,
   type KnownChannelId,
 } from './domain/channel.js';

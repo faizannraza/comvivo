@@ -19,7 +19,7 @@
  * Without it, a labeled table added later would compile, pass review, and silently ship with no
  * I4 guard — which is the failure mode this whole file exists to make impossible.
  */
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -45,6 +45,40 @@ const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  */
 export const MIGRATION_PATH = 'packages/storage/migrations/0001_search_and_guards.sql';
 
+/**
+ * The generated migrations, one per **wave** of tables.
+ *
+ * A trigger cannot be created before its table. Until `M3-T1` every guarded table was created by
+ * `0000`, so one generated file after it was enough — and the generator had `0001` hardcoded. M3
+ * adds tables in `0002` and will add more, so their triggers belong in a file that runs **after**
+ * the migration that creates them.
+ *
+ * `createdBy` is the migration whose `CREATE TABLE` statements this wave covers; `path` is where
+ * the wave's triggers are written. Reading the creating migration rather than listing table names
+ * is what makes this correct for the next wave without being edited: add `0004`'s tables and the
+ * wave picks them up from `0004`'s own SQL.
+ */
+const WAVES: readonly { readonly createdBy: string; readonly path: string }[] = [
+  {
+    createdBy: 'packages/storage/migrations/0000_initial_schema.sql',
+    path: 'packages/storage/migrations/0001_search_and_guards.sql',
+  },
+  {
+    createdBy: 'packages/storage/migrations/0002_channels_and_onboarding.sql',
+    path: 'packages/storage/migrations/0003_channel_guards.sql',
+  },
+];
+
+/** The table names a migration's `CREATE TABLE` statements introduce. */
+function tablesCreatedBy(migrationPath: string): ReadonlySet<string> {
+  const sql = readFileSync(resolve(REPO_ROOT, migrationPath), 'utf8');
+  return new Set(
+    [...sql.matchAll(/CREATE TABLE(?: IF NOT EXISTS)? `?([a-z0-9_]+)`?/gi)].map(
+      (match) => match[1] ?? '',
+    ),
+  );
+}
+
 /** drizzle's statement separator. The runner splits on it. */
 const BREAKPOINT = '--> statement-breakpoint';
 
@@ -58,51 +92,75 @@ const HEADER = [
   '-- `guards.int.test.ts` fails if this file is stale.',
 ].join('\n');
 
-/** Every statement of the migration, in dependency order. */
-export function migrationStatements(): readonly string[] {
+/**
+ * Every statement of one wave's migration, in dependency order.
+ *
+ * The **first** wave carries the FTS tables and the `secure-delete` pragma statements as well as
+ * its triggers, because those are once-per-database and not per-table. A later wave is triggers
+ * only.
+ */
+export function migrationStatements(
+  only?: ReadonlySet<string>,
+  options: { readonly includeOnceOnly?: boolean } = {},
+): readonly string[] {
+  const once = options.includeOnceOnly ?? true;
   return [
     // Tables before the triggers that write to them.
-    ...CREATE_FTS_TABLES,
+    ...(once ? CREATE_FTS_TABLES : []),
     // `secure-delete` before any row exists, so no token is ever written under the lax setting.
-    ...SECURE_DELETE_STATEMENTS,
-    ...allFtsTriggers(),
-    ...allI4Triggers(),
+    ...(once ? SECURE_DELETE_STATEMENTS : []),
+    ...(once ? allFtsTriggers() : []),
+    ...allI4Triggers(only),
     // The other half of I4: a label belongs to the row's group, **and** every parent the row
     // points at belongs to it too. A plain foreign key checks existence, not agreement.
-    ...allGroupAgreementTriggers(),
+    ...allGroupAgreementTriggers(only),
     // After the I4 triggers and before the table-level immutability ones: a `group_id` move is an
     // I4 violation reached through a parent, so it belongs with its own family.
-    ...allGroupImmutableTriggers(),
-    ...allImmutabilityTriggers(),
+    ...allGroupImmutableTriggers(only),
+    ...allImmutabilityTriggers(only),
   ];
 }
 
-/** The migration file's exact contents. */
-export function renderMigration(): string {
-  const body = migrationStatements()
+/** The migration file's exact contents for one wave. */
+export function renderMigration(
+  only?: ReadonlySet<string>,
+  options: { readonly includeOnceOnly?: boolean } = {},
+): string {
+  const body = migrationStatements(only, options)
     .map((statement) => `${statement.trimEnd()};`)
     .join(`\n${BREAKPOINT}\n`);
   return `${HEADER}\n\n${body}\n`;
 }
 
+/** Each wave's path and rendered contents, in order. */
+export function renderedWaves(): readonly { readonly path: string; readonly text: string }[] {
+  return WAVES.map((wave, index) => ({
+    path: wave.path,
+    text: renderMigration(tablesCreatedBy(wave.createdBy), { includeOnceOnly: index === 0 }),
+  }));
+}
+
 function main(argv: readonly string[]): number {
-  const path = resolve(REPO_ROOT, MIGRATION_PATH);
-  const rendered = renderMigration();
+  const waves = renderedWaves();
   if (argv.includes('--check')) {
-    const current = readFileSync(path, 'utf8');
-    if (current === rendered) {
-      process.stdout.write(`${MIGRATION_PATH} is up to date\n`);
+    const stale = waves.filter((wave) => {
+      const path = resolve(REPO_ROOT, wave.path);
+      return !existsSync(path) || readFileSync(path, 'utf8') !== wave.text;
+    });
+    if (stale.length === 0) {
+      process.stdout.write(`${String(waves.length)} generated migration(s) up to date\n`);
       return 0;
     }
     process.stderr.write(
-      `${MIGRATION_PATH} is stale. Run: pnpm tsx scripts/gen-guard-triggers.ts\n`,
+      `stale: ${stale.map((wave) => wave.path).join(', ')}\n` +
+        'Run: pnpm tsx scripts/gen-guard-triggers.ts\n',
     );
     return 1;
   }
-  writeFileSync(path, rendered);
-  process.stdout.write(
-    `wrote ${MIGRATION_PATH} (${String(migrationStatements().length)} statements)\n`,
-  );
+  for (const wave of waves) {
+    writeFileSync(resolve(REPO_ROOT, wave.path), wave.text);
+    process.stdout.write(`wrote ${wave.path}\n`);
+  }
   return 0;
 }
 

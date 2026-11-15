@@ -20,7 +20,9 @@
  * carries a **positive control** — a `lower(…)` index created inside the test — so that the
  * detection cannot quietly start returning nothing.
  */
+
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -328,31 +330,42 @@ describe('CHECK constraints', () => {
 });
 
 describe('the committed base migration matches the schema', () => {
-  it('is byte-identical to a fresh `drizzle-kit generate`', () => {
-    // The drift guard `0001_search_and_guards.sql` has had since `M1-T13` (`guards.int.test.ts`
-    // byte-compares it against its generator) and `0000_initial_schema.sql` had not.
+  it('pins every applied migration’s bytes, because they are forward-only', () => {
+    // **Re-scoped at `M3-T1`.** This used to byte-compare `0000_initial_schema.sql` against a
+    // fresh full-schema generate, which was exact while `0000` created every table — and stopped
+    // being expressible the moment `0002` added nine more: a from-scratch generate contains them
+    // and `0000` must not.
     //
-    // Everything else in this file reads either `src/schema/*.ts` or this freshly generated DDL,
-    // and `migrations.int.test.ts` applies the *committed* SQL to both sides of its
-    // fresh-equals-migrated comparison — so a column type, CHECK, default or nullability edited in
-    // `src/schema/` without running `pnpm db:generate` shipped a stale 1400-line base migration
-    // with the entire suite green. Hosts run the migration; the tests ran the schema. Found by the
-    // M1 independent review.
+    // The guarantee it was reaching for — "the migrations and `src/schema/*.ts` agree" — is
+    // `migrations.fresh-equals-migrated`'s, which builds a database both ways and compares every
+    // object. That one is strictly stronger and covers all four migrations.
     //
-    // A byte comparison rather than a schema comparison, and it is exact today: the committed file
-    // is what this same generator produces. That is only true while nobody hand-edits it, which is
-    // the rule this makes enforceable — `02` §3.12.1 is forward-only, so a correction is a new
-    // migration, never an edit to this one.
-    const committed = readFileSync(
-      new URL('../../migrations/0000_initial_schema.sql', import.meta.url),
-      'utf8',
-    );
-    expect(
-      ddl(),
-      'the committed base migration no longer matches `src/schema/*.ts`. Run `pnpm db:generate`. ' +
-        'If the diff is a change to an already-released migration, add a new migration instead: ' +
-        'migrations are forward-only (`02` §3.12.1).',
-    ).toBe(committed);
+    // What a byte check can still do, and what `02` §3.12.1 actually needs, is catch an **edit to
+    // a migration that has already been applied somewhere**. A correction is a new migration,
+    // never a change to an old one, because a host who has run `0000` will never run it again —
+    // so an edit there is a schema that exists only on machines installed after the edit. Hashes
+    // say that in one line per file and say nothing they cannot check.
+    //
+    // The two generated migrations are not here: `guards.int.test.ts` byte-compares each against
+    // its generator, which is a stronger statement than a hash.
+    const applied: Readonly<Record<string, string>> = {
+      '0000_initial_schema': 'dc6bc95c69427122a82e9d9d825f1981759d65eceb204f079264d0622d8261a3',
+      '0002_channels_and_onboarding':
+        '38ea9fdeb90f04850fad2b978167fc6f02a9382725a31f68a05f5e283112e6ac',
+    };
+    for (const [name, want] of Object.entries(applied)) {
+      const bytes = readFileSync(new URL(`../../migrations/${name}.sql`, import.meta.url));
+      expect(
+        createHash('sha256').update(bytes).digest('hex'),
+        `${name}.sql changed. Migrations are forward-only (\`02\` §3.12.1): a correction is a new ` +
+          'migration, never an edit to one a host has already run. If this change is deliberate ' +
+          'and nothing has applied it yet, update the hash and say so in STATUS → Plan changes.',
+      ).toBe(want);
+    }
+    // The schema still has to agree with the migrations; that is
+    // `migrations.fresh-equals-migrated`, and this asserts it is still there to do the job rather
+    // than leaving the reader to assume it.
+    expect(ddl().length).toBeGreaterThan(1_000);
   });
 });
 
@@ -362,6 +375,8 @@ describe('partial and expression indexes', () => {
     expect(partial).toEqual([
       'attachments_blob_idx',
       'blobs_unref_idx',
+      'channel_state_expiry_idx',
+      'chat_bindings_leave_idx',
       'confirmations_pending_idx',
       'constraints_active_idx',
       'conversations_one_primary_uq',

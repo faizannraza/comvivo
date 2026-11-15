@@ -59,14 +59,21 @@ const of = (name: string): Inventory => {
 };
 
 describe('the tables 02 §3.3 specifies', () => {
-  it('declares every table of 02 §3.3.1–§3.3.8, and nothing else', () => {
+  it('declares every table of 02 §3.3.1–§3.3.8 and §3.3.11, and nothing else', () => {
+    // §3.3.11 joined the range at `M3-T1`, which added the nine channel and onboarding tables.
+    // The list is written out rather than counted so that adding a table is a decision somebody
+    // makes here, with the review that implies — a count would pass for the wrong nine.
     expect([...byName.keys()].sort()).toEqual([
       'app_meta',
       'audit_events',
       'blobs',
       'calendar_subscriptions',
       'catchup_cursors',
+      'channel_chat_aliases',
       'channel_identities',
+      'channel_state',
+      'chat_bindings',
+      'claim_codes',
       'confirmation_requests',
       'consent_events',
       'constitution_versions',
@@ -75,6 +82,7 @@ describe('the tables 02 §3.3 specifies', () => {
       'decisions',
       'declassifications',
       'deletions',
+      'dm_contexts',
       'embedding_spaces',
       'event_attendee_overrides',
       'event_attendees',
@@ -87,11 +95,13 @@ describe('the tables 02 §3.3 specifies', () => {
       'guardian_relations',
       'ics_feed_tokens',
       'instance',
+      'interaction_tokens',
       'job_partitions',
       'job_schedules',
       'jobs',
       'labels',
       'ledger_entries',
+      'link_codes',
       'list_category_overrides',
       'list_items',
       'lists',
@@ -122,6 +132,7 @@ describe('the tables 02 §3.3 specifies', () => {
       'proactivity_feedback',
       'proposal_votes',
       'proposals',
+      'rate_limits',
       'reader_set_members',
       'reader_set_seats',
       'reader_sets',
@@ -181,6 +192,7 @@ describe('every bool column is guarded in process', () => {
       'events.all_day',
       'events.busy',
       'events.rrule_invalid',
+      'interaction_tokens.single_use',
       'job_partitions.paused',
       'job_schedules.enabled',
       'jobs.serial',
@@ -188,7 +200,6 @@ describe('every bool column is guarded in process', () => {
       'list_items.checked',
       'lists.categories_enabled',
       'lists.is_default',
-      // Three-valued on purpose: `04` §3.2.3's minor hint must distinguish "no" from "unknown".
       'memory_entities.is_minor (nullable)',
       'memory_items.pinned',
       'memory_items.portable',
@@ -407,7 +418,9 @@ describe('every declared foreign key resolves', () => {
     // schema barrel by `is(value, SQLiteTable)` — so a change to that predicate, or a barrel that
     // stopped re-exporting, would empty it and every per-table assertion in this file would
     // silently stop running. Found by the M1 independent review.
-    expect(tables).toHaveLength(78);
+    // 86 since `M3-T1` added the eight channel and onboarding tables of `02` §3.3.11 that its
+    // task title enumerates. `invite_codes` is in §3.3.11's code block and is **M9**'s.
+    expect(tables).toHaveLength(86);
   });
 
   it.each(tables.map((table) => ({ name: getTableName(table), table })))('$name', ({ table }) => {

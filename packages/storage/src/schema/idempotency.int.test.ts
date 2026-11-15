@@ -44,7 +44,11 @@ function seedTurn(db: Database.Database, seeded: ReturnType<typeof seedGroup>, i
 }
 
 describe('I6 is a unique index, not a convention', () => {
-  it('declares exactly these 40 unique indexes', () => {
+  it('declares exactly these 45 unique indexes', () => {
+    // 45 since `M3-T1`: `chat_bindings_platform_uq` is the Q-ING-2 lookup, and the four
+    // `*_hash_unique` indexes are what make a claim, link or interaction token
+    // single-valued — a second row with the same digest would be a second grant of the same
+    // secret.
     // The whole list rather than the two this file is named for: a unique index is the only thing
     // standing behind every "exactly one of these" rule in `02` §3.3 — one primary conversation
     // per group, one active embedding space, one audit row per sequence number — and all 40 were
@@ -54,6 +58,8 @@ describe('I6 is a unique index, not a convention', () => {
       'audit_chain_seq_uq',
       'blobs_storage_addr_unique',
       'channel_identities_platform_uq',
+      'chat_bindings_platform_uq',
+      'claim_codes_code_hash_unique',
       'constitution_versions_group_version_uq',
       'conversations_one_primary_uq',
       'conversations_platform_uq',
@@ -67,10 +73,13 @@ describe('I6 is a unique index, not a convention', () => {
       'events_subscription_src_uq',
       'ics_feed_tokens_token_hash_unique',
       'instance_singleton_unique',
+      'interaction_tokens_token_hash_unique',
       'job_schedules_owner_uq',
       'jobs_debounce_uq',
       'jobs_idempotency_uq',
       'labels_group_key_uq',
+      'link_codes_code_hash_unique',
+      'link_codes_token_hash_unique',
       'list_items_id_unique',
       'lists_default_kind_uq',
       'lists_group_name_uq',

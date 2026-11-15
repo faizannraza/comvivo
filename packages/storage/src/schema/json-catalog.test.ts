@@ -60,7 +60,12 @@ function parseCatalog(markdown: string): readonly string[] {
       const named = match[1] ?? '';
       const column = match[2] ?? '';
       if (named !== '') table = named;
-      if (table === '' || column.includes('*')) continue;
+      if (table === '') continue;
+      // **Wildcards are kept**, not skipped. §3.3.9 writes the `06` row as "`chat_bindings.*`,
+      // `interaction_tokens.*`, `channel_state.value_json`" — a deliberate wildcard, because `06`
+      // owns those schemas and their set changes with `06` rather than with `02`. Dropping them
+      // here made `chat_bindings.last_probe` look uncatalogued the moment `M3-T1` created the
+      // table, which is the opposite of what the catalog says. `covered()` below expands them.
       columns.push(`${table}.${column}`);
     }
   }
@@ -87,9 +92,8 @@ function cappedByCheck(table: string, column: string): boolean {
  * M1. Keyed by table so one entry covers all of that table's JSON columns.
  */
 const TABLES_SCHEDULED_LATER = new Set([
-  'chat_bindings',
-  'interaction_tokens',
-  'channel_state',
+  // `chat_bindings`, `interaction_tokens` and `channel_state` left this set at `M3-T1`, which is
+  // what the "defers no table that already exists" case below is for.
   'pairings',
   'domain_events',
   'group_extensions',
@@ -121,20 +125,26 @@ describe('02 §3.3.9 JSON column catalog', () => {
     expect(tag).toBe(`${table}.${column}`);
   });
 
-  it.each([...new Set(catalog)].sort())('%s has its size cap enforced somewhere', (entry) => {
-    // §3.3.9's requirement is the **cap**, and there are two legitimate ways to hold it. Almost
-    // every column uses `jsonOf`, whose schema carries the bound. `jobs.payload` cannot: its
-    // schema is per-kind and known only at dispatch, so §3.3.8 declares it as plain `text` and
-    // the cap is a `length()` CHECK instead. Accepting either mechanism is what makes this test
-    // about the guarantee rather than about the spelling.
-    if (declaredTags.has(entry)) return;
-    const [table = '', column = ''] = entry.split('.');
-    if (cappedByCheck(table, column)) return;
-    expect(
-      TABLES_SCHEDULED_LATER.has(table),
-      `${entry} is in 02 §3.3.9 with no jsonOf schema, no length CHECK, and no owning milestone`,
-    ).toBe(true);
-  });
+  // Wildcards are excluded: `chat_bindings.*` is a statement about a *table*, and a cap belongs to
+  // a column. Each concrete column on those tables is still checked — it appears in `jsonColumns`
+  // and goes through the cases above and below.
+  it.each([...new Set(catalog)].filter((entry) => !entry.endsWith('.*')).sort())(
+    '%s has its size cap enforced somewhere',
+    (entry) => {
+      // §3.3.9's requirement is the **cap**, and there are two legitimate ways to hold it. Almost
+      // every column uses `jsonOf`, whose schema carries the bound. `jobs.payload` cannot: its
+      // schema is per-kind and known only at dispatch, so §3.3.8 declares it as plain `text` and
+      // the cap is a `length()` CHECK instead. Accepting either mechanism is what makes this test
+      // about the guarantee rather than about the spelling.
+      if (declaredTags.has(entry)) return;
+      const [table = '', column = ''] = entry.split('.');
+      if (cappedByCheck(table, column)) return;
+      expect(
+        TABLES_SCHEDULED_LATER.has(table),
+        `${entry} is in 02 §3.3.9 with no jsonOf schema, no length CHECK, and no owning milestone`,
+      ).toBe(true);
+    },
+  );
 
   /**
    * `jsonOf` columns that `02` §3.3.9 does not list.
@@ -149,72 +159,54 @@ describe('02 §3.3.9 JSON column catalog', () => {
    * this is a spec-coverage gap rather than an unbounded column. Pinning the list is what keeps it
    * from growing: a new JSON column must either appear in §3.3.9 or be added here on purpose, and
    * a column that gets a catalog entry must be removed from here.
+   *
+   * **Shrank from 57 to 19 at `M3-T1`.** The parser used to drop §3.3.9's `<table>.*` wildcard
+   * entries, so thirty-eight columns on thirteen tables looked uncatalogued when the catalog
+   * covers their table explicitly — `confirmation_requests.action_request` against
+   * `confirmation_requests.*`, and so on. A gap list that lists non-gaps is a list nobody reads,
+   * and these nineteen are the real ones.
    */
   const ABSENT_FROM_CATALOG: ReadonlySet<string> = new Set([
     'calendar_subscriptions.last_error',
     'calendar_subscriptions.lead_times',
-    'confirmation_requests.action_request',
-    'confirmation_requests.eligible_member_ids',
-    'confirmation_requests.options',
-    'confirmation_requests.prompt_outbox_ids',
-    'confirmation_requests.reasons',
-    'confirmation_requests.responses',
-    'confirmation_requests.summary',
     'constitution_versions.adopted_by',
     'constraint_records.approved_by',
     'constraint_records.owner_member_ids',
     'constraint_records.sealed_source_refs',
-    'decisions.alternatives_rejected',
-    'decisions.source_refs',
-    'decisions.topic_tags',
     'declassifications.subject_refs',
     'deletions.requested_by',
     'jobs.last_error',
     'labels.co_owner_member_ids',
-    'memory_entities.possible_same_as',
-    'memory_entities.relation',
     'memory_events.actor',
     'outbox_messages.last_error',
     'outbox_messages.manifest_label_ids',
-    'plan_steps.depends_on',
-    'plan_steps.due',
-    'plan_steps.links',
-    'plan_steps.owner_member_ids',
-    'plans.assumptions',
-    'plans.budget_notes',
-    'plans.owner_member_ids',
-    'plans.secrecy',
     'poll_counts.counts',
     'poll_votes.option_ids',
-    'polls.eligible_member_ids',
-    'polls.options',
-    'polls.platform_poll_ref',
-    'proactive_candidates.decision',
-    'proactive_candidates.payload',
-    'proactive_candidates.target',
-    'proactive_candidates.urgency_inputs',
     'proposals.ballot_refs',
     'proposals.electorate',
     'reminder_firings.outbox_ids',
-    'rotations.cursor',
-    'rotations.schedule',
-    'rotations.task_template',
     'standing_approvals.action_patterns',
-    'turn_traces.context_manifest',
-    'turn_traces.guard_results',
-    'turn_traces.latency',
-    'turn_traces.model_calls',
-    'turn_traces.policy_decisions',
-    'turn_traces.replay',
-    'turn_traces.tool_calls',
-    'turn_traces.trigger',
   ]);
 
   it('lists every jsonOf column in 02 §3.3.9, or declares the gap', () => {
     const inCatalog = new Set(catalog);
+    /**
+     * `<table>.*` in the catalog covers every `jsonOf` column on that table.
+     *
+     * §3.3.9 writes the `06` row as "`chat_bindings.*`, `interaction_tokens.*`,
+     * `channel_state.value_json`" — a deliberate wildcard, because `06` owns those schemas and
+     * their set changes with `06` rather than with `02`. Read literally, `chat_bindings.*` matched
+     * no column and `chat_bindings.last_probe` looked uncatalogued. Added at `M3-T1`, when those
+     * tables arrived.
+     */
+    const covered = (tag: string): boolean => {
+      if (inCatalog.has(tag)) return true;
+      const table = tag.slice(0, tag.indexOf('.'));
+      return inCatalog.has(`${table}.*`);
+    };
     const absent = jsonColumns
       .map((column) => column.tag)
-      .filter((tag) => !inCatalog.has(tag))
+      .filter((tag) => !covered(tag))
       .toSorted();
     expect(
       absent.filter((tag) => !ABSENT_FROM_CATALOG.has(tag)),
@@ -223,14 +215,17 @@ describe('02 §3.3.9 JSON column catalog', () => {
     ).toEqual([]);
     // The other direction, so the list cannot keep entries that have since been catalogued.
     expect(
-      [...ABSENT_FROM_CATALOG].filter((tag) => inCatalog.has(tag)),
+      [...ABSENT_FROM_CATALOG].filter((tag) => covered(tag)),
       'these are now in `02` §3.3.9 and should come off the declared-gap list',
     ).toEqual([]);
     // Pinned, so a parser that stopped finding anything would fail here rather than make both
-    // comparisons trivially empty.
-    expect(inCatalog.size).toBe(49);
-    expect(jsonColumns).toHaveLength(99);
-    expect(absent).toHaveLength(57);
+    // comparisons trivially empty. The three moved together at `M3-T1`: the catalog gained its
+    // thirteen `<table>.*` wildcards (49 → 62) once the parser stopped dropping them, the schema
+    // gained three JSON columns on the new channel tables (99 → 102), and the gap list shrank to
+    // the columns genuinely absent from §3.3.9 (57 → 19).
+    expect(inCatalog.size).toBe(62);
+    expect(jsonColumns).toHaveLength(102);
+    expect(absent).toHaveLength(19);
   });
 
   it('defers no table that already exists', () => {

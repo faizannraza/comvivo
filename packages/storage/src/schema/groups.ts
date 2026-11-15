@@ -8,7 +8,7 @@
  * what makes invariant **I4** (group isolation) a property of the database and not of a query that
  * might forget a `WHERE`.
  */
-import { ARCHETYPES } from '@comvivo/core';
+import { ARCHETYPES, chatProbeSchema } from '@comvivo/core';
 import { sql } from 'drizzle-orm';
 import {
   check,
@@ -24,6 +24,7 @@ import {
   boolCheckSql,
   createdAt,
   instantMs,
+  jsonOf,
   tid,
   tzText,
   updatedAt,
@@ -241,5 +242,118 @@ export const conversations = sqliteTable(
     check('conversations_dm_ck', sql`(${t.kind} = 'dm') = (${t.memberId} IS NOT NULL)`),
     check('conversations_primary_ck', sql`${t.primary} = 0 OR ${t.kind} = 'group'`),
     check('conversations_primary_bool_ck', boolCheckSql(t.primary)),
+  ],
+);
+
+/**
+ * A platform chat the bot has seen (`02` §3.3.1; `06` §3.20, `01` §14 **A27**).
+ *
+ * **The only row an unclaimed chat persists.** That is A27's rule and the reason this table is
+ * separate from `conversations`: somebody adds the bot to a chat by accident, and the product must
+ * remember enough not to greet them twice and not a single thing more. No conversation, no
+ * messages, no persons — so a stray add costs one row, and the group whose chat it was never
+ * appears anywhere a member could read.
+ *
+ * `status` moves `unclaimed` → `bound` (a claim code redeemed, §3.20.1) → `detached` (the bot was
+ * removed). `detached` is resumable for 30 days (`06` §3.20.2), which is why the row survives
+ * rather than being deleted: re-adding the bot to a chat it was once bound to should resume, not
+ * start over.
+ *
+ * `leave_at` is one hour after first contact, and the partial index on it exists because the leave
+ * sweep asks exactly one question — "which unclaimed chats are due to be left?" — on a table that
+ * is mostly `bound` rows.
+ */
+export const chatBindings = sqliteTable(
+  'chat_bindings',
+  {
+    id: tid('chb')('id').primaryKey(),
+    /** `ChannelId`. `TEXT` rather than an enum because `10` lets a plugin register a channel. */
+    channel: text('channel').notNull(),
+    platformChatId: text('platform_chat_id').notNull(),
+    status: text('status', { enum: ['unclaimed', 'bound', 'detached'] }).notNull(),
+    /** Set when `bound`. */
+    groupId: tid('grp')('group_id').references(() => groups.id, { onDelete: 'cascade' }),
+    /**
+     * Set when `bound`. `set null` rather than `cascade`: deleting a conversation must not delete
+     * the binding, or the chat would look unclaimed and the bot would greet the group again.
+     */
+    conversationId: tid('cnv')('conversation_id').references(() => conversations.id, {
+      onDelete: 'set null',
+    }),
+    firstSeenAt: instantMs('first_seen_at').notNull(),
+    /** When the one unclaimed notice was posted. Posted again only after a remove and re-add. */
+    unclaimedNoticeAt: instantMs('unclaimed_notice_at'),
+    leaveAt: instantMs('leave_at'),
+    /** Resumable for 30 days (`06` §3.20.2). */
+    detachedAt: instantMs('detached_at'),
+    /** The last permission probe (`06` §3.20.3), so the dashboard's setup page can render it. */
+    lastProbe: jsonOf(chatProbeSchema, 'chat_bindings.last_probe')('last_probe'),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Q-ING-2: the binding lookup on every inbound message, before any conversation exists.
+    uniqueIndex('chat_bindings_platform_uq').on(t.channel, t.platformChatId),
+    index('chat_bindings_leave_idx').on(t.leaveAt).where(sql`${t.status} = 'unclaimed'`),
+    // A bound binding has a group and a detached one keeps it; an unclaimed one must not, because
+    // a group id on an unclaimed chat is exactly the leak A27 forbids — it would say which group
+    // somebody tried to add the bot for.
+    check('chat_bindings_unclaimed_ck', sql`${t.status} != 'unclaimed' OR ${t.groupId} IS NULL`),
+    check('chat_bindings_bound_ck', sql`${t.status} != 'bound' OR ${t.groupId} IS NOT NULL`),
+  ],
+);
+
+/**
+ * A chat's previous platform id (`02` §3.3.1; `06` §3.21.1).
+ *
+ * Telegram migrates a group to a supergroup and the chat id changes underneath us. The old id has
+ * to keep resolving, because messages already sent carry it and pending outbox rows target it —
+ * `M3-T1`'s AC requires the re-target to happen **in one transaction** with the alias write, so a
+ * crash between them cannot leave rows aimed at an id the platform no longer accepts.
+ *
+ * Keyed by `(channel, oldPlatformChatId)` so the lookup is the one ingestion needs: given an id
+ * that resolved to nothing, is it an old name for something?
+ */
+export const channelChatAliases = sqliteTable(
+  'channel_chat_aliases',
+  {
+    channel: text('channel').notNull(),
+    oldPlatformChatId: text('old_platform_chat_id').notNull(),
+    conversationId: tid('cnv')('conversation_id')
+      .notNull()
+      .references(() => conversations.id, { onDelete: 'cascade' }),
+    createdAt: createdAt(),
+  },
+  (t) => [primaryKey({ columns: [t.channel, t.oldPlatformChatId] })],
+);
+
+/**
+ * Which group a platform DM is currently about (`02` §3.3.1; `06` §3.4, `01` §14 **A27**).
+ *
+ * One platform DM chat maps to one DM conversation **per group**, created lazily. A person in
+ * three groups has one DM chat with the bot and three DM conversations behind it, and this row is
+ * the pointer that says which one a message belongs to.
+ *
+ * `active_group_id` is nullable and `NULL` means **not chosen yet**, which is a real state rather
+ * than a missing value: a DM from somebody in several groups with no active group persists
+ * nothing at all (`03` E20) until they pick. Writing it to a default group would file a private
+ * message under a group the sender did not mean.
+ */
+export const dmContexts = sqliteTable(
+  'dm_contexts',
+  {
+    channel: text('channel').notNull(),
+    platformChatId: text('platform_chat_id').notNull(),
+    personId: tid('prs')('person_id')
+      .notNull()
+      .references(() => persons.id),
+    /** `NULL` = not chosen yet. */
+    activeGroupId: tid('grp')('active_group_id').references(() => groups.id, {
+      onDelete: 'set null',
+    }),
+    setAt: instantMs('set_at').notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.channel, t.platformChatId] }),
+    index('dm_contexts_person_idx').on(t.personId),
   ],
 );

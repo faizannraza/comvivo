@@ -15,6 +15,20 @@
       "when": 1794083494943,
       "tag": "0001_search_and_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794707305369,
+      "tag": "0002_channels_and_onboarding",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794707306369,
+      "tag": "0003_channel_guards",
+      "breakpoints": true
     }
   ]
 }

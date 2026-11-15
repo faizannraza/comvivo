@@ -5,7 +5,7 @@
 Generated from `packages/storage/src/schema/*.ts` and the migration SQL, so it cannot drift:
 `pnpm run schema:check` fails CI when this file no longer matches the schema it describes.
 
-**78 tables**, 901 columns, 125 indexes, 4 virtual tables and 248 triggers, created by 2 migrations.
+**86 tables**, 966 columns, 135 indexes, 4 virtual tables and 250 triggers, created by 4 migrations.
 
 What this is **not**: the design. `docs/plan/02-domain-model-and-storage.md` §3.3 says why each
 table looks the way it does, `docs/architecture/storage.md` covers the module layout, and
@@ -19,13 +19,14 @@ table looks the way it does, `docs/architecture/storage.md` covers the module la
 | `src/schema/calendar.ts` | `calendar_subscriptions`, `event_attendee_overrides`, `event_attendees`, `event_overrides`, `events`, `ics_feed_tokens` |
 | `src/schema/decisions.ts` | `decisions` |
 | `src/schema/governance.ts` | `confirmation_requests`, `consent_events`, `constitution_versions`, `constraint_records`, `private_constraint_policies`, `proposal_votes`, `proposals`, `standing_approvals` |
-| `src/schema/groups.ts` | `conversations`, `groups`, `guardian_relations`, `members` |
+| `src/schema/groups.ts` | `channel_chat_aliases`, `chat_bindings`, `conversations`, `dm_contexts`, `groups`, `guardian_relations`, `members` |
 | `src/schema/identity.ts` | `channel_identities`, `instance`, `persons` |
 | `src/schema/ifc.ts` | `declassifications`, `labels`, `reader_set_members`, `reader_set_seats`, `reader_sets` |
 | `src/schema/jobs.ts` | `job_partitions`, `job_schedules`, `jobs` |
 | `src/schema/lists.ts` | `list_category_overrides`, `list_items`, `lists` |
 | `src/schema/memory.ts` | `embedding_spaces`, `extraction_cursors`, `forget_fingerprints`, `forget_source_blocks`, `memory_access_stats`, `memory_consolidation_state`, `memory_entities`, `memory_entity_aliases`, `memory_events`, `memory_item_entities`, `memory_items`, `memory_ops_applied`, `memory_sources`, `memory_subjects`, `memory_tombstones` |
 | `src/schema/messages.ts` | `message_attachments`, `message_reactions`, `messages` |
+| `src/schema/onboarding.ts` | `channel_state`, `claim_codes`, `interaction_tokens`, `link_codes`, `rate_limits` |
 | `src/schema/plans.ts` | `plan_steps`, `plans` |
 | `src/schema/polls.ts` | `poll_counts`, `poll_votes`, `polls` |
 | `src/schema/proactivity.ts` | `catchup_cursors`, `proactive_candidates`, `proactivity_feedback` |
@@ -431,6 +432,41 @@ Composite primary key: `proposal_id`, `member_id`.
 
 ## `src/schema/groups.ts`
 
+### `channel_chat_aliases`
+
+| column | type | | references |
+|---|---|---|---|
+| `channel` | `text` | not null |  |
+| `old_platform_chat_id` | `text` | not null |  |
+| `conversation_id` | `text` | not null | → `conversations.id on delete cascade` |
+| `created_at` | `integer` | not null |  |
+
+Composite primary key: `channel`, `old_platform_chat_id`.
+
+### `chat_bindings`
+
+| column | type | | references |
+|---|---|---|---|
+| `id` | `text` | primary key, not null |  |
+| `channel` | `text` | not null |  |
+| `platform_chat_id` | `text` | not null |  |
+| `status` | `text` | not null |  |
+| `group_id` | `text` | nullable | → `groups.id on delete cascade` |
+| `conversation_id` | `text` | nullable | → `conversations.id on delete set null` |
+| `first_seen_at` | `integer` | not null |  |
+| `unclaimed_notice_at` | `integer` | nullable |  |
+| `leave_at` | `integer` | nullable |  |
+| `detached_at` | `integer` | nullable |  |
+| `last_probe` | `text` | nullable |  |
+| `updated_at` | `integer` | not null |  |
+
+| index | | columns |
+|---|---|---|
+| `chat_bindings_leave_idx` | partial | `leave_at` |
+| `chat_bindings_platform_uq` | unique | `channel`, `platform_chat_id` |
+
+Check constraints: `chat_bindings_bound_ck`, `chat_bindings_unclaimed_ck`.
+
 ### `conversations`
 
 | column | type | | references |
@@ -454,6 +490,22 @@ Composite primary key: `proposal_id`, `member_id`.
 | `conversations_platform_uq` | unique | `channel`, `platform_chat_id`, `group_id` |
 
 Check constraints: `conversations_dm_ck`, `conversations_primary_bool_ck`, `conversations_primary_ck`.
+
+### `dm_contexts`
+
+| column | type | | references |
+|---|---|---|---|
+| `channel` | `text` | not null |  |
+| `platform_chat_id` | `text` | not null |  |
+| `person_id` | `text` | not null | → `persons.id` |
+| `active_group_id` | `text` | nullable | → `groups.id on delete set null` |
+| `set_at` | `integer` | not null |  |
+
+Composite primary key: `channel`, `platform_chat_id`.
+
+| index | | columns |
+|---|---|---|
+| `dm_contexts_person_idx` |  | `person_id` |
 
 ### `groups`
 
@@ -1135,6 +1187,104 @@ Composite primary key: `message_rid`, `member_id`, `emoji`.
 | `messages_retention_idx` | partial | `retention_until` |
 
 Check constraints: `messages_delivered_late_ck`, `messages_edit_count_ck`, `messages_truncated_ck`, `messages_untrusted_ck`.
+
+## `src/schema/onboarding.ts`
+
+### `channel_state`
+
+| column | type | | references |
+|---|---|---|---|
+| `channel` | `text` | not null |  |
+| `key` | `text` | not null |  |
+| `value_json` | `text` | not null |  |
+| `expires_at` | `integer` | nullable |  |
+| `updated_at` | `integer` | not null |  |
+
+Composite primary key: `channel`, `key`.
+
+| index | | columns |
+|---|---|---|
+| `channel_state_expiry_idx` | partial | `expires_at` |
+
+Check constraints: `channel_state_value_len_ck`.
+
+### `claim_codes`
+
+| column | type | | references |
+|---|---|---|---|
+| `id` | `text` | primary key, not null |  |
+| `kind` | `text` | not null |  |
+| `code_hash` | `blob` | not null |  |
+| `link_token_hash` | `blob` | nullable |  |
+| `channel` | `text` | nullable |  |
+| `group_id` | `text` | nullable | → `groups.id on delete cascade` |
+| `template` | `text` | nullable |  |
+| `created_by_person_id` | `text` | nullable | → `persons.id` |
+| `created_at` | `integer` | not null |  |
+| `expires_at` | `integer` | not null |  |
+| `failed_attempts` | `integer` | not null, has default |  |
+| `used_at` | `integer` | nullable |  |
+| `used_in_chat` | `text` | nullable |  |
+| `used_by_person_id` | `text` | nullable |  |
+
+| index | | columns |
+|---|---|---|
+| `claim_codes_code_hash_unique` | unique | `code_hash` |
+
+### `interaction_tokens`
+
+| column | type | | references |
+|---|---|---|---|
+| `id` | `text` | primary key, not null |  |
+| `token_hash` | `blob` | not null |  |
+| `group_id` | `text` | not null | → `groups.id on delete cascade` |
+| `conversation_id` | `text` | not null |  |
+| `outbox_message_id` | `text` | nullable |  |
+| `action` | `text` | not null |  |
+| `allowed_clickers` | `text` | not null |  |
+| `single_use` | `integer` | not null |  |
+| `expires_at` | `integer` | not null |  |
+| `used_at` | `integer` | nullable |  |
+| `used_by_member_id` | `text` | nullable |  |
+| `created_by_turn_id` | `text` | nullable |  |
+
+| index | | columns |
+|---|---|---|
+| `interaction_tokens_expiry_idx` |  | `expires_at` |
+| `interaction_tokens_token_hash_unique` | unique | `token_hash` |
+
+Check constraints: `interaction_tokens_single_use_bool_ck`, `interaction_tokens_used_ck`.
+
+### `link_codes`
+
+| column | type | | references |
+|---|---|---|---|
+| `id` | `text` | primary key, not null |  |
+| `code_hash` | `blob` | not null |  |
+| `token_hash` | `blob` | not null |  |
+| `issuer_person_id` | `text` | not null | → `persons.id` |
+| `issuer_channel_identity_id` | `text` | not null | → `channel_identities.id on delete cascade` |
+| `state` | `text` | not null |  |
+| `redeemed_by_identity_id` | `text` | nullable |  |
+| `created_at` | `integer` | not null |  |
+| `expires_at` | `integer` | not null |  |
+
+| index | | columns |
+|---|---|---|
+| `link_codes_code_hash_unique` | unique | `code_hash` |
+| `link_codes_issuer_idx` |  | `issuer_person_id`, `state` |
+| `link_codes_token_hash_unique` | unique | `token_hash` |
+
+Check constraints: `link_codes_redeemer_ck`.
+
+### `rate_limits`
+
+| column | type | | references |
+|---|---|---|---|
+| `scope_key` | `text` | primary key, not null |  |
+| `window_start` | `integer` | not null |  |
+| `count` | `integer` | not null |  |
+| `locked_until` | `integer` | nullable |  |
 
 ## `src/schema/plans.ts`
 
@@ -2039,6 +2189,8 @@ a new table gets them without anyone remembering to write them.
 | `trg_audit_events_append_only` | before update | `audit_events` | `0001_search_and_guards.sql` |
 | `trg_labels_immutable` | before update | `labels` | `0001_search_and_guards.sql` |
 | `trg_reader_sets_immutable` | before update | `reader_sets` | `0001_search_and_guards.sql` |
+| `trg_chat_bindings_conversation_group_ins` | before insert | `chat_bindings` | `0003_channel_guards.sql` |
+| `trg_chat_bindings_conversation_group_upd` | before update | `chat_bindings` | `0003_channel_guards.sql` |
 
 ## `02` §3.3.13 — the entity checklist
 
@@ -2046,26 +2198,19 @@ The `01` §14 A7 audit found entities in the other subsystem specs with no table
 the list, and this script is what fails CI when one of them has neither a table, a named
 milestone, nor an explicit decision not to have one.
 
-- **26 of 56** tables the checklist names exist today.
-- **30** are scheduled for a later milestone, below.
+- **34 of 56** tables the checklist names exist today.
+- **22** are scheduled for a later milestone, below.
 - **1** entities resolve with no table at all.
 
 | table | arrives in |
 |---|---|
-| `channel_chat_aliases` | M3-T1 |
-| `channel_state` | M3-T1 |
-| `chat_bindings` | M3-T1 |
-| `claim_codes` | M3-T1 |
-| `dm_contexts` | M3-T1 |
 | `domain_events` | M9 |
 | `exports` | M9 |
 | `feedback_items` | M11 |
 | `group_extensions` | M10 |
 | `ha_links` | M9 |
 | `idempotency_keys` | M9 |
-| `interaction_tokens` | M3-T1 |
 | `invite_codes` | M9 |
-| `link_codes` | M3-T1 |
 | `login_tokens` | M9 |
 | `mcp_access_log` | M10 |
 | `mcp_client_servers` | M10 |
@@ -2078,7 +2223,6 @@ milestone, nor an explicit decision not to have one.
 | `plugin_installations` | M10 |
 | `plugin_store_entries` | M10 |
 | `plugin_versions` | M10 |
-| `rate_limits` | M3-T1 |
 | `sessions` | M9 |
 | `skill_records` | M10 |
 | `step_up_challenges` | M9 |

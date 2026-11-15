@@ -165,13 +165,30 @@ export function groupImmutableTables(): readonly string[] {
 }
 
 /** Every `group_id` immutability trigger, in table order. */
-export function allGroupImmutableTriggers(): readonly string[] {
-  return groupImmutableTables().map((table) => groupImmutableTrigger(table));
+export function allGroupImmutableTriggers(only?: TableFilter): readonly string[] {
+  return groupImmutableTables()
+    .filter((table) => covers(only, table))
+    .map((table) => groupImmutableTrigger(table));
 }
 
+/**
+ * Which tables a generated migration covers.
+ *
+ * A trigger cannot be created before its table, and from `M3-T1` the tables arrive in waves: the
+ * M1 baseline in `0000`, the channel and onboarding tables in `0002`, more to come. So the
+ * generator renders **one file per wave** and each `all*Triggers` call takes the wave's table set.
+ *
+ * `undefined` means every table, which is what the inventory tests want.
+ */
+export type TableFilter = ReadonlySet<string> | undefined;
+
+const covers = (only: TableFilter, table: string): boolean => only === undefined || only.has(table);
+
 /** Every I4 trigger, in table order. */
-export function allI4Triggers(): readonly string[] {
-  return labeledColumns().flatMap((entry) => i4Triggers(entry));
+export function allI4Triggers(only?: TableFilter): readonly string[] {
+  return labeledColumns()
+    .filter((entry) => covers(only, entry.table))
+    .flatMap((entry) => i4Triggers(entry));
 }
 
 /**
@@ -244,8 +261,10 @@ BEGIN SELECT RAISE(ABORT, '${guard.code}'); END`;
 }
 
 /** Every immutability trigger. */
-export function allImmutabilityTriggers(): readonly string[] {
-  return IMMUTABLE_GUARDS.map((guard) => immutabilityTrigger(guard));
+export function allImmutabilityTriggers(only?: TableFilter): readonly string[] {
+  return IMMUTABLE_GUARDS.filter((guard) => covers(only, guard.table)).map((guard) =>
+    immutabilityTrigger(guard),
+  );
 }
 
 /** The tables this module generates guards for, so a test can assert the inventory. */
@@ -479,6 +498,8 @@ BEGIN SELECT RAISE(ABORT, 'I4_PARENT_GROUP_MISMATCH'); END`,
 }
 
 /** Every parent-group agreement trigger, in a stable order. */
-export function allGroupAgreementTriggers(): readonly string[] {
-  return groupAgreements().flatMap((entry) => groupAgreementTriggers(entry));
+export function allGroupAgreementTriggers(only?: TableFilter): readonly string[] {
+  return groupAgreements()
+    .filter((entry) => covers(only, entry.table))
+    .flatMap((entry) => groupAgreementTriggers(entry));
 }

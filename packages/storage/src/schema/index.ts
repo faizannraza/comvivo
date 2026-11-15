@@ -54,7 +54,15 @@ export {
   proposalVotes,
   standingApprovals,
 } from './governance.js';
-export { conversations, groups, guardianRelations, members } from './groups.js';
+export {
+  channelChatAliases,
+  chatBindings,
+  conversations,
+  dmContexts,
+  groups,
+  guardianRelations,
+  members,
+} from './groups.js';
 // --- Tables (M1-T11: `02` §3.3.1–§3.3.3, §3.3.8) ------------------------------------------------
 //
 // Alphabetical, because Biome's `organizeImports` sorts this block and a hand-kept order would
@@ -88,6 +96,13 @@ export {
   memoryTombstones,
 } from './memory.js';
 export { messageAttachments, messageReactions, messages } from './messages.js';
+export {
+  channelState,
+  claimCodes,
+  interactionTokens,
+  linkCodes,
+  rateLimits,
+} from './onboarding.js';
 export { planSteps, plans } from './plans.js';
 export { pollCounts, polls, pollVotes } from './polls.js';
 export {

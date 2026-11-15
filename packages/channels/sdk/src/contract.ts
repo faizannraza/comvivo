@@ -29,31 +29,22 @@
  * Both are recorded in `STATUS.md` → Plan changes rather than silently followed, because the next
  * person to read §4.1 will reach for the same two imports.
  */
-import type { MentionTarget, RichText } from '@comvivo/core';
+import type { ChannelId, MentionTarget, RichText } from '@comvivo/core';
 import type { Clock, Logger, MemberId, Rng } from '@comvivo/shared';
 import type { z } from 'zod';
 
 // --- Identity and shape -------------------------------------------------------------------------
 
 /**
- * A channel's id.
+ * `ChannelId` comes from `@comvivo/core` and is **not** redeclared here.
  *
- * `(string & {})` keeps the seven known ids as autocomplete suggestions while still admitting a
- * host's own adapter: `06` §3.1 makes the channel layer open, and a union that refused an unknown
- * id would make a third-party adapter impossible to type.
+ * `06` §4.1 writes the union out, and `core/src/domain/channel.ts` already owns it — because the
+ * `channel` columns in `02` §3.3 are `TEXT` and `packages/storage` cannot import a channel
+ * package (`01` §4 as amended by A11). Two homes for one id is the thing `M1-T11` moved `RichText`
+ * to avoid, and core's version is the better one anyway: it carries `mcp` (a tool call through
+ * `10`'s MCP server creates a conversation like any other surface) and a `channelIdSchema` for the
+ * boundary, neither of which §4.1's list has.
  */
-export type ChannelId =
-  | 'telegram'
-  | 'discord'
-  | 'slack'
-  | 'matrix'
-  | 'signal'
-  | 'web'
-  | 'simulator'
-  // `string & {}` is the documented idiom for "any other string, while keeping the literals in
-  // autocomplete". It is not `any`, and no rule objects to it.
-  | (string & {});
-
 export type Markup =
   | 'telegram-html'
   | 'discord-md'
@@ -686,4 +677,4 @@ export interface AdapterFactory<C> {
   create(config: C): ChannelAdapter;
 }
 
-export type { MentionTarget, RichText };
+export type { ChannelId, MentionTarget, RichText };

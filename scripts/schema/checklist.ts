@@ -22,15 +22,8 @@ import { join } from 'node:path';
  * second direction the list would rot into a permanent excuse.
  */
 export const SCHEDULED_LATER: Readonly<Record<string, string>> = {
-  // 06 — channels and onboarding (M3).
-  chat_bindings: 'M3-T1',
-  channel_chat_aliases: 'M3-T1',
-  dm_contexts: 'M3-T1',
-  claim_codes: 'M3-T1',
-  link_codes: 'M3-T1',
-  interaction_tokens: 'M3-T1',
-  channel_state: 'M3-T1',
-  rate_limits: 'M3-T1',
+  // 06 — channels and onboarding: all eight landed at `M3-T1` and left this list, which is what
+  // the "a deferred table that already exists" direction is for.
   // 09 — dashboard, API and CLI (M9).
   sessions: 'M9',
   login_tokens: 'M9',
