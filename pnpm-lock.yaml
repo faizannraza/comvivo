@@ -167,12 +167,18 @@ catalogs:
     '@anthropic-ai/sdk':
       specifier: 1.7.0
       version: 1.7.0
+    '@commander-js/extra-typings':
+      specifier: ^15.1
+      version: 15.1.0
     '@google/genai':
       specifier: 3.0.0
       version: 3.0.0
     better-sqlite3-multiple-ciphers:
       specifier: 13.0.3
       version: 13.0.3
+    commander:
+      specifier: ^15.1
+      version: 15.1.0
     drizzle-kit:
       specifier: 0.31.11
       version: 0.31.11
@@ -191,6 +197,9 @@ catalogs:
     openai:
       specifier: 7.55.0
       version: 7.55.0
+    picocolors:
+      specifier: ^1.1
+      version: 1.1.1
     pino:
       specifier: ^10.4
       version: 10.4.0
@@ -301,6 +310,9 @@ importers:
 
   apps/cli:
     dependencies:
+      '@commander-js/extra-typings':
+        specifier: 'catalog:'
+        version: 15.1.0(commander@15.1.0)
       '@comvivo/server':
         specifier: workspace:*
         version: link:../server
@@ -310,6 +322,15 @@ importers:
       '@comvivo/storage':
         specifier: workspace:*
         version: link:../../packages/storage
+      commander:
+        specifier: 'catalog:'
+        version: 15.1.0
+      picocolors:
+        specifier: 'catalog:'
+        version: 1.1.1
+      yaml:
+        specifier: 'catalog:'
+        version: 2.9.1
     devDependencies:
       vitest:
         specifier: 'catalog:'
@@ -1400,6 +1421,11 @@ packages:
   '@clack/prompts@1.8.1':
     resolution: {integrity: sha512-dlT1m5e/0yUL0kRNcQn7yGLVThkgbB0Ga/1AmfDDC/8ik6AIiSf2QLQO2zPYvefsHP0aFgxO93cVLCCfDp7kzQ==}
     engines: {node: '>= 20.12.0'}
+
+  '@commander-js/extra-typings@15.1.0':
+    resolution: {integrity: sha512-FsI7l5tFON52RyyDKyCkvwFl+peHZuP5TZ7AhxbDFGo/5T6KQd4+KE48aJ8jrDSSAQDvZ8hYKX47fmwZ5bGFNw==}
+    peerDependencies:
+      commander: ~15.1.0
 
   '@csstools/color-helpers@6.1.2':
     resolution: {integrity: sha512-grhRy3OKmniaAEKXMjua5z/EODX0MSqBGjunw8+j/3HQjOnahs2AGhvEOIYVUWcU6ScApbhLhVrQTX8XqrMrow==}
@@ -3016,6 +3042,10 @@ packages:
 
   commander@15.0.0:
     resolution: {integrity: sha512-z67u4ZhzCL/Tydu1lJARtEZYWbWaN7oYLHbsuzocr6y4N6WZAagG3RQ4FW61V1/0+jImpj293XfrcYnd1qxtPg==}
+    engines: {node: '>=22.12.0'}
+
+  commander@15.1.0:
+    resolution: {integrity: sha512-cgnQ88TRrWcC7pVq46RzJVRMktu3W2RcbnoidnfBsl1bmDCBwJS/udcIZpKoCrbAYYaCqsz1yZCVIgbIaU3ddQ==}
     engines: {node: '>=22.12.0'}
 
   common-ancestor-path@2.0.0:
@@ -5780,6 +5810,10 @@ snapshots:
       fast-wrap-ansi: 0.2.2
       sisteransi: 1.0.5
 
+  '@commander-js/extra-typings@15.1.0(commander@15.1.0)':
+    dependencies:
+      commander: 15.1.0
+
   '@csstools/color-helpers@6.1.2': {}
 
   '@csstools/css-calc@3.4.3(@csstools/css-parser-algorithms@4.0.2(@csstools/css-tokenizer@4.0.2))(@csstools/css-tokenizer@4.0.2)':
@@ -7284,6 +7318,8 @@ snapshots:
   commander@14.0.3: {}
 
   commander@15.0.0: {}
+
+  commander@15.1.0: {}
 
   common-ancestor-path@2.0.0: {}
 

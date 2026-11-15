@@ -188,6 +188,17 @@ catalog:
   # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
   # every shape below was read off the installed typings rather than carried over from 2.x.
   "@google/genai": 3.0.0
+  # --- CLI (M3) --------------------------------------------------------------------------------
+  # `09` §3.11.1 names commander with `@commander-js/extra-typings` and `picocolors`. Carets: none
+  # of the three touches a byte that is persisted or replayed, and the CLI's exit codes and copy
+  # are both tested, so a minor that changed a help layout is caught by a test rather than by a
+  # host. The two commander packages are **locked to the same major by the upstream peer**, which
+  # is why they sit together: `extra-typings` declares `commander@^15`.
+  # Versions verified against the registry on 2026-11-14; both 15.1.0 are past
+  # `minimumReleaseAge`'s 3 days (published 2026-11-08 and 2026-11-09).
+  commander: ^15.1
+  "@commander-js/extra-typings": ^15.1
+  picocolors: ^1.1
   # --- runtime copy (M3) ------------------------------------------------------------------------
   # `05` §3.11 and §3.7.1 both specify ICU MessageFormat, and [R28] names this implementation.
   # A **caret**, not an exact pin, and the distinction is the one the pins above are made of: what

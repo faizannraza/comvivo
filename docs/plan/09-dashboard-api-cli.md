@@ -1461,6 +1461,7 @@ Common rule: every field shows its **source**. Values set by an environment vari
 - **Colors:** `picocolors`, honoring `NO_COLOR` and `FORCE_COLOR`.
 - **QR codes:** `uqr` (`renderUnicodeCompact`).
 - **Bootstrap:** `bin/comvivo.mjs` is a tiny ES2018-syntax shim. It checks `process.versions.node >= 22.12` before any import and otherwise prints:
+  - Implemented at `M3-T13`. Two details the shim's own comment records because they are easy to undo: **no import sits above the version check** — a single `??` or `?.` there turns the sentence below into a `SyntaxError` with a stack trace, on exactly the runtime it exists to warn — and the refusal exits **78** (`12` §4.2's "configuration"), not 2, because an orchestrator that read a usage error would retry it in a loop. `require` is reached through `createRequire` rather than `import … with { type: 'json' }`, which is syntax Node 18 cannot parse.
   > Comvivo needs Node.js 22.12 or newer (you have {v}). Install it from https://nodejs.org or use Docker: {docs}/install/docker
 
   The server runtime requires Node ≥ 24.11; Node 26 LTS is the primary target (01 §14 A1). Native mode checks that separately.
@@ -1472,12 +1473,23 @@ apps/cli/src/
 ├─ output.ts               # human vs --json printers, symbols with ASCII fallback (clack `unicode`)
 ├─ exit-codes.ts
 ├─ control-client.ts       # hono/client typed against apps/server control app + bearer from data/keys/control.token
-├─ copy/                   # ALL user-facing CLI strings (versioned templates; snapshot-tested)
+├─ copy/                   # ALL user-facing CLI strings (versioned templates; see the note below)
 ├─ commands/<name>.ts      # one file per command
 ├─ wizard/                 # init steps: mode, folder, models, channels, keys, budgets, access, write, start, claim
 ├─ probes/                 # adapters over @comvivo/models + channel probe subpath exports (§4.8)
 └─ modes/                  # docker.ts (compose CLI), native.ts (runtime install, spawn, pidfile), ha.ts, umbrel.ts
 ```
+
+`copy/en.json` is `{name}` templates rather than ICU, and it is **not** snapshot-tested (`M3-T13`).
+Both are refinements with reasons. ICU buys plurals, selects and locale-aware numbers, and none of
+the CLI's strings has any — `05` §3.11's member-facing copy does, and uses it. And the review
+surface `"snapshot-tested"` was reaching for is the catalog itself: it is one JSON file, so a
+changed sentence is already a diff in prose, where a snapshot of it would be a second escaped copy
+that nobody reads — which is what `hygiene:check`'s `snapshots-only-in-renderers` refuses. What
+`copy.test.ts` asserts instead is the property a reviewer would otherwise check ninety-one times by
+hand: every key renders with no placeholder left in it, no sentence exceeds 240 characters, and
+punctuation matches **where the string is read** — a help column takes no full stop, a label line is
+a value, a prompt ends in `": "`, and prose ends with `.`, `?` or `!`.
 
 #### 3.11.2 Global conventions
 
@@ -1510,6 +1522,22 @@ apps/cli/src/
 | 130 | Cancelled by the user |
 
 #### 3.11.3 Commands
+
+`M3-T13` wires **eight** of the ten `keys` subcommands: `status`, `verify-recovery`,
+`rotate-master`, `rotate-recovery`, `recover`, `add-passphrase`, `remove-slot` and
+`purge-retired` — every one that needs the keyring and a key store and nothing else.
+`rotate-data` and `rotate-sessions` stay at **M9**, which is what the milestone column of their row
+below already says, and `08` §3.7.7's step lists are why: `rotate-data` needs maintenance mode
+(actors paused, outbox held), `PRAGMA rekey` on a live database and the resumable blob-DEK rewrap,
+and `rotate-sessions` is a settings write through the Control API (D-04). Registering either as a
+command that refuses would be worse than its absence — `--help` would advertise it.
+
+The master key reaches all eight through one resolver,
+`packages/storage/src/crypto/master-key.ts` (`M3-T13`), covering all five of `08` §3.7.3's stores.
+One place, because the server's boot path needs the same answer and the thing that must not drift is
+**which failure a host is told about**: a missing Docker secret reported as "the master key is not
+in the keychain" works exactly as well and sends somebody to the wrong place.
+
 
 | Command | Purpose | Key flags | Output (human) | Exit | Milestone |
 |---|---|---|---|---|---|

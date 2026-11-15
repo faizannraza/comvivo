@@ -16,6 +16,8 @@
     }
   },
   "files": [
+    "bin",
+    "copy",
     "dist"
   ],
   "scripts": {
@@ -24,12 +26,16 @@
     "test": "pnpm -w exec vitest run apps/cli"
   },
   "bin": {
-    "comvivo": "./dist/bin.js"
+    "comvivo": "./bin/comvivo.mjs"
   },
   "dependencies": {
+    "@commander-js/extra-typings": "catalog:",
+    "@comvivo/server": "workspace:*",
     "@comvivo/shared": "workspace:*",
     "@comvivo/storage": "workspace:*",
-    "@comvivo/server": "workspace:*"
+    "commander": "catalog:",
+    "picocolors": "catalog:",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "vitest": "catalog:"

@@ -6,6 +6,16 @@
  * reads every table of a group, neither of which belongs in a shipped code path.
  */
 
+// `08` §3.7.4's keyring, built in memory. Exported at `M3-T13`'s coverage pass, because the CLI's
+// `keys` commands need a real one to run against — and a second builder in `apps/cli` would be a
+// second place a fixture could diverge from the shape `keyringSchema` accepts.
+export {
+  buildKeyring,
+  FAST_SCRYPT,
+  FIXTURE_INSTANCE,
+  type FixtureOptions,
+  type KeyringFixture,
+} from '../crypto/testing/keyring-fixture.js';
 export {
   type DomainStateOptions,
   domainTables,

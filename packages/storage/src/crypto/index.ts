@@ -108,6 +108,13 @@ export {
   type PermissionFinding,
 } from './keyring-store.js';
 export {
+  MASTER_KEY_STORES,
+  type MasterKeySource,
+  type MasterKeyStore,
+  type ReadMasterKeyOptions,
+  readMasterKey,
+} from './master-key.js';
+export {
   BODY_CHARS,
   CHECKSUM_BITS,
   CHECKSUM_CHARS,
