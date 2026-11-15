@@ -37,7 +37,8 @@
     "mdast-util-gfm-autolink-literal": "catalog:",
     "micromark-extension-gfm-table": "catalog:",
     "mdast-util-gfm-table": "catalog:",
-    "@types/mdast": "catalog:"
+    "@types/mdast": "catalog:",
+    "temporal-polyfill": "catalog:"
   },
   "devDependencies": {
     "fast-check": "catalog:",

@@ -6,11 +6,12 @@
  * cross a trust boundary. `01` §14 **A26** makes `06` §4.1 authoritative and this package is its
  * implementation.
  *
- * The RichText parser landed at `M3-T3`. Arriving later in M3, each with the task that can
- * implement it honestly: the renderers and measurement (`M3-T4`), the splitter (`M3-T5`),
- * interactions and the choice fallback (`M3-T6`), the rate limiter and retry helpers (`M3-T7`),
- * the typing manager (`M3-T8`), and the conformance kit and its `./testing` entry point
- * (`M3-T9`).
+ * The RichText parser landed at `M3-T3` and the `plain`, `telegram-html` and `web-md` renderers
+ * with their measurement at `M3-T4`. Arriving later in M3, each with the task that can implement
+ * it honestly: the splitter (`M3-T5`), interactions and the choice fallback (`M3-T6`), the rate
+ * limiter and retry helpers (`M3-T7`), the typing manager (`M3-T8`), and the conformance kit and
+ * its `./testing` entry point (`M3-T9`). The `discord-md`, `slack-mrkdwn` and `matrix-html`
+ * renderers arrive with their adapters in M8; `renderPart` refuses them by name until then.
  *
  * ## What this package may import
  *
@@ -105,6 +106,41 @@ export {
   utf8Length,
 } from './richtext/degrade.js';
 export { type ParseOptions, type ParseResult, parseModelOutput } from './richtext/parse.js';
+// --- RichText rendering and measurement (06 §3.5.3–§3.5.4; M3-T4) ------------------------------
+export {
+  escapeTelegramAttribute,
+  escapeTelegramText,
+  IMPLEMENTED_MARKUPS,
+  isValidTelegramHtml,
+  MarkupNotImplemented,
+  measureTelegramHtml,
+  measureText,
+  neutraliseMassMentions,
+  PLAIN_RULE,
+  type PlainMentionRange,
+  type PlainRender,
+  type PlainStyle,
+  type PlainStyleRange,
+  renderPart,
+  renderPlain,
+  renderTelegramHtml,
+  renderWeb,
+  TELEGRAM_ENTITIES,
+  TELEGRAM_EXPANDABLE_QUOTE_CHARS,
+  TELEGRAM_RULE,
+  TELEGRAM_TAGS,
+  type TelegramHtmlProblem,
+  type TelegramRenderOptions,
+  TG_TIME_FORMAT,
+  utf8Bytes,
+  validateTelegramHtml,
+  visibleText,
+  type WebBlock,
+  type WebInline,
+  type WebMention,
+  type WebRender,
+  ZWSP,
+} from './richtext/render/index.js';
 export { sketch, sketchBlock, sketchInline } from './richtext/sketch.js';
 export {
   ActionButtonSchema,

@@ -519,6 +519,9 @@ importers:
       micromark-extension-gfm-table:
         specifier: 'catalog:'
         version: 2.1.2
+      temporal-polyfill:
+        specifier: 'catalog:'
+        version: 1.0.6
     devDependencies:
       fast-check:
         specifier: 'catalog:'

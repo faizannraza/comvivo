@@ -288,6 +288,14 @@ Renderers are pure: `(ast, ctx: RenderContext) → Rendered`. `RenderContext` ho
 | `plain` (Signal, fallbacks) | none | dropped; **Signal**: emitted as `textStyle` ranges `start:length:BOLD\|ITALIC\|STRIKETHROUGH\|SPOILER\|MONOSPACE` (UTF-16 offsets, [man](https://github.com/AsamK/signal-cli/blob/master/man/signal-cli.1.adoc)) | `• `/`n. ` lists; `> ` quotes; code verbatim (Signal MONOSPACE range); `h` → line (Signal BOLD); `hr` → `———` | `@Name` (Signal: `mention` range `start:length:<ACI>`); link → `label (url)` unless label==url |
 | `web-md` | none (AST JSON; the dashboard renders React elements, **never** `innerHTML`) | — | — | resolved mentions embedded |
 
+**Implemented at `M3-T4`** for `plain`, `telegram-html` and `web-md`; the other three arrive with their adapters in M8, and `renderPart` **refuses them by name** rather than falling back to `plain` — a Discord adapter silently sending unformatted text would pass every test that did not look at the markup. Five notes the implementation adds:
+
+- **`<pre><code>` carries no `class` when there is no language.** `class="language-"` is an unknown language to Telegram rather than none, and it costs attribute bytes against the 4 096-character budget for nothing.
+- **`&` is escaped first.** Replacing it last double-escapes the `&` of an `&lt;` the escaper just produced, so the reader sees `&amp;lt;` where they typed `<`. The single easiest thing to get wrong in an escaper, and the reason the three replacements are one function rather than a chain at each call site.
+- **A quote is not escaped in text, only in an attribute value** — which this table already says, and which has a consequence worth recording: escaped markup in content keeps its quotes, so `&lt;a href="tg://…"&gt;` is inert text that still *contains* `href="…"`. A check for an injected attribute therefore has to read the attributes off real tags, not match a regex over the string.
+- **The `plain` renderer emits Signal's `textStyle` and `mention` ranges.** Their offsets are only knowable while walking the AST, so computing them later would mean a second walk that has to agree character for character about where the text ended up. A mention range is emitted **only when `canPing`**, because on Signal the range *is* the ping (§3.6).
+- **A mass-mention token is broken with a zero-width space after its first character**, driven by `ChannelCapabilities.massMentionTokens` rather than a fixed list. Telegram's list is empty, so this is a no-op there — which means the mass-mention cases in `M3-T4`'s injection corpus pass for Telegram without the function running at all. `M3-T10` owns proving it in a renderer that uses it.
+
 **Body/text fallbacks.**
 - Matrix `body` uses the `plain` renderer.
 - Slack top-level `text`: `plain`, truncated to 3 000 characters. It is used for notifications and accessibility.
@@ -306,6 +314,7 @@ splitAndRender(ast, caps, renderer): RenderedPart[]
   if cur nonempty: parts.push(render(cur))
   if parts.length > maxPartsPerMessage: keep first (max-1); last = truncation notice part (copy key channels.truncated)
 ```
+- `measure` renders and counts **the unit the platform counts** (implemented at `M3-T4`; the splitter that uses it is `M3-T5`). Telegram's visible length is counted by a scanner rather than a regex, because the one case a regex gets wrong is a `>` inside an attribute value — and an escaping bug is exactly what produces one, so the measure has to be right about it to be worth running. An unescaped `<` or a bare `&` is counted as **one character** rather than skipped: it is a bug the validator reports, and under-counting it would turn a parse failure into a length failure as well.
 - `measure` renders and counts **the unit the platform counts**:
   - Telegram: visible text length in UTF-16, tags stripped and entities decoded.
   - Discord: raw content length.
