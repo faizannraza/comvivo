@@ -7,6 +7,34 @@
  * `docs/plan/14-milestones.md`.
  */
 
+// --- The cost guard and the budget windows (05 §3.9.3; 01 §8, §14 A3; M3-T30) ----------------
+export {
+  type BudgetLimits,
+  type BudgetState,
+  budgetLimits,
+  CostGuard,
+  type CostGuardDeps,
+  LADDER_THRESHOLDS,
+  type LadderStep,
+  ladderStep,
+  type MemberTurnDecision,
+  MemberTurnLimiter,
+  type ModelPreset,
+  PER_TURN_CAP,
+  type PerTurnCap,
+  PRESET_BUDGETS,
+  perTurnCapMicros,
+  routeAllowedAtStep,
+  type WindowSpend,
+} from './budget/cost-guard.js';
+export {
+  type BudgetPeriod,
+  type BudgetWindow,
+  budgetWindows,
+  dailyWindow,
+  localDay,
+  monthlyWindow,
+} from './budget/windows.js';
 // --- The runtime copy catalog (05 §3.11; 01 §11.12; M3-T12) -----------------------------------
 export {
   BASE_LOCALE,

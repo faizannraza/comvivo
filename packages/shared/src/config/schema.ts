@@ -280,6 +280,17 @@ export const configSchema = z.strictObject({
       preset: z.literal('auto').default('auto'),
       monthlyUsd: z.number().positive().nullable().default(null),
       dailyUsd: z.number().positive().nullable().default(null),
+      /**
+       * `05` §3.9.3's per-member rate limit: addressed turns per member per hour (`M3-T30`).
+       *
+       * A **floor of 1**, not 0. Zero would be a group where nobody can ask the assistant
+       * anything, configured through a number that looks like a rate limit rather than through
+       * the switch that turns the product off — and a host who wants that has `dashboard.enabled`
+       * and the channel `enabled` flags. The ceiling is 600, which is ten a minute sustained:
+       * above that the limit is not protecting anything `08` §3.9's cost-abuse defence cares
+       * about, and `maxModelCallsPerGroupPerMinute` is the limit that still applies.
+       */
+      perMemberTurnsPerHour: z.number().int().min(1).max(600).default(30),
     })
     .prefault({}),
   backups: z

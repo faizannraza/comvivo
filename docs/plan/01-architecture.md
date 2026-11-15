@@ -512,7 +512,7 @@ channels:
 email: { enabled: false, imap: { host: null, port: 993, user: null } } # password via env COMVIVO_IMAP_PASSWORD (or _FILE)
 dashboard: { bind: 127.0.0.1, port: 7777 }
 privacy: { messageRetentionDays: 90, encryptAtRest: true }
-budgets: { preset: auto }        # auto = per-preset defaults (§14 A3); or { monthlyUsd: N, dailyUsd: M }
+budgets: { preset: auto, perMemberTurnsPerHour: 30 }   # auto = per-preset defaults (§14 A3); or { monthlyUsd: N, dailyUsd: M }
 backups: { enabled: true, keep: 14 }
 traces: { retentionDays: 30 }    # 7–365; manifests only, never content
 mcp: { server: { http: { enabled: false } } }  # serves /mcp on the dashboard listener (no separate port)
