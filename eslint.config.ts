@@ -291,6 +291,19 @@ export default defineConfig(
     rules: SDK_PURITY_RULES,
   },
   {
+    // `M3-T2`: the same bargain as the block above, for the same reason. The channel SDK's
+    // tsconfig carries `"types": ["node"]` so `06` §4.1's contract can name an `AbortSignal`, a
+    // `ReadableStream` and a `Request`/`Response` pair — and these bans are what stops that from
+    // becoming a licence to use the rest of the platform. Every one has a replacement on the
+    // `AdapterContext`: `ctx.clock` for `Date`, `ctx.rng` for `Math.random`, `ctx.fetch` for the
+    // global, `ctx.secrets` for `process.env`. This is the package whose examples adapter authors
+    // copy, and an SDK that reaches for a global teaches every adapter to do the same.
+    name: 'comvivo/channel-sdk-purity',
+    files: ['packages/channels/sdk/**/*.ts'],
+    ignores: ['**/*.test.ts', '**/testing/**'],
+    rules: SDK_PURITY_RULES,
+  },
+  {
     // `08` §3.7.13: a secret is compared in constant time, or not at all. Its own rule id rather
     // than another `no-restricted-syntax` selector, because this ban has an exemption of its own
     // and flat config **replaces** a rule's options — four selector blocks would have become

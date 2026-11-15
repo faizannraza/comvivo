@@ -32,10 +32,14 @@
     "@comvivo/shared": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "catalog:"
   },
   "publishConfig": {
     "access": "public",
     "provenance": true
+  },
+  "peerDependencies": {
+    "zod": "^4.6"
   }
 }

@@ -1,8 +1,131 @@
 /**
  * `@comvivo/channel-sdk`
  *
- * The channel adapter contract: capability model, inbound and outbound envelopes, the rich- text AST and its per-platform renderers, interaction tokens, and the adapter conformance test kit.
+ * The channel adapter contract: the capability model, the inbound and outbound envelopes, the
+ * error taxonomy, the per-platform capability profiles, and the zod schemas for the shapes that
+ * cross a trust boundary. `01` §14 **A26** makes `06` §4.1 authoritative and this package is its
+ * implementation.
  *
- * Scaffolded by M0-T1. The implementation lands in this package's own milestone; see
- * `docs/plan/14-milestones.md`.
+ * Arriving later in M3, each with the task that can implement it honestly: the RichText parser
+ * (`M3-T3`), the renderers and measurement (`M3-T4`), the splitter (`M3-T5`), interactions and
+ * the choice fallback (`M3-T6`), the rate limiter and retry helpers (`M3-T7`), the typing manager
+ * (`M3-T8`), and the conformance kit and its `./testing` entry point (`M3-T9`).
+ *
+ * ## What this package may import
+ *
+ * `@comvivo/core` and `@comvivo/shared` only, plus `zod` as a **peer** — because an adapter and
+ * the engine must agree on one zod instance for a schema to be comparable. dependency-cruiser's
+ * `PURE_PACKAGES` refuses a `node:*` import here, and `comvivo/channel-sdk-purity` in
+ * `eslint.config.ts` bans `Date`, `process`, `fetch`, `Math.random` and the timers: every one has
+ * a replacement on the `AdapterContext` an adapter is handed.
  */
+
+import type { z } from 'zod';
+import type { AdapterFactory, ChannelAdapter, ChannelId } from './contract.js';
+
+export type {
+  ActionButton,
+  ActionRow,
+  AdapterContext,
+  AdapterFactory,
+  AdapterHealth,
+  AdapterStateStore,
+  AttachmentKind,
+  AttachmentRef,
+  BindingView,
+  ButtonLimits,
+  ChannelAdapter,
+  ChannelCapabilities,
+  ChannelEvent,
+  ChannelId,
+  ChannelMetrics,
+  ChatProbe,
+  CommandSpec,
+  Diagnostic,
+  HealthReporter,
+  InboundAttachment,
+  InboundEnvelope,
+  InboundInteraction,
+  IngestAck,
+  LinkPreview,
+  Markup,
+  MemberListing,
+  MentionTarget,
+  OutboundAttachment,
+  OutboundMessage,
+  PlatformChatRef,
+  PlatformMember,
+  PlatformMessageRef,
+  PlatformPollRef,
+  PollFinalTally,
+  PollLimits,
+  PollSpec,
+  Priority,
+  RenderContext,
+  RenderedPart,
+  ResolvedMention,
+  RichText,
+  SelfInfo,
+  SendProgressSink,
+  SendReceipt,
+  SentPart,
+  WebhookRegistrar,
+} from './contract.js';
+export {
+  CHANNEL_ERROR_KINDS,
+  ChannelError,
+  type ChannelErrorDetails,
+  type ChannelErrorKind,
+  isRetryableKind,
+} from './errors.js';
+export { PROFILE_NAMES, type ProfileName, profiles } from './profiles.js';
+export {
+  ActionButtonSchema,
+  AttachmentRefSchema,
+  ButtonLimitsSchema,
+  ChannelCapabilitiesSchema,
+  ChannelEventSchema,
+  InboundAttachmentSchema,
+  InboundEnvelopeSchema,
+  InboundInteractionSchema,
+  IngestAckSchema,
+  LinkPreviewSchema,
+  OutboundMessageSchema,
+  PlatformChatRefSchema,
+  PlatformMessageRefSchema,
+  PlatformPollRefSchema,
+  PollFinalTallySchema,
+  PollLimitsSchema,
+  PollSpecSchema,
+  ResolvedMentionSchema,
+  SentPartSchema,
+} from './schemas.js';
+
+/**
+ * Declare an adapter and the config shape a host must satisfy (`06` §4.1).
+ *
+ * Thin on purpose: it returns the three fields it was given. The value is not the function but
+ * the **shape it forces** — an adapter that reaches the composition root carries its own
+ * `configSchema`, so `apps/server` validates a host's YAML against the adapter that will use it
+ * rather than against a central list somebody has to remember to update. A host who misspells a
+ * Telegram setting learns it at boot, from the adapter that cares.
+ *
+ * `create` is not called here. Construction happens after validation, which is what lets an
+ * adapter's constructor assume its config is already the right shape.
+ */
+export function defineAdapter<C>(def: {
+  readonly id: ChannelId;
+  readonly configSchema: z.ZodType<C>;
+  create(config: C): ChannelAdapter;
+}): AdapterFactory<C> {
+  return {
+    id: def.id,
+    configSchema: def.configSchema,
+    // Wrapped rather than passed as `create: def.create`, which would detach the method from
+    // `def` and lose `this`. An adapter author who writes `create()` as a method on an object
+    // literal and reaches for `this.something` would get `undefined` at construction time — a
+    // crash at boot, in third-party code, caused by this line. `typescript-eslint`'s
+    // `unbound-method` names exactly that.
+    create: (config: C) => def.create(config),
+  };
+}
