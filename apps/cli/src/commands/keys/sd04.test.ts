@@ -112,6 +112,30 @@ describe('08 SD-04: a recovery key is printed once and never shown again', () =>
     expect(uses).toHaveLength(1);
   });
 
+  it('asks for every secret with the echo off', () => {
+    // `09` §3.11.2 wants "a hidden `password()` prompt" for a secret, and `main.ts`'s `ask` takes
+    // the flag that does it. This asserts the **wiring**, deliberately and not more: readline only
+    // echoes when stdin is a TTY, so an end-to-end test against a `Readable` would report
+    // "nothing was echoed" with the mask removed. Measured — see `STATUS` → `M3-T13`.
+    //
+    // So the check is that every `ask(` in `main.ts` whose prompt is a secret passes `true`, and
+    // that the ones that are not — a confirmation's `yes`, the ceremony's `written` — do not,
+    // because a host typing `yes` into a prompt that shows nothing has no idea it is working.
+    const main = readFileSync(join(SRC, 'main.ts'), 'utf8');
+    const calls = [...main.matchAll(/ask\(copy\('([\w.]+)'\)(, true)?\)/g)].map((match) => ({
+      prompt: match[1] ?? '',
+      secret: match[2] !== undefined,
+    }));
+    // The whole list, so a prompt added without a decision about its echo shows up here.
+    expect(calls).toEqual([
+      { prompt: 'prompt.recoveryKey', secret: true },
+      { prompt: 'prompt.newPassphrase', secret: true },
+      { prompt: 'prompt.again', secret: true },
+      { prompt: 'prompt.typeYes', secret: false },
+      { prompt: 'prompt.typeWritten', secret: false },
+    ]);
+  });
+
   it('keeps the new key out of the --json envelope', () => {
     // `--json` output is piped into logs and pasted into issues. `08` SD-04's "printed once" means
     // printed to the terminal, not serialised — so `rotate-recovery`'s envelope carries the slot

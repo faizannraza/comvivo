@@ -82,12 +82,21 @@ describe('the Node version shim (09 §3.11.1)', () => {
     expect(above).toContain('process.exit(78)');
   });
 
-  it('passes no test seam into run()', () => {
-    // `RunOptions.answers` lets a test answer a confirmation or a secret prompt without a
-    // terminal. It is the one thing in this package that could, if it ever reached production,
-    // make a destructive command proceed unasked — so the entry point is asserted not to set it.
-    // `CLAUDE.md` §8's "no mock data in production code paths", checked rather than intended.
+  it('passes no test seam into run(), and `run` offers none', () => {
+    // `RunOptions` used to carry an `answers` object "for tests": pre-baked replies that made
+    // `confirm`, the passphrase prompt and the recovery-key ceremony return without reading
+    // anything. It is gone, replaced by an injected `input` stream, and this test asserts both
+    // halves — the seam is not set here **and** no longer exists to be set.
+    //
+    // `CLAUDE.md` §8's "no mock data in production code paths", checked rather than intended: the
+    // thing a seam like that could do, if a flag ever reached it, is make a destructive command
+    // proceed unasked.
     expect(readFileSync(SHIM, 'utf8')).not.toContain('answers');
+    const main = readFileSync(new URL('main.ts', import.meta.url), 'utf8');
+    expect(main).not.toContain('options.answers');
+    // And the entry point hands `run` the real streams and the real stdin, which is what makes
+    // the injected version equivalent in production.
+    expect(readFileSync(SHIM, 'utf8')).toContain('input: process.stdin');
   });
 
   it('names the floor once, so the message and the comparison cannot disagree', () => {

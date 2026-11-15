@@ -13,6 +13,7 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { BRAND } from '@comvivo/shared';
 import { encodeRecoveryKey, parseKeyring, serialiseKeyring } from '@comvivo/storage/crypto';
 import { buildKeyring, type KeyringFixture } from '@comvivo/storage/testing';
@@ -70,6 +71,20 @@ async function keyringOnDisk(
   return parseKeyring(await readFile(join(install.dir, 'data', 'keys', 'keyring.json'), 'utf8'));
 }
 
+/**
+ * A stdin a host would produce: one line per prompt, newline-terminated.
+ *
+ * Real lines through the real `readline`, rather than the `answers` object this file used to pass:
+ * that object short-circuited the prompt code, so the comparisons that decide whether a passphrase
+ * matched or a ceremony was acknowledged were the one part of these commands no test ran.
+ */
+function typed(...answers: readonly string[]): Readable {
+  return Readable.from(answers.map((line) => `${line}\n`));
+}
+
+/** A TTY and no `CI`, which is what `canPrompt` asks about (`09` §3.11.2). */
+const INTERACTIVE = (dir: string) => ({ env: {}, cwd: dir, isTty: true }) as const;
+
 async function invoke(
   install: Install,
   argv: readonly string[],
@@ -91,6 +106,7 @@ async function invoke(
         },
       },
     },
+    input: Readable.from([]),
     version: '1.2.3',
     colour: false,
     unicode: true,
@@ -144,8 +160,8 @@ describe(`${BRAND.cliName} keys verify-recovery (08 §3.7.6)`, () => {
     await withInstall(async (install) => {
       const before = serialiseKeyring(await keyringOnDisk(install));
       const { code, out } = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: install.printedRecoveryKey },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(install.printedRecoveryKey),
+        environment: INTERACTIVE(install.dir),
       });
       expect(code).toBe(CLI_EXIT.ok);
       expect(out).toContain('slot rk1');
@@ -158,8 +174,8 @@ describe(`${BRAND.cliName} keys verify-recovery (08 §3.7.6)`, () => {
     await withInstall(async (install) => {
       // A checksum failure: the host should look at what they wrote down.
       const typo = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: `${install.printedRecoveryKey.slice(0, -1)}X` },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(`${install.printedRecoveryKey.slice(0, -1)}X`),
+        environment: INTERACTIVE(install.dir),
       });
       expect(typo.code).toBe(CLI_EXIT.integrity);
 
@@ -168,8 +184,8 @@ describe(`${BRAND.cliName} keys verify-recovery (08 §3.7.6)`, () => {
       // reporting both as "invalid" leaves somebody re-reading a perfectly good piece of paper.
       const other = buildKeyring();
       const wrong = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: encodeRecoveryKey(other.recoveryKey) },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(encodeRecoveryKey(other.recoveryKey)),
+        environment: INTERACTIVE(install.dir),
       });
       expect(wrong.code).toBe(CLI_EXIT.integrity);
       expect(wrong.out).not.toBe(typo.out);
@@ -242,8 +258,8 @@ describe(`${BRAND.cliName} keys rotate-recovery (08 §3.7.6, SD-04)`, () => {
       // An **interactive** run: a TTY and no `CI`. `rotate-recovery` refuses before minting a key
       // when it can neither ask nor be told where to write one, which is the next test.
       const { code, out, err } = await invoke(install, ['keys', 'rotate-recovery', '--yes'], {
-        answers: { ceremonyConfirmed: true },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed('written'),
+        environment: INTERACTIVE(install.dir),
       });
       expect(code, err).toBe(CLI_EXIT.ok);
       // The ceremony is on **stderr**: it is not the command's answer, it is something the host
@@ -255,13 +271,13 @@ describe(`${BRAND.cliName} keys rotate-recovery (08 §3.7.6, SD-04)`, () => {
       expect(out).not.toContain(printed ?? 'unreachable');
       // The new key verifies and the old one does not, which is what "replaced" has to mean.
       const check = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: printed ?? '' },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(printed ?? ''),
+        environment: INTERACTIVE(install.dir),
       });
       expect(check.code).toBe(CLI_EXIT.ok);
       const old = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: install.printedRecoveryKey },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(install.printedRecoveryKey),
+        environment: INTERACTIVE(install.dir),
       });
       expect(old.code).toBe(CLI_EXIT.integrity);
     });
@@ -292,12 +308,12 @@ describe(`${BRAND.cliName} keys rotate-recovery (08 §3.7.6, SD-04)`, () => {
       // `08` §3.7.6: a rotation the host did not acknowledge would destroy the old key and give
       // them nothing. The old key must still work afterwards.
       await invoke(install, ['keys', 'rotate-recovery', '--yes'], {
-        answers: { ceremonyConfirmed: false },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed('not yet'),
+        environment: INTERACTIVE(install.dir),
       });
       const old = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: install.printedRecoveryKey },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(install.printedRecoveryKey),
+        environment: INTERACTIVE(install.dir),
       });
       expect(old.code).toBe(CLI_EXIT.ok);
     });
@@ -319,8 +335,8 @@ describe(`${BRAND.cliName} keys recover (08 §3.7.8 row 1)`, () => {
       // not need the thing that is gone.
       await rm(join(install.dir, 'data', 'keys', 'master.key'));
       const { code, out } = await invoke(install, ['keys', 'recover'], {
-        answers: { secretLine: install.printedRecoveryKey },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(install.printedRecoveryKey),
+        environment: INTERACTIVE(install.dir),
       });
       expect(code).toBe(CLI_EXIT.ok);
       expect(out).toContain('opened with recovery slot rk1');
@@ -333,8 +349,8 @@ describe(`${BRAND.cliName} keys recover (08 §3.7.8 row 1)`, () => {
       ).toBeGreaterThanOrEqual(1);
       // And the recovery key is **unchanged**, which the command says and the file confirms.
       const check = await invoke(install, ['keys', 'verify-recovery'], {
-        answers: { secretLine: install.printedRecoveryKey },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(install.printedRecoveryKey),
+        environment: INTERACTIVE(install.dir),
       });
       expect(check.code).toBe(CLI_EXIT.ok);
     });
@@ -344,8 +360,8 @@ describe(`${BRAND.cliName} keys recover (08 §3.7.8 row 1)`, () => {
     await withInstall(async (install) => {
       const other = buildKeyring();
       const { code } = await invoke(install, ['keys', 'recover'], {
-        answers: { secretLine: encodeRecoveryKey(other.recoveryKey) },
-        environment: { env: {}, cwd: install.dir, isTty: true },
+        input: typed(encodeRecoveryKey(other.recoveryKey)),
+        environment: INTERACTIVE(install.dir),
       });
       expect(code).toBe(CLI_EXIT.integrity);
     });
@@ -356,7 +372,8 @@ describe(`${BRAND.cliName} keys add-passphrase (08 §3.7.8 row 2)`, () => {
   it('adds a third unlock route and says it cannot start unattended', async () => {
     await withInstall(async (install) => {
       const { code, out, err } = await invoke(install, ['keys', 'add-passphrase'], {
-        answers: { newPassphrase: 'correct horse battery staple' },
+        input: typed('correct horse battery staple', 'correct horse battery staple'),
+        environment: INTERACTIVE(install.dir),
       });
       expect(code).toBe(CLI_EXIT.ok);
       expect(out).toContain('A passphrase slot is added');
@@ -373,10 +390,15 @@ describe(`${BRAND.cliName} keys add-passphrase (08 §3.7.8 row 2)`, () => {
 
   it('refuses two passphrases that do not match, and adds nothing', async () => {
     await withInstall(async (install) => {
-      const { code, err } = await invoke(install, ['keys', 'add-passphrase']);
-      // No `answers.newPassphrase`, and the run cannot prompt — so the two reads return ''.
+      // The mismatch itself, read through the real prompt. Until `input` replaced the `answers`
+      // object this test could not reach the comparison at all: the run could not prompt, so it
+      // took the non-interactive refusal below and passed for the wrong reason.
+      const { code, err } = await invoke(install, ['keys', 'add-passphrase'], {
+        input: typed('correct horse battery staple', 'correct hoarse battery staple'),
+        environment: INTERACTIVE(install.dir),
+      });
       expect(code).toBe(CLI_EXIT.config);
-      expect(err).not.toBe('');
+      expect(err).toContain('do not match');
       const keyring = await keyringOnDisk(install);
       expect(keyring.generations[0]?.slots.filter((slot) => slot.kind === 'passphrase')).toEqual(
         [],
@@ -474,6 +496,40 @@ describe(`${BRAND.cliName} keys purge-retired`, () => {
       },
       { gen: 2, retiredGenerations: [1] },
     );
+  });
+});
+
+describe('the confirmation (09 §3.11.2)', () => {
+  it('proceeds when the host types `yes`', async () => {
+    await withInstall(async (install) => {
+      // No `--yes`, at a TTY: the real prompt, answered the one way that counts. The comparison
+      // is exact — `y` is not `yes` — because the prompt names the consequence and a single
+      // keystroke is not an acknowledgement of it.
+      const before = await readFile(join(install.dir, 'data', 'keys', 'master.key'), 'utf8');
+      const { code, err } = await invoke(install, ['keys', 'rotate-master'], {
+        input: typed('yes'),
+        environment: INTERACTIVE(install.dir),
+      });
+      expect(code, err).toBe(CLI_EXIT.ok);
+      expect(await readFile(join(install.dir, 'data', 'keys', 'master.key'), 'utf8')).not.toBe(
+        before,
+      );
+    });
+  });
+
+  it('changes nothing when the host types anything else', async () => {
+    await withInstall(async (install) => {
+      const before = await readFile(join(install.dir, 'data', 'keys', 'master.key'), 'utf8');
+      const { code, err } = await invoke(install, ['keys', 'rotate-master'], {
+        input: typed('y'),
+        environment: INTERACTIVE(install.dir),
+      });
+      // `09` §3.11.2's exit 4, and the message says nothing was changed — which is the fact the
+      // host needs and the one a bare "cancelled" leaves them guessing about.
+      expect(code).toBe(CLI_EXIT.cancelled);
+      expect(err).toContain('Nothing was changed');
+      expect(await readFile(join(install.dir, 'data', 'keys', 'master.key'), 'utf8')).toBe(before);
+    });
   });
 });
 

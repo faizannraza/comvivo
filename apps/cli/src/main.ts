@@ -21,6 +21,7 @@
 
 import { writeFile } from 'node:fs/promises';
 import { createInterface } from 'node:readline/promises';
+import { Writable } from 'node:stream';
 import { Command, InvalidArgumentError } from '@commander-js/extra-typings';
 import { BRAND, StorageError } from '@comvivo/shared';
 import { KeyPermissionError, storeMasterKey } from '@comvivo/storage/crypto';
@@ -44,12 +45,68 @@ export interface RunOptions {
   readonly colour: boolean;
   /** Whether the terminal can show the Unicode symbol set (`09` §3.11.1). */
   readonly unicode: boolean;
-  /** For tests: answer confirmations and secret prompts without a terminal. */
-  readonly answers?: {
-    readonly confirm?: boolean;
-    readonly secretLine?: string;
-    readonly newPassphrase?: string;
-    readonly ceremonyConfirmed?: boolean;
+  /**
+   * Where a prompt's answer comes from. `process.stdin` in the shim.
+   *
+   * Injected, like every other edge of this package, and that replaced an `answers` object this
+   * function used to carry "for tests". Two reasons it had to go. It was four `if (answers?.…)`
+   * branches **inside the production path** — the shape `CLAUDE.md` §8 forbids — and because the
+   * real `readline` path was the one thing those branches skipped, it was also the one thing no
+   * test ran: `readNewPassphrase`'s mismatch check, `confirm`'s `yes` comparison and `ceremony`'s
+   * `written` comparison were all unexecuted while the suite looked thorough.
+   *
+   * A `Readable`, not a list of lines, so the test drives the same `createInterface` the host
+   * does.
+   */
+  readonly input: NodeJS.ReadableStream;
+}
+
+/**
+ * Read one line, optionally without showing it.
+ *
+ * ## One interface per run
+ *
+ * The reader is created once, and that is a fix rather than a tidy-up: the first version created
+ * and **closed** a new `readline.Interface` per prompt. `readNewPassphrase` prompts twice, and
+ * closing an interface discards whatever it had buffered — so a host who typed ahead, or any
+ * piped input arriving in one chunk, lost the second line. The symptom would have been a
+ * passphrase that never matched itself.
+ *
+ * ## How a secret is hidden, and what is actually tested
+ *
+ * `09` §3.11.2 wants "a hidden `password()` prompt" for a secret. `terminal: true` makes readline
+ * take over the echo — it puts a TTY stdin into raw mode and writes the keystrokes to `output`
+ * itself — so routing `output` through a writable that **drops** everything while `masked` is set
+ * is the whole mechanism, with no private API and no second interface.
+ *
+ * What the suite can check is the read and the wiring. It cannot check the hiding: readline echoes
+ * only when stdin *is* a TTY, so against a `Readable` the masked and unmasked paths produce
+ * identical (empty) output, and a test asserting "nothing was echoed" would pass with the mask
+ * removed. Measured, not assumed — see `STATUS` → `M3-T13`. The human check is one command at a
+ * terminal, and `@clack/prompts`' own `password()` replaces this at `M3-T42`, which is the task
+ * that brings the library in.
+ */
+function lineReader(
+  input: NodeJS.ReadableStream,
+  echoTo: { write(chunk: string): void },
+): (options: { readonly secret: boolean }) => Promise<string> {
+  let lines: AsyncIterator<string> | undefined;
+  let masked = false;
+  const output = new Writable({
+    write(chunk: unknown, _encoding: unknown, done: (error?: Error) => void) {
+      if (!masked) echoTo.write(String(chunk));
+      done();
+    },
+  });
+  return async ({ secret }) => {
+    masked = secret;
+    lines ??= createInterface({ input, output, terminal: true })[Symbol.asyncIterator]();
+    try {
+      const next = await lines.next();
+      return next.done === true ? '' : next.value;
+    } finally {
+      masked = false;
+    }
   };
 }
 
@@ -63,6 +120,18 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
   const printed = { code: CLI_EXIT.ok as CliExitCode };
   let printer: Printer | undefined;
   let context: CliContext | undefined;
+  const nextLine = lineReader(options.input, options.streams.err);
+  /**
+   * Prompt on **stderr** and read one line: stdout is the command's answer (`09` §3.11.1).
+   *
+   * `secret` hides what is typed. Passed explicitly at each call rather than inferred from the
+   * prompt, because the consequence of getting it wrong is a recovery key in a host's scroll-back
+   * and that is not a thing to leave to a string comparison.
+   */
+  const ask = async (prompt: string, secret = false): Promise<string> => {
+    options.streams.err.write(prompt);
+    return await nextLine({ secret });
+  };
 
   const program = new Command()
     .name(BRAND.cliName)
@@ -115,12 +184,11 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
         json: program.opts().json === true,
       }),
     keyStore: (where) => keySourceFor(where).store,
-    readSecretLine: async () => {
-      if (options.answers?.secretLine !== undefined) return options.answers.secretLine;
-      return await readLine(copy('prompt.recoveryKey'), options.streams);
-    },
+    // No `canPrompt` guard, deliberately: a recovery key is exactly the secret a host pipes in
+    // (`comvivo keys recover < key.txt`), and `09` §3.11.2 keeps secrets out of flag values, so
+    // stdin is the only route a script has.
+    readSecretLine: async () => await ask(copy('prompt.recoveryKey'), true),
     readNewPassphrase: async () => {
-      if (options.answers?.newPassphrase !== undefined) return options.answers.newPassphrase;
       if (!deps.canPrompt()) {
         // Checked **before** reading, because `readLine` on a non-TTY stdin never returns: in CI
         // `comvivo keys add-passphrase` would hang until the job timed out, which is a failure
@@ -134,8 +202,8 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
           { hint: copy('error.passphrase.interactive') },
         );
       }
-      const first = await readLine(copy('prompt.newPassphrase'), options.streams);
-      const again = await readLine(copy('prompt.again'), options.streams);
+      const first = await ask(copy('prompt.newPassphrase'), true);
+      const again = await ask(copy('prompt.again'), true);
       if (first !== again || first === '') {
         throw new CliError(
           CLI_EXIT.config,
@@ -149,10 +217,6 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
     confirm: async (question, consequence) => {
       // The **global** `--yes`. See `CommandDeps.confirm` for why it is read here and not passed.
       if (program.opts().yes === true) return;
-      if (options.answers?.confirm !== undefined) {
-        if (options.answers.confirm) return;
-        throw cancelled();
-      }
       if (!deps.canPrompt()) {
         // `09` §3.11.2: a missing required input in a non-interactive run is exit 3, and the
         // message names the flag. A confirmation is a required input.
@@ -161,7 +225,7 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
         });
       }
       options.streams.err.write(`${question}\n  ${consequence}\n`);
-      const answer = (await readLine(copy('prompt.typeYes'), options.streams)).trim();
+      const answer = (await ask(copy('prompt.typeYes'))).trim();
       if (answer !== 'yes') throw cancelled();
     },
     ceremony: async (key, outFile) => {
@@ -174,8 +238,6 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
         await writeFile(outFile, `${key}\n`, { mode: 0o600 });
         options.streams.err.write(`${copy('ceremony.written', { path: outFile })}\n`);
       }
-      if (options.answers?.ceremonyConfirmed !== undefined)
-        return options.answers.ceremonyConfirmed;
       if (!deps.canPrompt()) {
         // Refused rather than assumed. A `rotate-recovery` in a script would replace the only
         // off-host way in and print the new key to a log nobody reads — so the non-interactive
@@ -185,7 +247,7 @@ export async function run(options: RunOptions): Promise<CliExitCode> {
           hint: copy('ceremony.nonInteractive.hint'),
         });
       }
-      const answer = (await readLine(copy('prompt.typeWritten'), options.streams)).trim();
+      const answer = (await ask(copy('prompt.typeWritten'))).trim();
       return answer === 'written';
     },
     storeMasterKey: async (where, key) => {
@@ -313,18 +375,6 @@ function isCommanderExit(cause: unknown): cause is { exitCode: number; code: str
     typeof cause.code === 'string' &&
     cause.code.startsWith('commander.')
   );
-}
-
-/** One line from stdin, prompted on stderr. */
-async function readLine(prompt: string, streams: Streams): Promise<string> {
-  streams.err.write(prompt);
-  const reader = createInterface({ input: process.stdin, terminal: false });
-  try {
-    for await (const line of reader) return line;
-    return '';
-  } finally {
-    reader.close();
-  }
 }
 
 function resolveKeyfile(keyfilePath: string, dir: string): string {

@@ -55,6 +55,7 @@ Promise.all([import('../dist/main.js'), import('node:module'), import('picocolor
       argv: process.argv.slice(2),
       environment: { env: process.env, cwd: process.cwd(), isTty: Boolean(process.stdin.isTTY) },
       streams: { out: process.stdout, err: process.stderr },
+      input: process.stdin,
       version: pkg.version,
       colour: loaded[2].default.isColorSupported,
       // `09` §3.11.1's ASCII fallback. A Windows console in a legacy code page renders `✔` as

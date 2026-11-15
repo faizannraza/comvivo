@@ -14,6 +14,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import { BRAND, envVar } from '@comvivo/shared';
 import { describe, expect, it } from 'vitest';
 import { copy } from './copy.js';
@@ -71,6 +72,9 @@ async function invoke(
       isTty: false,
     },
     streams: captured.streams,
+    // Empty by default: a command that prompted without a test saying so would otherwise read
+    // whatever the test runner's stdin happened to be.
+    input: Readable.from([]),
     version: '1.2.3',
     colour: false,
     unicode: true,
