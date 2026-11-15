@@ -21,6 +21,7 @@
     }
   },
   "files": [
+    "copy",
     "dist"
   ],
   "scripts": {
@@ -32,7 +33,8 @@
     "@comvivo/core": "workspace:*",
     "@comvivo/shared": "workspace:*",
     "@comvivo/channel-sdk": "workspace:*",
-    "@comvivo/plugin-sdk": "workspace:*"
+    "@comvivo/plugin-sdk": "workspace:*",
+    "intl-messageformat": "catalog:"
   },
   "devDependencies": {
     "@comvivo/models": "workspace:*",

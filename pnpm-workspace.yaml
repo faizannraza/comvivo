@@ -188,6 +188,16 @@ catalog:
   # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
   # every shape below was read off the installed typings rather than carried over from 2.x.
   "@google/genai": 3.0.0
+  # --- runtime copy (M3) ------------------------------------------------------------------------
+  # `05` §3.11 and §3.7.1 both specify ICU MessageFormat, and [R28] names this implementation.
+  # A **caret**, not an exact pin, and the distinction is the one the pins above are made of: what
+  # an exact pin buys is protection for bytes that are persisted or replayed verbatim, and nothing
+  # here is either — a formatter turns a catalog entry and some params into a string that is sent
+  # and forgotten. The catalog itself is a file in this repository, and `copy.test.ts` renders every
+  # key with representative params, so a formatting change is caught by a test rather than by a
+  # member reading something odd. 12.1.5 is current (published 2026-11-08, so past
+  # `minimumReleaseAge`'s 3 days) and brings `@formatjs/{fast-memoize,icu-messageformat-parser}`.
+  intl-messageformat: ^12.1
   pino: ^10.4
   pure-rand: ^8.4
   typeid-js: ^1.2

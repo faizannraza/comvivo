@@ -171,6 +171,16 @@ export const LOG_EVENTS = {
   /** The degradation ladder level a local server was placed at (`05` §3.5.6). */
   'model.local_level': 'a local model server was placed on the degradation ladder',
 
+  // --- Runtime copy (M3-T12) -------------------------------------------------------------------
+  /**
+   * A copy catalog entry could not be rendered, so English was used instead (`05` §3.11).
+   *
+   * `warn` rather than `debug`, because the only way a community translation gets fixed is that
+   * somebody sees this. Carries the locale and the **key**, never the parameters: a parameter is
+   * a handle, a title or a block of effect lines, which is message content (`01` §11.7).
+   */
+  'copy.fallback': 'a copy catalog entry could not be rendered',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',

@@ -72,6 +72,11 @@ jobs:
       - name: Distribution names
         run: pnpm run names:check
 
+      # `05` §3.11's catalog against the spec table, and no copy sentence inlined in code
+      # (`M3-T12`). Here as well as in `pnpm verify`, for the `names:check` reason above.
+      - name: Runtime copy catalog
+        run: pnpm run copy:check
+
       - name: Native build policy
         run: pnpm run supply:check
 

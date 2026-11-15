@@ -1683,22 +1683,24 @@ Why I said that (to @sam, 18:42):
 Copy lives in `copy/runtime.<locale>.json` (ICU) and is reviewed like UI copy.
 - **Tone.** Short, calm, no blame, no jargon.
 - **Vendor names.** Model or vendor names are never shown to members, except in `/why` for `traces.read.group` and in admin notices.
-- **Locale.** Hint → group → `en`.
+- **Locale.** Hint → group → `en`, **resolved per key and per render** (`M3-T12`). A community translation is partial by nature, so a locale missing one key renders that key in English rather than the whole message in English; and a translated pattern that *throws* — naming a parameter the caller does not pass — falls back the same way, with one `copy.fallback` warn line carrying the locale, the key and the error's class. A thrown error here would make the reply that explains a failure a failure. English itself throws rather than rendering nothing: `scripts/copy/check.ts` and `copy.test.ts` are where a missing English key is caught.
+- **Keys are a type, the catalog is JSON** (`M3-T12`). JSON because a translator edits it; `RUNTIME_COPY_KEYS` and a per-key `RuntimeCopyParams` because `format(key: string, params: object)` turns every typo and every forgotten `{action}` into a `MissingValueError` on the one path whose job is to apologise. `pnpm copy:check` compares the table below against both in both directions.
+- **A locale tag is not a path.** The hint comes from a model, and the catalog filename is built from it; anything that is not BCP 47-shaped reads as untranslated. Measured at `M3-T12`: `./../../package` resolves to `packages/engine/package.json`, so without the check any JSON on the host would parse as a catalog and its values would render into a member's reply.
 
 | Key | Trigger | EN copy | Where |
 |---|---|---|---|
 | `info.still_working` | Placeholder (§3.3.6) | "On it — {activity}…" | Conversation (edited later) |
 | `err.timeout_continuing` | First deadline | "This is taking longer than it should. I'll keep at it and reply here." | Conversation |
-| `err.timeout_final` | Continuation deadline | "Sorry, I couldn't finish that. {doneLines}Could you try a smaller request?" | Conversation |
+| `err.timeout_final` | Continuation deadline | "Sorry, I couldn't finish that. {doneLines}Could you try a smaller request?" — `doneLines` is pre-rendered from `effects.<locale>.json` (§3.7.1) and **carries its own trailing separator**, or is `''`; the absence of a space before "Could" is why | Conversation |
 | `err.provider_unavailable` | Breaker open or retries exhausted, before step 1 | "I can't reach my AI service right now. I'll try again in a few minutes and answer here." (enqueues one retry turn within 10 min) | Conversation |
 | `err.provider_unavailable_final` | Retry also failed | "Still can't reach my AI service — sorry. Please ask again a bit later." | Conversation |
 | `err.provider_busy` | `rate_limited`/`overloaded` after SDK retries | "I'm a bit overloaded right now — give me a minute and ask again." | Conversation |
 | `err.refusal` | Final `refusal` (fallback chain also refused) | "That's not something I can help with here." | Conversation |
 | `err.budget_member` | Step 3 | "I've reached this group's AI budget for {period}. I'll be back {resetAt}. Commands like /chores and /help still work." | Conversation, once per member per window |
-| `admin.budget_economy` | Step 1 | "{group} has used {pct}% of its {period} AI budget, so I've switched to a lighter model until {resetAt}." | Admin DM |
+| `admin.budget_economy` | Step 1 | "{group} has used {pct, number, percent} of its {period} AI budget, so I've switched to a lighter model until {resetAt}." — ICU's own percent format rather than a literal `%`, so the symbol and its placement localise. `pct` is therefore a **fraction**: `0.9` renders `90%` (`M3-T12`) | Admin DM |
 | `admin.budget_reached` | Step 3 | "{group} reached its {period} AI budget ({spent} of {limit}). Replies that need the AI are paused until {resetAt}. You can change the budget here: {link}" | Admin DM |
 | `admin.provider_auth` | 401/403/402 | "My {provider} key isn't working ({reason}). Replies are paused until the host fixes it — `village doctor` will help." | Host/admin DM, at most once per 6 h |
-| `err.guard_blocked` | Guard block after regeneration | "I can't share that here." (+ " Ask me in a DM." if the requester ≠ audience) | Conversation |
+| `err.guard_blocked` | Guard block after regeneration | "I can't share that here.{offerDm, select, true { Ask me in a DM.} other {}}" — one key with an ICU `select` rather than two, so a translator sees the whole sentence (`M3-T12`). `offerDm` is true when the requester ≠ the audience | Conversation |
 | `err.context_too_long` | Overflow after shrink | "That's a lot at once — could you narrow it down?" | Conversation |
 | `err.too_long` | `max_tokens` twice | "That answer got too long — could you ask about one part at a time?" | Conversation |
 | `err.turn_budget` | Per-turn cap | "I've done what I can on this one. {doneLines}" | Conversation |

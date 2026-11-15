@@ -7,6 +7,19 @@
  * `docs/plan/14-milestones.md`.
  */
 
+// --- The runtime copy catalog (05 §3.11; 01 §11.12; M3-T12) -----------------------------------
+export {
+  BASE_LOCALE,
+  type Catalog,
+  type LocaleChain,
+  type NoParams,
+  RUNTIME_COPY_KEYS,
+  RuntimeCopy,
+  type RuntimeCopyKey,
+  type RuntimeCopyOptions,
+  type RuntimeCopyParams,
+} from './copy.js';
+
 // --- The group tool catalogue and its hash (10 §3.5.1; 01 §14 A13; M2-T17) --------------------
 export {
   type BuildCatalogInput,
