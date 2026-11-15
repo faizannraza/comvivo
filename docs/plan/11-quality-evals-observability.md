@@ -1092,43 +1092,44 @@ Spans:
 - The endpoint is served on the dashboard listener at `/metrics` (never on the ingress listener; there is no separate metrics port). It answers loopback requests, or requests carrying `Authorization: Bearer $COMVIVO_METRICS_TOKEN`; anything else gets 404. In Docker, Prometheus outside the container must use the token.
 - Labels never carry member IDs, conversation IDs or content. A `group` label appears only when `metrics.perGroupLabels: true`.
 - **The `provider` label is our `ProviderId`, not the conventions' spelling** (decided at `M2-T15`). A span says `gcp.gen_ai` because it is read by portable tooling that knows that name; a scrape is read beside `village doctor`, the costs screen and the config file, all of which say `google`. One vocabulary for both would make one of those two audiences read a name it does not use.
-- **`village_model_tokens_total`'s four series are disjoint** and sum to the bill: `input` is the **uncached remainder**. This is the opposite of `gen_ai.usage.input_tokens`, which follows the Anthropic convention and *includes* cached tokens. Both rules are right for their surface and each is easy to apply to the other by mistake, so `M2-T15` asserts the sum both ways.
+- **`comvivo_model_tokens_total`'s four series are disjoint** and sum to the bill: `input` is the **uncached remainder**. This is the opposite of `gen_ai.usage.input_tokens`, which follows the Anthropic convention and *includes* cached tokens. Both rules are right for their surface and each is easy to apply to the other by mistake, so `M2-T15` asserts the sum both ways.
 - Default process metrics come from `collectDefaultMetrics` (RSS, heap, event-loop lag).
 
 | Metric | Type | Labels |
 |---|---|---|
-| `village_build_info` | gauge | `version`, `node` |
-| `village_inbound_messages_total` | counter | `channel`, `disposition` |
-| `village_ingest_duration_seconds` | histogram | `channel` |
-| `village_turns_total` | counter | `status`, `trigger` |
-| `village_turn_duration_seconds` | histogram | `trigger` |
-| `village_reply_latency_seconds` (inbound received → send acknowledged) | histogram | `channel` |
-| `village_model_requests_total` | counter | `route`, `provider`, `model`, `outcome` (`M2-T15`: `ok`, `truncated`, `context_overflow`, `refused`, a structured `invalid`, or a `ModelCallErrorKind`) |
-| `village_model_request_duration_seconds` | histogram | `route`, `provider`, `model` |
-| `village_model_tokens_total` | counter | `route`, `provider`, `model`, `type` (`input`/`output`/`cache_read`/`cache_write`) |
-| `village_model_cost_usd_total` | counter | `route`, `provider`, `model` |
-| `village_tool_calls_total` | counter | `tool`, `decision` |
-| `village_policy_decisions_total` | counter | `kind` |
-| `village_guard_results_total` | counter | `result`, `stage` |
-| `village_outbox_pending` | gauge | `channel` |
-| `village_outbox_sends_total` | counter | `channel`, `outcome` |
-| `village_duplicate_sends_suppressed_total` | counter | `channel` |
-| `village_jobs_pending` | gauge | `kind` |
-| `village_job_runs_total` | counter | `kind`, `outcome` |
-| `village_job_duration_seconds` / `village_job_lag_seconds` | histogram | `kind` |
-| `village_reminder_fire_lag_seconds` | histogram | — |
-| `village_proactive_messages_total` | counter | `kind`, `outcome` (`sent`/`deferred`/`dropped`) |
-| `village_budget_state` | gauge (0–3: normal, economy, proactivity paused, exhausted) | (group when enabled) |
-| `village_actor_mailbox_depth` | gauge | — (max over groups) |
-| `village_channel_connected` | gauge | `channel` |
-| `village_channel_errors_total` | counter | `channel`, `kind` |
-| `village_recovered_turns_total` | counter | `outcome` |
-| `village_db_busy_retries_total` | counter | — |
-| `village_db_size_bytes` | gauge | — |
-| `village_data_dir_free_bytes` | gauge | — |
-| `village_outbox_oldest_age_seconds` | gauge | `channel` |
-| `village_backup_last_success_timestamp_seconds` | gauge | — |
-| `village_backup_last_verify_timestamp_seconds` | gauge | — |
+| `comvivo_build_info` | gauge | `version`, `node` |
+| `comvivo_inbound_messages_total` | counter | `channel`, `disposition` |
+| `comvivo_ingest_duration_seconds` | histogram | `channel` |
+| `comvivo_turns_total` | counter | `status`, `trigger` |
+| `comvivo_turn_duration_seconds` | histogram | `trigger` |
+| `comvivo_reply_latency_seconds` (inbound received → send acknowledged) | histogram | `channel` |
+| `comvivo_model_requests_total` | counter | `route`, `provider`, `model`, `outcome` (`M2-T15`: `ok`, `truncated`, `context_overflow`, `refused`, a structured `invalid`, or a `ModelCallErrorKind`) |
+| `comvivo_model_request_duration_seconds` | histogram | `route`, `provider`, `model` |
+| `comvivo_model_tokens_total` | counter | `route`, `provider`, `model`, `type` (`input`/`output`/`cache_read`/`cache_write`) |
+| `comvivo_model_cost_usd_total` | counter | `route`, `provider`, `model` |
+| `comvivo_tool_calls_total` | counter | `tool`, `decision` |
+| `comvivo_policy_decisions_total` | counter | `kind` |
+| `comvivo_guard_results_total` | counter | `result`, `stage` |
+| `comvivo_outbox_pending` | gauge | `channel` |
+| `comvivo_outbox_sends_total` | counter | `channel`, `outcome` |
+| `comvivo_duplicate_sends_suppressed_total` | counter | `channel` |
+| `comvivo_jobs_pending` | gauge | `kind` |
+| `comvivo_job_runs_total` | counter | `kind`, `outcome` |
+| `comvivo_job_duration_seconds` / `comvivo_job_lag_seconds` | histogram | `kind` |
+| `comvivo_reminder_fire_lag_seconds` | histogram | — |
+| `comvivo_proactive_messages_total` | counter | `kind`, `outcome` (`sent`/`deferred`/`dropped`) |
+| `comvivo_budget_state` | gauge (0–3: normal, economy, proactivity paused, exhausted) | (group when enabled) |
+| `comvivo_actor_mailbox_depth` | gauge | — (max over groups) |
+| `comvivo_channel_connected` | gauge | `channel` |
+| `comvivo_channel_errors_total` | counter | `channel`, `kind` |
+| `comvivo_richtext_degraded_total` | counter | `reason` (`too_large`/`output_too_large`/`node_limit`/`parser_error`/`schema_invalid`) — `06` §3.5.2, added at `M3-T3` |
+| `comvivo_recovered_turns_total` | counter | `outcome` |
+| `comvivo_db_busy_retries_total` | counter | — |
+| `comvivo_db_size_bytes` | gauge | — |
+| `comvivo_data_dir_free_bytes` | gauge | — |
+| `comvivo_outbox_oldest_age_seconds` | gauge | `channel` |
+| `comvivo_backup_last_success_timestamp_seconds` | gauge | — |
+| `comvivo_backup_last_verify_timestamp_seconds` | gauge | — |
 
 #### 3.10.4 TurnTrace and telemetry retention
 

@@ -168,6 +168,21 @@ const linkUrlSchema = z
     `a link URL must use ${RICH_TEXT_LINK_SCHEMES.join(', ')} (06 §3.5.1 degrades the rest to text)`,
   );
 
+/**
+ * Whether a URL may be stored as a `link` (`06` §3.5.1).
+ *
+ * The same schema the node uses, exposed as a predicate, because `06` §3.5.2's parser has to ask
+ * this **per link** and the two other ways to ask are both worse. Re-implementing the check in
+ * `channel-sdk` is how two copies of an allowlist come to disagree about `java\tscript:`. And
+ * validating a throwaway one-link document through `RichTextSchema` — which is what the parser did
+ * first — runs a whole zod document pass per link: worth about 0.13 ms on a markup-dense
+ * 4 000-character reply, measured at `M3-T3`. Small, and the wrong shape: it grows with the number
+ * of links rather than with their length.
+ */
+export function isAllowedLinkUrl(url: string): boolean {
+  return linkUrlSchema.safeParse(url).success;
+}
+
 const instantTextSchema = z.string().refine((at) => {
   try {
     Temporal.Instant.from(at);

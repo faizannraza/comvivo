@@ -988,7 +988,7 @@ pino writes JSON to stdout in containers and under systemd, and pretty output in
 #### 3.11.4 Monitoring
 
 - `/healthz` and `/readyz`: see §4.3. **`/metrics`** (Prometheus, owned by `11` §3.10.3) is off by default; when enabled it is served on the dashboard listener at `/metrics` and answers loopback requests or `Authorization: Bearer $COMVIVO_METRICS_TOKEN` (there is no separate metrics port; in Docker, scrape with the token).
-- Series ops needs from `11` (all in `11` §3.10.3): `village_build_info`, `village_channel_connected{channel}`, `village_outbox_pending`, `village_outbox_oldest_age_seconds`, `village_job_lag_seconds{kind}`, `village_backup_last_success_timestamp_seconds`, `village_backup_last_verify_timestamp_seconds`, `village_db_size_bytes`, `village_data_dir_free_bytes`, `village_model_cost_usd_total{route}`, `village_turns_total{status,trigger}`.
+- Series ops needs from `11` (all in `11` §3.10.3): `comvivo_build_info`, `comvivo_channel_connected{channel}`, `comvivo_outbox_pending`, `comvivo_outbox_oldest_age_seconds`, `comvivo_job_lag_seconds{kind}`, `comvivo_backup_last_success_timestamp_seconds`, `comvivo_backup_last_verify_timestamp_seconds`, `comvivo_db_size_bytes`, `comvivo_data_dir_free_bytes`, `comvivo_model_cost_usd_total{route}`, `comvivo_turns_total{status,trigger}`.
 - **Uptime Kuma:**
   1. a JSON-query HTTP monitor on `/healthz` with `status = "ok"`, plus a keyword monitor for `degraded`;
   2. a **Push** monitor whose URL is `backups.notifyUrl` (26 h interval);

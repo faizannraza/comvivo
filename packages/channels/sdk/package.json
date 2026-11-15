@@ -29,9 +29,18 @@
   },
   "dependencies": {
     "@comvivo/core": "workspace:*",
-    "@comvivo/shared": "workspace:*"
+    "@comvivo/shared": "workspace:*",
+    "mdast-util-from-markdown": "catalog:",
+    "micromark-extension-gfm-strikethrough": "catalog:",
+    "mdast-util-gfm-strikethrough": "catalog:",
+    "micromark-extension-gfm-autolink-literal": "catalog:",
+    "mdast-util-gfm-autolink-literal": "catalog:",
+    "micromark-extension-gfm-table": "catalog:",
+    "mdast-util-gfm-table": "catalog:",
+    "@types/mdast": "catalog:"
   },
   "devDependencies": {
+    "fast-check": "catalog:",
     "vitest": "catalog:",
     "zod": "catalog:"
   },

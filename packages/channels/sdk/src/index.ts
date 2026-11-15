@@ -6,10 +6,11 @@
  * cross a trust boundary. `01` §14 **A26** makes `06` §4.1 authoritative and this package is its
  * implementation.
  *
- * Arriving later in M3, each with the task that can implement it honestly: the RichText parser
- * (`M3-T3`), the renderers and measurement (`M3-T4`), the splitter (`M3-T5`), interactions and
- * the choice fallback (`M3-T6`), the rate limiter and retry helpers (`M3-T7`), the typing manager
- * (`M3-T8`), and the conformance kit and its `./testing` entry point (`M3-T9`).
+ * The RichText parser landed at `M3-T3`. Arriving later in M3, each with the task that can
+ * implement it honestly: the renderers and measurement (`M3-T4`), the splitter (`M3-T5`),
+ * interactions and the choice fallback (`M3-T6`), the rate limiter and retry helpers (`M3-T7`),
+ * the typing manager (`M3-T8`), and the conformance kit and its `./testing` entry point
+ * (`M3-T9`).
  *
  * ## What this package may import
  *
@@ -79,6 +80,32 @@ export {
   isRetryableKind,
 } from './errors.js';
 export { PROFILE_NAMES, type ProfileName, profiles } from './profiles.js';
+// --- RichText parsing (06 §3.5.1–§3.5.2; M3-T3) -----------------------------------------------
+//
+// The AST and `RichTextSchema` are **not** re-exported: they live in `@comvivo/core` (see that
+// module's header), and a second name for one type is how two of them come to exist.
+export {
+  applyCustomSyntax,
+  type CustomSyntaxOptions,
+  canonicalMarks,
+  type MentionResolution,
+  type MentionResolver,
+  textNode,
+  UNRESOLVED_MENTION_TEXT,
+} from './richtext/custom-syntax.js';
+export {
+  DEGRADE_REASONS,
+  DEGRADE_TRUNCATION_NOTICE,
+  type DegradeReason,
+  degradeLinkToText,
+  degradeToPlain,
+  MAX_DEGRADED_PARAGRAPHS,
+  tableToCodeBlock,
+  truncateToJsonBytes,
+  utf8Length,
+} from './richtext/degrade.js';
+export { type ParseOptions, type ParseResult, parseModelOutput } from './richtext/parse.js';
+export { sketch, sketchBlock, sketchInline } from './richtext/sketch.js';
 export {
   ActionButtonSchema,
   AttachmentRefSchema,

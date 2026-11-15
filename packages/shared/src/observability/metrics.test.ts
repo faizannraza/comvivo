@@ -51,6 +51,7 @@ describe('the catalog', () => {
       'actor_mailbox_depth',
       'channel_connected',
       'channel_errors_total',
+      'richtext_degraded_total',
       'recovered_turns_total',
       'db_busy_retries_total',
       'db_size_bytes',
@@ -172,6 +173,7 @@ describe('label safety', () => {
       'tool',
       'decision',
       'kind',
+      'reason',
       'result',
       'stage',
       'group',
@@ -220,6 +222,8 @@ describe('label safety', () => {
       tool: 30,
       decision: 5,
       kind: 20,
+      // too_large, output_too_large, node_limit, parser_error, schema_invalid (06 §3.5.2)
+      reason: 5,
       result: 4,
       stage: 2, // deterministic, judge
       version: 1,
@@ -282,6 +286,7 @@ describe('label safety', () => {
       'tool',
       'decision',
       'kind',
+      'reason',
       'result',
       'stage',
       'version',

@@ -188,6 +188,27 @@ catalog:
   # window (the newest went out 2026-11-12T21:19Z). 3.0.0 is a **major** released 2026-11-06, so
   # every shape below was read off the installed typings rather than carried over from 2.x.
   "@google/genai": 3.0.0
+  # --- RichText parsing (M3) -------------------------------------------------------------------
+  # `06` §3.5.2 names `mdast-util-from-markdown` 2.x with **three** GFM extensions, and names them
+  # individually rather than taking `micromark-extension-gfm`: that bundle also brings footnotes
+  # and task lists, which `06` §3.5.1's AST has no node for, so the model could write syntax the
+  # parser understood and the AST silently dropped. Tables are parsed only so `degrade.ts` can
+  # turn them into a `code` block.
+  #
+  # Carets, because nothing here is persisted verbatim: the AST is, and it is validated by
+  # `RichTextSchema` on the way to the column. A minor that changed how a construct parses is
+  # caught by the golden corpus (`06` §3.5.2's ≥ 150 cases) rather than by a host.
+  #
+  # Versions verified against the registry on 2026-11-15, all past `minimumReleaseAge`'s 3 days:
+  # from-markdown 2.1.0 (2026-10-03), gfm-strikethrough 2.1.0/2.0.1, gfm-autolink-literal
+  # 2.1.0/2.1.0 (the newest of the seven, 2026-11-06), gfm-table 2.1.2/2.0.1.
+  mdast-util-from-markdown: ^2.1
+  micromark-extension-gfm-strikethrough: ^2.1
+  mdast-util-gfm-strikethrough: ^2.0
+  micromark-extension-gfm-autolink-literal: ^2.1
+  mdast-util-gfm-autolink-literal: ^2.1
+  micromark-extension-gfm-table: ^2.1
+  mdast-util-gfm-table: ^2.0
   # --- HTTP (M3) -------------------------------------------------------------------------------
   # `09` D-02 and §9's dependency table name all three. Carets: `apps/server/src/http`'s tests
   # assert the header set, the status per problem code and the validation shape against the spec,
@@ -236,4 +257,12 @@ catalog:
   vitest: ^5.0
   "@vitest/coverage-v8": ^5.0
   "@types/node": ^24.9
+  # The mdast node types, for `06` §3.5.2's parser: the walk's input is a tree whose shape is
+  # `mdast`'s, and naming those nodes is what makes the mapping table exhaustive rather than a
+  # chain of `any` — and what lets `switch-exhaustiveness-check` fail a dependency bump that adds
+  # a node kind. A **dependency**, not a devDependency, because `channel-sdk/src` imports it by
+  # name: `no-dev-dep-in-src` refuses that, and correctly — a published package whose source names
+  # a types package has to declare it, or a consumer type-checking against the emitted `.d.ts`
+  # cannot resolve it.
+  "@types/mdast": ^4.0
   typescript: 6.0.3

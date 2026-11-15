@@ -276,6 +276,7 @@ export {
 export {
   type Block,
   type Inline,
+  isAllowedLinkUrl,
   type Mark,
   type MentionTarget,
   RICH_TEXT_LANG_PATTERN,

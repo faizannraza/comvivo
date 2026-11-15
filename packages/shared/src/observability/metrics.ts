@@ -235,6 +235,13 @@ export const METRICS = {
     help: 'Channel errors by kind.',
     labels: ['channel', 'kind'],
   },
+  richtext_degraded_total: {
+    type: 'counter',
+    help:
+      'Model output that could not be parsed into the RichText AST and was turned into plain ' +
+      'paragraphs instead (06 §3.5.2). A rising count means replies are losing their formatting.',
+    labels: ['reason'],
+  },
   recovered_turns_total: {
     type: 'counter',
     help: 'Turns resumed from the journal after a restart, by outcome.',

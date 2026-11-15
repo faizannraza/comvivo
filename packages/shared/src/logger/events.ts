@@ -211,6 +211,26 @@ export const LOG_EVENTS = {
    */
   'copy.fallback': 'a copy catalog entry could not be rendered',
 
+  // --- RichText (06 §3.5.2; M3-T3) --------------------------------------------------------------
+  /**
+   * A reply's markup could not be parsed and was degraded to plain paragraphs (`06` §3.5.2).
+   *
+   * `warn`, because the member sees a reply that lost its formatting and the cause is ours: the
+   * model wrote something the parser could not represent, or wrote more than the limits allow.
+   * Carries the **reason** and the input's size, never the text — `01` §11.7, and this is the one
+   * event whose temptation is to log the input that broke it. The input is available under
+   * `COMVIVO_DEBUG_CONTENT` like every other piece of content.
+   */
+  'channel.richtext_degraded': 'model markup was degraded to plain paragraphs',
+  /**
+   * `@{mbr_…}` in model output named somebody who is not in this group (`06` §3.5.2).
+   *
+   * `warn` rather than `debug`: the member reads `@?` where a name should be, and the usual cause
+   * is a prompt that offered the model a roster it then got wrong — which is a bug worth seeing.
+   * Carries no id, because a member id in a log line is a handle to a person (`01` §11.7).
+   */
+  'channel.mention_unresolved': 'model output mentioned a non-member id',
+
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */
   'debug.content_enabled': 'content logging is ENABLED',
