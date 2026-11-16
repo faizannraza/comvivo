@@ -550,6 +550,14 @@ Expired rows become `expired`, and the TurnTrace records it.
 
 **Token buckets** (`channel-sdk/src/ratelimit`). `RateLimiter.acquire(keys: BucketKey[], cost, priority, signal)` waits on all buckets atomically. Buckets refill continuously from the injected `Clock`, so tests use a virtual clock. Waiters are ordered by priority, then FIFO, with round-robin across chats.
 
+Implemented at `M3-T7`, with five notes the sentence above implies and does not say:
+- **A key is built, not spelled** (`bucketKeys.global`, `bucketKeys.chat(id)`, `bucketKeys.method(name)`, `bucketKeys.route(name)`). Two things depend on the spelling and neither fails loudly if an adapter gets it wrong: the round-robin lane is the `chat:` key, and the `scope` label on the wait metric is the prefix. `chat-42` would silently lose fairness between chats and report every wait as `other`.
+- **A blocked waiter reserves the keys that are blocking it** against everything later in the order, and only those. For acquires of equal cost the scan order alone is the whole no-starvation guarantee — two waiters sharing a key and a cost either can both pay or neither can — so the reservation is what covers **unequal** costs, where a stream of single-token sends would otherwise starve a three-token one for ever at any priority. Reserving every key a blocked waiter holds rather than only the binding ones reintroduces head-of-line blocking through the shared `global` key, which is the exact failure the round-robin exists to prevent.
+- **A cost above a bucket's capacity is refused, not queued.** It can never be paid, so queueing it would hold that key reserved against every later waiter and read as a hang.
+- **`waitMs` rounds up**, so the error is one-sided: a wait is never short. A wait rounded down has the limiter wake, find the tokens still missing and reschedule, which is a spin at every exact boundary.
+- **Full buckets are pruned.** `chat:` keys come from the platform, so the map is keyed by input we do not control. A full bucket holds no information a fresh one does not — a new bucket starts at capacity — so dropping one is unobservable, which is the only kind of eviction a rate limiter can afford.
+- **The wait is recorded** as `comvivo_channel_ratelimit_wait_seconds{channel, scope}` (`11` §3.10.3, added at `M3-T7`). Every acquire is observed, so the count is the send rate and the quantiles answer "is the bot slow because of us or because of the platform"; `scope` answers the follow-up, because a busy group and a busy host have different fixes.
+
 | Platform | Global | Per chat | Per method / other | Retry signal honored |
 |---|---|---|---|---|
 | Telegram | 25 msg/s, burst 25 (platform ~30/s, [FAQ](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this)) | DM: 1/s, burst 3. Group: **20/min** (capacity 5, refill 1 per 3 s). Edits count as sends. | `answerCallbackQuery`, `getFile` exempt; typing via TypingManager | `429` `parameters.retry_after` (s) |
@@ -560,7 +568,11 @@ Expired rows become `expired`, and the TurnTrace records it.
 | Web / Simulator | none (simulator can inject) | — | — | — |
 
 **Retry policy** (`retry.ts`). The delay for attempt `n` is `max(retryAfter ?? 0, U(0.5,1.0) × min(cap, base × 2^n))`, with `base = 1 s` and `cap = 60 s`. Other rules:
-- `transient`: at most 8 attempts, about 4 minutes. After that the row goes back to `pending`, with `nextAttemptAt` = +5 min, until it expires.
+- `transient` (and `ambiguous`, after §3.13's delivery verification has had its say): at most 8 attempts. After that the row goes back to `pending`, with `nextAttemptAt` = +5 min, until it expires.
+  - **The ceiling is 182 s of backoff, not "about 4 minutes"** (measured at `M3-T7`). With `attempt` counting failures that happened, the delays follow attempts 1…7 and the eighth defers: `2+4+8+16+32+60+60`. The expected total is 0.75 of that, about **137 s**. `retry.test.ts` computes both.
+- `chat_migrated` retries **immediately**, with no backoff and without counting (§3.15: "retry immediately on new id"). A backoff would delay every message to a group Telegram upgraded to a supergroup, for no reason: the send failed because the id changed and the new id is in hand.
+- **The jitter comes from the injected `Rng`**, which is `08` §3.7.1's seedable PRNG and the correct choice here for the same reason it is the wrong one for an interaction token: a retry schedule is part of what a `11` §3.1.7 simulated week replays — an outage at 09:00 and the digest that lands late because of it — and an unseeded jitter makes that timeline different on every run.
+- **`retryAfter` is a floor, never a replacement.** `max`, not `min`: when a platform says "wait 30 seconds" that is a bound we impose on ourselves, and coming back sooner than our own backoff is how an app reaches Discord's 10 000 invalid requests per 10 minutes.
 - `rate_limited`: does not count toward attempts.
 - Permanent kinds are never retried; they follow §3.15.
 - **While the adapter's health is not `healthy`, the dispatcher pauses that adapter's lanes**, so attempts aren't burned during outages.
@@ -1492,7 +1504,9 @@ export interface AdapterContext {
   readonly config: unknown;                    // adapter validates with its own zod schema (defineAdapter)
   readonly secrets: { get(name: string): string | undefined };
   readonly logger: Logger;                     // pino child {channel}; content redaction serializers installed
-  readonly clock: Clock; readonly rng: Rng;
+  readonly clock: Clock; readonly timers: Timers; readonly rng: Rng;  // Timers added at M3-T7: the rate
+  // limiter sleeps until a bucket refills (§3.14) and TypingManager refreshes on a cadence (§3.11),
+  // and `channel-sdk-purity` bans setTimeout here. VirtualClock implements Clock and Timers together.
   readonly signal: AbortSignal;                // aborted by stop()
   readonly fetch: typeof globalThis.fetch;     // injectable for tests/proxies
   readonly dataDir: string;                    // <dataDir>/channels/<id>/ (Matrix crypto store, Signal files)
@@ -1588,6 +1602,37 @@ export function reactionFor(key: ReactionKey, channel: ChannelId): string | null
 export function normaliseInboundEmoji(emoji: string): string;      // NFC, U+FE0F stripped
 export const TELEGRAM_ALLOWED_REACTIONS: string[];                 // 73 emoji, verified 2026-11-15
 export const profiles: Record<'telegram' | 'discord' | 'slack' | 'matrix' | 'signal' | 'web' | 'ideal', ChannelCapabilities>;
+// Rate limiting and retry (§3.14; M3-T7). Keys are built, never spelled: the round-robin lane is
+// the `chat:` key and the metric's `scope` label is the prefix, and neither fails loudly if an
+// adapter writes `chat-42` instead.
+export interface BucketSpec { capacity: number; refillPerSecond: number }   // burst, then sustained rate
+export const bucketKeys: { global: string; chat(id: string): string;
+  method(name: string): string; route(name: string): string };
+export declare class RateLimiter {
+  constructor(deps: { channel: ChannelId; clock: Clock; timers: Timers;
+    specFor(key: string): BucketSpec | null });                             // null = no limit (Web, Simulator)
+  acquire(keys: string[], cost?: number, priority?: Priority, signal?: AbortSignal): Promise<void>;
+  readonly waiting: number;
+  prune(): number;                                                          // drops full buckets; unobservable
+  close(reason?: unknown): void;                                            // rejects every waiter, clears the timer
+}
+export declare class TokenBucket {
+  constructor(spec: BucketSpec, startedAt: Temporal.Instant);               // starts full
+  level(now: Temporal.Instant): number;
+  isFull(now: Temporal.Instant): boolean;
+  waitMs(cost: number, now: Temporal.Instant): number;                      // rounds up; never short
+  take(cost: number, now: Temporal.Instant): void;                          // throws rather than going negative
+}
+export declare class FairQueue<T extends { priority: Priority; lane: string; seq: number }> {
+  push(entry: T): void; remove(entry: T): boolean; served(entry: T): void;
+  order(): readonly T[];                                                    // priority → round-robin → FIFO
+  nextSeq(): number; readonly size: number;
+}
+export type RetryAction = 'retry' | 'defer' | 'fail';                       // defer = back to `pending`, +5 min
+export interface RetryPlan { action: RetryAction; delayMs: number; countsAsAttempt: boolean }
+export function retryDelayMs(attempt: number, rng: Rng, retryAfterMs?: number): number;
+export function planRetry(kind: ChannelErrorKind, state: { attempts: number }, rng: Rng,
+  retryAfterMs?: number): RetryPlan;
 ```
 `optional` methods: their presence must match their capabilities (C23). Notably, `fetchAttachment` gains an `opts` argument compared to the spine sketch. This is additive and recorded in §12-4. `closePoll?` returning `PollFinalTally | null`, `permalink?` and the `read_marker` event adopt 07's proposal SC-3 (07 §12); `OutboundMessage.messageClass` implements A24. This section is the authoritative channel contract (01 §14 A26).
 
@@ -1952,6 +1997,10 @@ Task IDs follow the plan convention. `14-milestones.md` is authoritative for fin
 
 **M3-T6 — Rate limiter, retry, error helpers**
 - Files: `sdk/src/ratelimit/{bucket.ts,limiter.ts,scheduler.ts}`, `sdk/src/retry.ts`
+  - `AdapterContext.timers` was added while implementing (canonical `M3-T7`): the limiter has to
+    sleep and `channel-sdk-purity` bans `setTimeout` here, which is the ban working rather than a
+    problem. The error helpers landed at `M3-T2` as `sdk/src/errors.ts`, so this task's share of
+    §3.15 is `planRetry` agreeing with `isRetryableKind`, asserted over the whole taxonomy.
 - AC:
   - Multi-key atomic acquire. Priority plus round-robin.
   - Virtual-clock tests with no real timers.

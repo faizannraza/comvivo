@@ -87,8 +87,18 @@ export class VirtualClock implements Clock, Timers {
    * self-rescheduling loops (the scheduler, the digest sweep) behave as they do in production. The
    * iteration cap turns a runaway "every 0 ms" loop into a clear failure rather than a hang.
    */
-  async advance(duration: Temporal.Duration | string, maxIterations = 100_000): Promise<void> {
-    const span = typeof duration === 'string' ? Temporal.Duration.from(duration) : duration;
+  async advance(
+    duration: Temporal.Duration | Temporal.DurationLike | string,
+    maxIterations = 100_000,
+  ): Promise<void> {
+    // `DurationLike` as well as a `Duration`, so `advance({ minutes: 10 })` works. It used to be
+    // refused, and the refusal was confusing rather than helpful: a plain object fell through the
+    // `typeof === 'string'` check unconverted, `span.weeks` read `undefined`, and the calendar
+    // guard below reported "[object Object] contains a calendar unit whose length depends on a
+    // timezone" about an object containing only minutes. The guard still applies after conversion,
+    // which is where it belongs.
+    const span =
+      duration instanceof Temporal.Duration ? duration : Temporal.Duration.from(duration);
 
     // `advance` moves **elapsed** time: a day is exactly 24 hours. Weeks, months and years have no
     // unambiguous elapsed length — across a DST transition a calendar day is 23 or 25 hours — so

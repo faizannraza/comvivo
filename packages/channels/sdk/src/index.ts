@@ -120,6 +120,20 @@ export {
   truncateButtonLabel,
 } from './interactions/index.js';
 export { PROFILE_NAMES, type ProfileName, profiles } from './profiles.js';
+// --- Rate limiting and retry (06 §3.14–§3.15; M3-T7) -------------------------------------------
+export {
+  type BucketKey,
+  type BucketSpec,
+  bucketKeys,
+  bucketSpec,
+  CHAT_KEY_PREFIX,
+  FairQueue,
+  priorityRank,
+  RateLimiter,
+  type RateLimiterDeps,
+  TokenBucket,
+  type Waiter,
+} from './ratelimit/index.js';
 export {
   COMBINING_KEYCAP,
   isReactionKey,
@@ -135,6 +149,18 @@ export {
   UNICODE_REACTIONS,
   VARIATION_SELECTOR_16,
 } from './reactions.js';
+export {
+  DEFER_MS,
+  JITTER_FLOOR,
+  MAX_TRANSIENT_ATTEMPTS,
+  planRetry,
+  RETRY_BASE_MS,
+  RETRY_CAP_MS,
+  type RetryAction,
+  type RetryPlan,
+  type RetryState,
+  retryDelayMs,
+} from './retry.js';
 // --- RichText parsing (06 §3.5.1–§3.5.2; M3-T3) -----------------------------------------------
 //
 // The AST and `RichTextSchema` are **not** re-exported: they live in `@comvivo/core` (see that

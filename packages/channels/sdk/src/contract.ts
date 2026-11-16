@@ -30,7 +30,7 @@
  * person to read §4.1 will reach for the same two imports.
  */
 import type { ChannelId, MentionTarget, RichText } from '@comvivo/core';
-import type { Clock, Logger, MemberId, Rng } from '@comvivo/shared';
+import type { Clock, Logger, MemberId, Rng, Timers } from '@comvivo/shared';
 import type { z } from 'zod';
 import type { ReactionKey } from './reactions.js';
 
@@ -625,6 +625,16 @@ export interface AdapterContext {
   /** A pino child bound to `{channel}`, with `08` §3.16's content redaction installed. */
   readonly logger: Logger;
   readonly clock: Clock;
+  /**
+   * Drivable timers (`M3-T7`).
+   *
+   * Added because the SDK's own machinery needs to wait: the rate limiter sleeps until a bucket
+   * refills (`06` §3.14) and the typing manager refreshes on a cadence (`06` §3.11), and
+   * `comvivo/channel-sdk-purity` bans `setTimeout` in this package outright. That ban is the point
+   * — `VirtualClock` implements `Clock` and `Timers` together, so a 3-second refill interval and a
+   * 60-second retry cap are testable in microseconds instead of being untestable.
+   */
+  readonly timers: Timers;
   readonly rng: Rng;
   /** Aborted by `stop()`, so every in-flight request has one thing to listen to. */
   readonly signal: AbortSignal;

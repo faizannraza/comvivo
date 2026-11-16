@@ -51,6 +51,7 @@ describe('the catalog', () => {
       'actor_mailbox_depth',
       'channel_connected',
       'channel_errors_total',
+      'channel_ratelimit_wait_seconds',
       'richtext_degraded_total',
       'recovered_turns_total',
       'db_busy_retries_total',
@@ -224,6 +225,10 @@ describe('label safety', () => {
       kind: 20,
       // too_large, output_too_large, node_limit, parser_error, schema_invalid (06 §3.5.2)
       reason: 5,
+      // global, chat, method, route, other, none — which *kind* of rate limit was binding, never
+      // the key itself (06 §3.14). A `chat:` key is a platform chat id and has no maximum, so the
+      // label carries only the prefix and `limiter.ts` is where the two are kept apart.
+      scope: 6,
       result: 4,
       stage: 2, // deterministic, judge
       version: 1,
@@ -275,6 +280,7 @@ describe('label safety', () => {
     // id, a model name or a configured tool name.
     const BOUNDED = new Set([
       'channel',
+      'scope',
       'disposition',
       'status',
       'trigger',

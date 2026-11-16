@@ -235,6 +235,15 @@ export const METRICS = {
     help: 'Channel errors by kind.',
     labels: ['channel', 'kind'],
   },
+  channel_ratelimit_wait_seconds: {
+    type: 'histogram',
+    help:
+      'How long a send waited for a platform rate-limit bucket, by which kind of limit was ' +
+      'binding (06 §3.14). The count is the send rate; the `scope` label separates "this group ' +
+      'is busy" (chat) from "this host is busy" (global), which have different fixes.',
+    labels: ['channel', 'scope'],
+    buckets: BUCKETS.LAG,
+  },
   richtext_degraded_total: {
     type: 'counter',
     help:

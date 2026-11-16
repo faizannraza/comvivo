@@ -23,9 +23,13 @@ and its per-platform renderers, interaction tokens, and the adapter conformance 
 | `interactions/fallback.ts` | The same choice as reactions or numbered text | `M3-T6` |
 | `interactions/choice-parser.ts` | Reading an answer that arrived as a reaction or text | `M3-T6` |
 | `reactions.ts` | The 14 canonical reaction keys, per platform | `M3-T6` |
+| `ratelimit/bucket.ts` | One token bucket, refilling continuously from the injected `Clock` | `M3-T7` |
+| `ratelimit/scheduler.ts` | The waiting order: priority, round-robin across chats, then FIFO | `M3-T7` |
+| `ratelimit/limiter.ts` | Atomic multi-key acquire, with no starvation of interactive work | `M3-T7` |
+| `retry.ts` | The backoff, the jitter and what to do after each `ChannelErrorKind` | `M3-T7` |
 
-Still to land in M3: the rate limiter and retry helpers (`M3-T7`), the typing manager (`M3-T8`),
-and the conformance kit behind the `./testing` entry point (`M3-T9`). The `discord-md`,
+Still to land in M3: the typing manager (`M3-T8`) and the conformance kit behind the `./testing`
+entry point (`M3-T9`). The `discord-md`,
 `slack-mrkdwn` and `matrix-html` renderers arrive with their adapters in M8; `renderPart` refuses
 them by name until then rather than falling back to `plain`.
 

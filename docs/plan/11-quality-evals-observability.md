@@ -1122,6 +1122,7 @@ Spans:
 | `comvivo_actor_mailbox_depth` | gauge | — (max over groups) |
 | `comvivo_channel_connected` | gauge | `channel` |
 | `comvivo_channel_errors_total` | counter | `channel`, `kind` |
+| `comvivo_channel_ratelimit_wait_seconds` | histogram | `channel`, `scope` (`global`/`chat`/`method`/`route`/`none`) — `06` §3.14, added at `M3-T7` |
 | `comvivo_richtext_degraded_total` | counter | `reason` (`too_large`/`output_too_large`/`node_limit`/`parser_error`/`schema_invalid`) — `06` §3.5.2, added at `M3-T3` |
 | `comvivo_recovered_turns_total` | counter | `outcome` |
 | `comvivo_db_busy_retries_total` | counter | — |
