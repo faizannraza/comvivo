@@ -27,6 +27,8 @@
  */
 import { RichTextSchema } from '@comvivo/core';
 import { z } from 'zod';
+import { INTERACTION_TOKEN_PATTERN } from './interactions/token.js';
+import { REACTION_KEYS } from './reactions.js';
 
 /** `06` §3.3: an adapter's own identifiers are opaque to us, but not unbounded. */
 const PLATFORM_ID_MAX = 256;
@@ -155,6 +157,12 @@ export const LinkPreviewSchema = z.strictObject({
 export const InboundInteractionSchema = z.discriminatedUnion('kind', [
   z.strictObject({
     kind: z.literal('button'),
+    // Bounded, not shaped. `ActionButtonSchema.token` requires the full interaction-token pattern
+    // because Village mints every outbound token; this one is whatever arrived. A token that does
+    // not match the pattern is an *unknown* token, and `06` §3.7 step 6 owes the member "This
+    // button has expired" — which the engine can only say if the envelope reaches it. Tightening
+    // this to the pattern would turn a forged or stale callback into a dropped event and a member
+    // staring at a button that does nothing.
     payload: z.strictObject({ token: z.string().min(1).max(4_096) }),
   }),
   z.strictObject({
@@ -345,12 +353,26 @@ export const ResolvedMentionSchema = z.strictObject({
   canPing: z.boolean(),
 });
 
+/**
+ * One button, validated on the way **out** (`06` §3.7).
+ *
+ * `token` carries the full interaction-token pattern rather than a length bound, and that is the
+ * one assertion in this file that is a security control rather than a shape check. `06` §3.7:
+ * "No structured strings (`cnf:…`, `poll:…`) ever go into `callback_data`, `custom_id` or
+ * `value`." A regex at the outbound boundary is what turns that sentence into something a build
+ * can enforce, because Village is the only producer of an outbound token.
+ *
+ * The matching **inbound** token in `InboundInteractionSchema` is deliberately loose. See the
+ * header of `interactions/token.ts`: a malformed inbound token is an *unknown* token, and `06`
+ * §3.7 step 6 owes the member "This button has expired" rather than the silence a rejected
+ * envelope would give them.
+ */
 export const ActionButtonSchema = z.strictObject({
   label: z.string().min(1).max(500),
   style: z.enum(['primary', 'secondary', 'danger']),
-  token: z.string().min(1).max(4_096),
-  emojiFallback: z.string().max(64).optional(),
-  textFallback: z.string().max(500).optional(),
+  token: z.string().regex(INTERACTION_TOKEN_PATTERN),
+  emojiFallback: z.enum(REACTION_KEYS).optional(),
+  textFallback: z.string().min(1).max(500).optional(),
 });
 
 export const SentPartSchema = z.strictObject({

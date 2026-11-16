@@ -354,7 +354,8 @@ splitAndRender(ast, caps, renderer): RenderedPart[]
 
 **Token scheme (CH-7).**
 - A token is `v1.` + base64url (no padding) of 16 CSPRNG bytes. That is **25 ASCII bytes** for 128 bits of entropy.
-- It fits Telegram `callback_data` (≤64 bytes), Discord `custom_id` (≤100), Slack `value` (≤2000) and `action_id` (≤255), and Telegram start payloads (≤64 chars of `A-Za-z0-9_-`, [features](https://core.telegram.org/bots/features#deep-linking)).
+- It fits Telegram `callback_data` (≤64 bytes), Discord `custom_id` (≤100), Slack `value` (≤2000) and `action_id` (≤255).
+- It does **not** fit a Telegram deep-link start payload. That parameter allows only `A-Za-z0-9_-` ([features](https://core.telegram.org/bots/features#deep-linking), re-verified 2026-11-15) and the `.` separator is outside it. Nothing needs it to: a deep link in this product carries **context**, never an action — `lnk_<22 base64url>` for identity linking (§3.18.1) and `onb_<groupHandle>` for DM onboarding (§3.19), both already inside that charset — and the buttons that carry tokens live inside the chat the link opens. *(Corrected at `M3-T6`; the earlier text claimed the token fits there.)*
 - The prefix allows a future format bump.
 - The server stores only `sha256(token)` in an `InteractionToken` row (02):
 
@@ -369,11 +370,15 @@ interface InteractionTokenRecord {
 }
 ```
 
+**Validation is asymmetric, deliberately** (`M3-T6`). `ActionButtonSchema` (outbound) requires `^v1\.[A-Za-z0-9_-]{22}$`, because Village mints every outbound token — that regex is what makes the "no structured strings" rule below enforceable rather than conventional. `InboundInteractionSchema` accepts any bounded string: a malformed inbound token is an *unknown* token, and step 6 owes the member "This button has expired" rather than the silence a rejected envelope would give them.
+
 **Action kinds.** This token is the **only** button payload on every platform. No structured strings (`cnf:…`, `poll:…`) ever go into `callback_data`, `custom_id` or `value`. Each `action.kind` is registered by its owner with a deterministic handler; the engine rejects unknown kinds as expired:
 - 05: `confirm` `{confirmationId, option}` where `option ∈ approve|reject|approve_always|edit` (03 §3.3.12; entity `ConfirmationRequest`, 01 §14 A7); `cmd.undo` `{effectId}`; `cmd.more` `{turnId}`; `cmd.cancel` `{turnId}`.
 - 07 (params always include `entityVersion`): `rsvp`, `reminder.done`, `reminder.snooze`, `task.accept`, `task.decline`, `task.done`, `swap.accept`, `swap.decline`, `giveaway.take`, `poll.vote`, `list.toggle`, `plan.step.confirm`, `plan.step.claim`, `proactive.feedback`, `digest.action`, `choice.replay`. 07's "token → `{handler, args, entityVersion, allowedMemberIds|null, expiresAt}`" is this record with `action.kind = handler`, `action.params = {...args, entityVersion}` and `allowedClickers = allowedMemberIds ?? 'any_member'`.
 - 06: `setup.template` (template picker, T2), `dm.group` (DM group picker, §3.4), `link.confirm` / `link.cancel` (§3.18.1).
 - Other owners register under their own prefix (e.g. 03 consent and constraint cards, 09 pairing approval).
+
+The mechanism is `channel-sdk/src/interactions/registry.ts`'s `ActionKindRegistry` (`M3-T6`). An owner declares `actionKind(kind, paramsSchema)` once and registers it at composition time; a kind name is lowercase dotted segments (it is a `TEXT` column, a metric label and a namespace), a second owner for one kind is a **boot failure**, and `resolve` answers `unknown_kind` or `invalid_params` — the engine renders both as expired, and logs them apart because a run of `invalid_params` for one kind is a schema change that broke live rows. Params are re-validated at resolve time: the row was written by a previous build, which is a boundary like any other. Handlers stay engine-side, where the authority to run them exists.
 
 **Flow.**
 1. The click arrives. Telegram sends `callback_query.data`, Discord sends `interaction.customId`, Slack sends `block_actions[].value`, Web sends `POST /interactions`.
@@ -391,16 +396,32 @@ interface InteractionTokenRecord {
 6. Unknown or expired tokens get a toast or ephemeral reply saying "This button has expired". The click is never ingested as a trigger.
 
 **Limits.**
-- Each message has ≤8 buttons, ≤3 per row and labels ≤30 characters, truncated with `…`. This stays under every platform limit: Discord labels ≤80, Slack ≤75.
+- Each message has ≤8 buttons, ≤3 per row and labels ≤30 characters, truncated with `…`. This stays under every platform limit: Discord labels ≤80, Slack ≤75. `channel-sdk/src/interactions/buttons.ts` owns the numbers and `layoutActionRows` applies them (`M3-T6`).
+  - They govern **action** buttons on an ordinary message. An emulated poll (§3.8) has one button per option and its own row width, so it passes its own caps; the platform's `buttonLimits` always still apply, and the tighter of the two wins. *(Clarified at `M3-T6`, which found §3.7 and §3.8 in conflict for a ten-option poll.)*
+  - A label is truncated on **graphemes and the platform's UTF-16 budget at once**. 30 characters means 30 graphemes to a reader — cutting `👨‍👩‍👧` after two code points leaves a dangling joiner — but 30 emoji graphemes are up to 240 UTF-16 units, which is over Telegram's 64-character label. Either budget alone produces a keyboard that is mangled or refused.
 - The default token TTL is 7 days, or the poll/plan deadline + 1 day. Producers may set a shorter `expiresAt`: 07 choice tokens use 24 h, and `confirm` tokens expire with their `ConfirmationRequest` (03 §3.3.12 rule 5).
 
-**Fallback when `buttons: false` (Matrix, Signal).** The SDK's `renderChoiceFallback(actions, caps)` appends:
-- **Reaction choices**, used when `reactions: true` and there are ≤4 options. They map to `1️⃣ 2️⃣ 3️⃣ 4️⃣`, or `✅ ❌` for confirm/cancel (`👍 👎` where the platform's reaction set lacks them, §3.9), and Village pre-reacts with the options.
-- **Text choices**: "Reply **1** for …, **2** for …".
+**Fallback when `buttons: false` (Matrix, Signal).** `renderChoiceFallback(rows, caps, options?)` turns the same `ActionRow[]` into something answerable. It returns the **choices** — one `{ index, token, label, key, reaction, marker }` per option — and the reactions to pre-apply, in two shapes:
+- **Reaction choices**, used when `reactions: true`, there are ≤4 options, every option's key resolves to an emoji on this platform, no two of them resolve to the *same* emoji, and `maxReactionsPerMessage` allows the whole set. They map to `1️⃣ 2️⃣ 3️⃣ 4️⃣` by position, or to whatever `ActionButton.emojiFallback` declares — `check`/`cross` giving `✅ ❌`, or `👍 👎` where the platform's reaction set lacks them (§3.9). Village pre-reacts with the options.
+  - The `maxReactionsPerMessage` condition was added at `M3-T6`. Telegram allows a bot **one** reaction per message (§3.9), so offering four there is four API calls and one surviving emoji: a question showing one option and accepting four answers.
+- **Text choices** otherwise, marked `1`, `2`, … — or by `ActionButton.textFallback` when **every** button carries one and they are all distinct. All-or-nothing, because "Reply **yes** for Approve, **2** for Reject" teaches two grammars in one sentence and a repeated marker is a reply this doc has to ignore as ambiguous. The digit is always accepted as well, so a producer's marker adds a way to answer rather than replacing one.
 
-`parseChoiceReply(text|reaction)` maps `1`, `yes`, `y`, `ok`, `✅`, `👍`, `no`, `n`, `❌`, `👎` (locale-extended by 05 copy) to an option. Ingestion resolves the pending choice when the message replies to the prompt, or is the next message from the allowed clicker in that conversation within 10 minutes. It then emits a synthetic `interaction.kind='button'` with the corresponding token.
+**`emojiFallback` is a canonical reaction key** (§3.9), not an emoji — narrowed from `string` at `M3-T6`. A literal emoji there would be wrong on exactly the platforms the field exists for: the `✅`→`👍` substitution is a property of the key and the platform, and a producer that wrote the emoji has already thrown the map away. It is also what tells the parser which button means approve, since the label is copy and the token is opaque.
 
-**Confirmations are stricter** (03 §3.3.12 rule 2, normative). For `confirm` tokens the 10-minute next-message rule does **not** apply: a reaction counts only on the confirmation message itself (✅/👍 = approve, ❌/👎 = reject; anything else is ignored), and a text answer counts only when it is a platform *reply* to the confirmation message, matched by the per-locale lexicon. Ambiguous replies are ignored with a nudge. Only an eligible approver's linked identity can answer.
+**The appendix is rendered by 05, not by the SDK** (`M3-T6`; the earlier signature returned `{ appendix: RichText; reactions: string[] }`). "Reply **1** for …" is bot copy, `CLAUDE.md` §2 keeps bot copy in versioned template files, and `channel-sdk` cannot reach the copy service — the same reason the splitter's truncation notice is passed in (§3.5.4). An appendix built in the SDK would be an English sentence invisible to every translator and to `copy:check`, on the path that exists for the platforms a non-English family is most likely to be using. The copy keys live in `packages/engine/copy/channels/en.yaml` (`M3-T18`) and take a marker and a label, which is exactly what the choices carry.
+
+`parseChoiceReply(input, { fallback, confirmation, lexicon? })` maps `1`, `yes`, `y`, `ok`, `✅`, `👍`, `no`, `n`, `❌`, `👎` (locale-extended by 05 copy, and **replaced** rather than extended — a word can mean the opposite in another language) to an option. It has **three** outcomes, not two:
+- `matched` — the option.
+- `ambiguous` — aimed at the prompt and unreadable: "yes or no", "maybe", or a reply naming two options. 05 sends the nudge. The test for "aimed at" is the platform's own reply marker.
+- `none` — not an answer. Silence. A member chatting while a poll is open is not voting.
+
+A typed answer must match the **whole** normalised text, or be a sequence of recognised answers and connectors. A yes-word is never read out of a sentence: "I don't think yes is right" is not an approval.
+
+Ingestion resolves the pending choice when the message replies to the prompt, or is the next message from the allowed clicker in that conversation within 10 minutes. It then emits a synthetic `interaction.kind='button'` with the corresponding token.
+
+**Confirmations are stricter** (03 §3.3.12 rule 2, normative). For `confirm` tokens the 10-minute next-message rule does **not** apply: a reaction counts only on the confirmation message itself (✅/👍 = approve, ❌/👎 = reject; anything else is ignored), and a text answer counts only when it is a platform *reply* to the confirmation message, matched by the per-locale lexicon **or by the option's number** (03 §3.3.12 rule 2 as amended at `M3-T6`: on a `buttons: false` platform the confirmation is rendered as "Reply **1** for Approve", so refusing `1` would mean printing an instruction and then ignoring it — and a four-option confirmation cannot be answered by yes/no at all). Ambiguous replies are ignored with a nudge. Only an eligible approver's linked identity can answer.
+
+A confirmation delivered **with** buttons can still be answered by a reaction (03 rule 2 again), so the engine builds the choice table with `renderChoiceFallback` whether or not the fallback is rendered: the table is the parse table, and `emojiFallback` is what identifies the approve option when no reaction was ever offered.
 
 ### 3.8 Polls: native vs emulated
 
@@ -428,7 +449,10 @@ interface InteractionTokenRecord {
 ### 3.9 Reactions
 
 - **Canonical keys:** `ack`, `done`, `no`, `seen`, `celebrate`, `heart`, `thinking`, `writing`, `one`, `two`, `three`, `four`, `check`, `cross`. `channel-sdk/src/reactions.ts` maps each key to an emoji per platform.
-- **Telegram's allowed set has no ✅, ❌ or keycaps** ([ReactionTypeEmoji](https://core.telegram.org/bots/api#reactiontypeemoji)). So `done` → 👌, `check` → 👍, `cross` → 👎, `writing` → ✍, and the keycap keys are unsupported there; Telegram uses buttons instead anyway.
+- **Telegram's allowed set has no ✅, ❌ or keycaps** ([ReactionTypeEmoji](https://core.telegram.org/bots/api#reactiontypeemoji)). So `done` → 👌, `check` → 👍, `cross` → 👎, `writing` → ✍, and the keycap keys are unsupported there (`null` in the map, which is what lets §3.7's fallback degrade without knowing the platform); Telegram uses buttons instead anyway.
+  - The list is **73 emoji**, re-verified 2026-11-15 and carried in the SDK as `TELEGRAM_ALLOWED_REACTIONS` (`M3-T6`). A test asserts that every emoji the Telegram map can emit is in it, because the alternative way to learn it is a `400` on whichever canonical key `05` happened to ask for.
+  - Telegram publishes the list in **unqualified** form: `❤` is `U+2764` with no `U+FE0F`, `✍` is `U+270D` with no `U+FE0F`. Sending the qualified form is a different string, so the Telegram map is not the unicode map with four entries swapped. Inbound normalisation (below) is what makes a member's `❤️` match Village's `❤`.
+  - `done` and `check` are the same emoji (`✅`) off Telegram, and `ack` and `check` are the same (`👍`) on it. Both collisions are deliberate and asserted: `done` is "the task is finished", `ack` is "seen", `check` is "yes", and collapsing the keys would lose whichever distinction the other platform draws.
 - Slack uses names (`white_check_mark`, `x`, `eyes`, `tada`, `heart`, `one`…), and the SDK map converts.
 - **Outbound uses:**
   - lightweight acknowledgment instead of a text reply (quiet by default; 05 decides);
@@ -1413,7 +1437,7 @@ export interface IngestAck { status: 'accepted' | 'duplicate' | 'dropped'; reaso
 
 export interface ResolvedMention { platformUserId?: string; displayName: string; username?: string; canPing: boolean }
 export interface ActionButton { label: string; style: 'primary' | 'secondary' | 'danger'; token: string;
-  emojiFallback?: string; textFallback?: string }
+  emojiFallback?: ReactionKey; textFallback?: string }   // emojiFallback is a §3.9 key, not an emoji (M3-T6)
 export type ActionRow = ActionButton[];
 export interface OutboundAttachment { kind: 'image' | 'file' | 'voice'; name: string; mime: string; sizeBytes: number;
   open(): Promise<ReadableStream<Uint8Array>> }
@@ -1516,9 +1540,53 @@ export function defineAdapter<C>(def: { id: ChannelId; configSchema: z.ZodType<C
   create(config: C): ChannelAdapter }): AdapterFactory<C>;
 export function splitAndRender(ast: RichText, caps: ChannelCapabilities, ctx: RenderContext): RenderedPart[];
 export function choosePollMode(spec: PollSpec, caps: ChannelCapabilities): 'native' | 'emulated';
-export function newInteractionToken(rng: Rng): string;              // 'v1.' + 22 base64url chars
-export function renderChoiceFallback(rows: ActionRow[], caps: ChannelCapabilities): { appendix: RichText; reactions: string[] };
-export function parseChoiceReply(input: { text?: string; emoji?: string }, options: number, locale: string): number | 'yes' | 'no' | null;
+// Interactions (§3.7; M3-T6). `newInteractionToken(rng)` is gone: `Rng` is the *seedable* PRNG
+// (08 §3.7.1), for things that must be replayable, and seeding the source of a button token would
+// make every token in a replayed group predictable. Tokens come from `shared/crypto`'s CSPRNG,
+// which is the one audited import site for values that must be unguessable.
+export function mintInteractionToken(): string;                    // 'v1.' + 22 base64url chars
+export function interactionTokenHash(token: string): Uint8Array;   // what the row stores
+export function interactionTokenMatches(presented: string, storedHash: Uint8Array): boolean; // constant time
+export function tokenFitsButtonLimits(limits: ButtonLimits): boolean;
+export function layoutActionRows(buttons: ActionButton[], limits: ButtonLimits | null,
+  options?: { maxPerMessage?: number; maxPerRow?: number }): ActionRow[];
+export function truncateButtonLabel(label: string, limits?: ButtonLimits | null, maxChars?: number): string;
+export interface ChoiceOption { index: number; token: string; label: string;
+  key: ReactionKey | null; reaction: string | null; marker: string }
+export interface ChoiceFallback { kind: 'reactions' | 'text'; choices: ChoiceOption[]; reactions: string[] }
+// Returns the choices, not a rendered appendix: "Reply **1** for …" is copy and 05 renders it
+// (§3.7, and the same reason as the splitter's truncation notice in §3.5.4).
+export function renderChoiceFallback(rows: ActionRow[], caps: ChannelCapabilities,
+  options?: { reactions?: Record<ReactionKey, string | null>; maxReactionChoices?: number }): ChoiceFallback;
+export type ChoiceInput =
+  | { kind: 'text'; text: string; isReplyToPrompt: boolean }
+  | { kind: 'reaction'; emoji: string; onPromptMessage: boolean };
+export type ChoiceReply =
+  | { outcome: 'matched'; choice: ChoiceOption }
+  | { outcome: 'ambiguous' }                                       // aimed at the prompt; 05 nudges
+  | { outcome: 'none' };                                           // not an answer; say nothing
+// `yes`/`no` seeded from 03 §3.3.12 rule 2 and §3.7; `connectors` are what make "yes or no"
+// `ambiguous` (a nudge) rather than `none` (silence). 05 supplies a lexicon per locale, and it
+// **replaces** the English one rather than extending it.
+export interface ChoiceLexicon { yes: string[]; no: string[]; connectors: string[] }
+export function parseChoiceReply(input: ChoiceInput,
+  options: { fallback: ChoiceFallback; confirmation: boolean; lexicon?: ChoiceLexicon }): ChoiceReply;
+export function actionKind<P>(kind: string, params: z.ZodType<P>): ActionKind<P>;
+export declare class ActionKindRegistry {
+  register<P>(declared: ActionKind<P>): this;                      // duplicate ⇒ boot failure
+  has(kind: string): boolean;
+  kinds(): string[];
+  resolve(action: { kind: string; params: unknown }):
+    | { ok: true; kind: string; params: unknown }
+    | { ok: false; kind: string; reason: 'unknown_kind' | 'invalid_params' };
+}
+// Reactions (§3.9; M3-T6).
+export type ReactionKey = 'ack' | 'done' | 'no' | 'seen' | 'celebrate' | 'heart' | 'thinking'
+  | 'writing' | 'one' | 'two' | 'three' | 'four' | 'check' | 'cross';
+export function reactionsFor(channel: ChannelId): Record<ReactionKey, string | null>;
+export function reactionFor(key: ReactionKey, channel: ChannelId): string | null;
+export function normaliseInboundEmoji(emoji: string): string;      // NFC, U+FE0F stripped
+export const TELEGRAM_ALLOWED_REACTIONS: string[];                 // 73 emoji, verified 2026-11-15
 export const profiles: Record<'telegram' | 'discord' | 'slack' | 'matrix' | 'signal' | 'web' | 'ideal', ChannelCapabilities>;
 ```
 `optional` methods: their presence must match their capabilities (C23). Notably, `fetchAttachment` gains an `opts` argument compared to the spine sketch. This is additive and recorded in §12-4. `closePoll?` returning `PollFinalTally | null`, `permalink?` and the `read_marker` event adopt 07's proposal SC-3 (07 §12); `OutboundMessage.messageClass` implements A24. This section is the authoritative channel contract (01 §14 A26).
@@ -1869,7 +1937,10 @@ Task IDs follow the plan convention. `14-milestones.md` is authoritative for fin
 - Deps: M3-T3.
 
 **M3-T5 — Interactions & choice fallback**
-- Files: `sdk/src/interactions/{token.ts,fallback.ts,choice-parser.ts}`, `sdk/src/reactions.ts`
+- Files: `sdk/src/interactions/{token.ts,registry.ts,buttons.ts,fallback.ts,choice-parser.ts}`, `sdk/src/reactions.ts`
+  - `registry.ts` and `buttons.ts` were added while implementing (canonical `M3-T6`). The AC's last
+    line asks for an action-kind registry and §3.7's "Limits" bullet has no other owner, and neither
+    belongs inside the token's own module: one is about action kinds, the other about layout.
 - AC:
   - Token is 25 bytes, `^v1\.[A-Za-z0-9_-]{22}$`, and fits every platform limit.
   - Fallback renders reactions or numbered text.

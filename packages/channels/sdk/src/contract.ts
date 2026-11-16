@@ -32,6 +32,7 @@
 import type { ChannelId, MentionTarget, RichText } from '@comvivo/core';
 import type { Clock, Logger, MemberId, Rng } from '@comvivo/shared';
 import type { z } from 'zod';
+import type { ReactionKey } from './reactions.js';
 
 // --- Identity and shape -------------------------------------------------------------------------
 
@@ -372,11 +373,39 @@ export interface ResolvedMention {
   readonly canPing: boolean;
 }
 
+/**
+ * One button (`06` §3.7, §4.1).
+ *
+ * `token` is always an opaque interaction token (`interactions/token.ts`) and never a structured
+ * string: `ActionButtonSchema` enforces the shape on the way out, which is what makes `06` §3.7's
+ * "no structured strings ever go into `callback_data`" structural rather than a convention.
+ *
+ * The two `*Fallback` fields are read only on a platform with `buttons: false`, where
+ * `renderChoiceFallback` turns the row into reactions or numbered replies. Both are optional and
+ * both default sensibly, so a producer that has nothing special to say sets neither.
+ */
 export interface ActionButton {
   readonly label: string;
   readonly style: 'primary' | 'secondary' | 'danger';
   readonly token: string;
-  readonly emojiFallback?: string;
+  /**
+   * A **canonical reaction key** (`reactions.ts`), not an emoji.
+   *
+   * `06` §3.9 narrowed this from `string` at `M3-T6`. A literal emoji here would be wrong on
+   * exactly the platforms the field exists for: a producer writing `'\u2705'` loses `06` §3.7's
+   * "`\u{1F44D}` `\u{1F44E}` where the platform's reaction set lacks them", because the
+   * substitution is a property of the key and the platform, not of the string. A key survives the
+   * map; an emoji has already thrown the map away.
+   */
+  readonly emojiFallback?: ReactionKey;
+  /**
+   * What a member types to pick this instead of its position — `"yes"` for an approve button.
+   *
+   * Locale-bearing, so it comes from `05`'s copy catalog and never from the SDK. Used only when
+   * **every** button in the message has one and they are all distinct; otherwise the fallback
+   * numbers them, because a repeated or partial marker set makes a reply ambiguous and `06` §3.7
+   * ignores an ambiguous reply.
+   */
   readonly textFallback?: string;
 }
 export type ActionRow = readonly ActionButton[];
