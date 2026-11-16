@@ -30,6 +30,10 @@
     "@comvivo/shared": "workspace:*"
   },
   "devDependencies": {
-    "vitest": "catalog:"
+    "vitest": "catalog:",
+    "zod": "catalog:"
+  },
+  "peerDependencies": {
+    "zod": "^4.6"
   }
 }

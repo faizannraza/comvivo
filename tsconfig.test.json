@@ -16,6 +16,7 @@
     "packages/**/src/**/*.int.test.ts",
     "packages/**/src/**/*.contract.test.ts",
     "packages/**/src/**/*.bench.ts",
+    "packages/**/src/**/__fixtures__/**/*.ts",
     "packages/evals/scenarios/**/*.scenario.ts",
     "apps/**/src/**/*.test.ts",
     "scripts/**/*.test.ts",

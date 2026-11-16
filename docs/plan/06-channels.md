@@ -1161,16 +1161,28 @@ Socket Mode allows up to 10 connections. Apps using it "are not currently allowe
 #### 3.21.7 Simulator (`@comvivo/channel-simulator`)
 
 - **Purpose:** deterministic tests, evals (11), and the in-browser demo (13).
-- `createSimulator({ profile: 'telegram'|'discord'|'slack'|'matrix'|'signal'|'web'|'ideal', clock: ManualClock, seed })` → `{ adapter, control }`.
+- `createSimulator({ profile, clock, timers, seed, truncationNotice, selfId?, selfName?, rateLimit?, onCall? })` → `{ adapter, control, platform }`. Implemented at `M3-T11`; five differences from the sketch below, each one a defect in the sketch:
+  - **Four profiles, not seven, in M3.** `discord-md`, `slack-mrkdwn` and `matrix-html` have no renderer until their adapters land in M8 (§3.5.3), and `renderPart` refuses them by name rather than falling back to `plain`. `createSimulator` refuses those profiles for the same reason: a simulator that emulated Discord with Telegram's markup would be the one thing it must never be — a run that shows a test something a member would not see. `SIMULATOR_PROFILES` is the live list; M8's renderer tasks extend it.
+  - **`clock` and `timers`, and they must be the objects the adapter is handed at `start`.** The type is `VirtualClock` (`11` §3.1.7), not `ManualClock`: it implements `Clock` **and** `Timers`, and the second half is what drives a rate-limit bucket and a typing refresh. `start` **refuses** an `AdapterContext` whose `clock` is a different object, because two clocks in a deterministic run drift and the symptom is a scenario that fails once in forty runs rather than an error anybody can read.
+  - **`truncationNotice` is required, with no default.** `splitAndRender` needs §3.5.4's notice and `CLAUDE.md` §2 keeps bot copy in versioned template files, so a default here would be an English sentence inside a package, invisible to every translator and to `copy:check`. The composition root can reach the copy service; this package cannot. **Open for `M3-T27`:** `OutboundMessage` has no field for it, so *every* adapter will need it from its config or its context — worth deciding once there rather than per adapter.
+  - **It is not an `AdapterFactory`.** `defineAdapter`'s `create(config)` receives configuration only, and the platform needs the clock at construction so a member's message is timestamped from the same clock the adapter schedules against. A factory would have to invent one and then be handed another at `start` — the mismatch the check above refuses. A composition root already owns the ports (`11` §3.2.1), so it loses nothing.
   - The adapter uses the **real** capability profile and renderer, so a test sees exactly what a Telegram user would see. That covers the HTML string, the splits and the fallbacks.
-  - Message ids are sequential per chat. Timestamps come from the virtual clock.
+  - Message ids are sequential per chat, for the bot's messages and a member's alike — one counter per chat, and a replayed id advances it so the next send cannot collide with one a recording carried. Timestamps come from the virtual clock.
+  - The wire format is the **conformance kit's** (§3.25): the kit's cases construct payloads literally and look for platform calls by name, so those shapes are part of the kit's contract rather than one fake's private business. The simulator adopts them because its platform is not a real one and there is nothing to translate *from*.
 - **`control` API:**
-  - `user(id).joins(chat)`, `.says(chat, text, {replyTo?, thread?, forwarded?, attachments?})`, `.edits(msgId, text)`, `.deletes(msgId)`, `.reacts(msgId, emoji)`, `.clicks(token)`, `.votes(pollRef, idx[])`, `.opensDm()`;
-  - `addBot(chat)`, `kickBot(chat)`, `migrate(chat, newId)`, `revokeToken()`, `setPrivacyMode(on)`;
-  - fault injection: `failNext(kind, {retryAfterMs?, ambiguous?})` and `setLatency(ms)`;
-  - `transcript(chat)` returns rendered and AST messages with metadata; `outbound()` and `flush()` (await quiescence: all ingests acked and outbox drained under the virtual clock).
-- **Virtual clock hooks:** buckets, typing, TTLs and backoff all use the injected `Clock`. `control.advance(ms)` steps time. No real timers are used, enforced by a lint rule in the package.
-- **Record/replay:** `control.recordTo(path)` writes a JSONL of inbound and outbound events. `replay(path)` reproduces it, for regression scenarios in 11.
+  - `user(id, name?).joins(chat)`, `.leaves(chat)`, `.says(chat, text, {replyTo?, replyToIsBot?, thread?, forwardedFrom?, attachments?, mentionsBot?, command?, locale?, timezone?, as?, late?, linkPreviews?})`, `.edits(chat, msgId, text)`, `.deletes(chat, msgId)`, `.reacts(chat, msgId, emoji)`, `.unreacts(…)`, `.clicks(token, {chatId?, onMessageId?})`, `.votes(pollRef, idx[])`, `.opensDm()`, `.reads(chat, msgId)`, `.blocksDm()`, `.unblocksDm()`, `.renames(name)`;
+    - **`edits` and `deletes` take the chat** (`M3-T11`). The line above says message ids are sequential per chat, so a bare `msgId` names one message per chat and resolves silently to whichever the implementation looked at first.
+  - `addBot(chat, {by?, startPayload?})`, `kickBot(chat)`, `migrate(chat, newId)`, `revokeToken()`, `restoreToken()`, `setPrivacyMode(on)`, `setChatState(chat, {canSend?, isAdmin?, title?, isForum?, encrypted?, extShared?})`, `setPollTallyHidden(on)`;
+    - `migrate` is **permanent**: the old id never works again, which is how Telegram behaves and what stops a retry against it from succeeding in a test and looping in production.
+  - fault injection: `failNext(kind, {retryAfterMs?, ambiguous?, newPlatformChatId?, permission?, match?, times?})`, `clearFaults()`, `setLatency(ms)` and `disconnect(ms)`. Every one of §3.15's thirteen kinds is reachable.
+    - `ambiguous: true` is a **modifier** — the effect lands and the caller is told it failed (`11` §3.6 S10's ambiguous success) — and it is **refused** on any kind other than `ambiguous`, because §3.15 defines the others as failures the request did not survive. A scenario that armed `transient` with it would be asking for a contradiction, and a silently corrected scenario measures something other than what it says.
+  - `transcript(chat)` returns the rendered payload and the ledger's metadata per message; `outbound()`, `ledger()` (`11` §4.8's records, for the I6 oracle), `delivered(chat)` and `flush()`.
+    - **`flush()` is the platform's quiescence, not the system's** (`M3-T11`): every delivered update handed over and every `ingest` resolved. The outbox is not visible from a channel adapter, so "outbox drained" belongs to `11` §3.2.2's `settle()`.
+- **Virtual clock hooks:** buckets, typing, TTLs and backoff all use the injected `Clock` and `Timers`. No real timers are used, enforced by `comvivo/simulator-purity` in `eslint.config.ts`, which also bans `Date`, `process`, `Math.random`, `Buffer` and `fetch` in the package and is proven to bite in `test/boundaries/lint-bans.int.test.ts`.
+  - **`control.advance(ms)` is gone** (`M3-T11`). The clock belongs to whoever created it, and in a scenario that is `11` §3.2.2's `World`, whose `advance` has to **settle** Village between steps — drain mailboxes, run due jobs, flush the outbox. A `control.advance` that only moved the clock would look exactly like `World.advance` and silently skip all of it, which is the failure `SettleDidNotConverge` exists to make loud.
+- **Record/replay:** `control.recordTo(sink)` writes a JSONL line per inbound update and per outbound call; `replay(lines, platform, {advanceTo?, strict?})` feeds the **inbound** half back, for regression scenarios in 11.
+  - **A sink, not a path** (`M3-T11`): this package may not import `node:*` (`01` §14 A11) and should not — the browser demo in 13 *is* this simulator, where a path is meaningless. The caller supplies twelve lines over whatever it has, the same decision `M3-T9` made for `FixtureStore`.
+  - **Replay does not move the clock by itself.** Each line carries the virtual millisecond it happened at, and the timing is part of the scenario — two messages two minutes apart test coalescing, the same two back to back test cancellation — but settling is Village's, not the platform's. So `advanceTo` is a callback the harness supplies; omitting it replays the stimulus without the timing, which is a documented choice rather than a silent one. The outbound lines are the **expectation**: a replay that fed them back would be asserting that new code makes the same calls by making them itself.
 
 ### 3.22 WhatsApp: assessment (CH-18)
 
@@ -1339,6 +1351,23 @@ Eleven notes on the implementation, each a place the sketch below and the code d
   `testing/fake-adapter.ts`), and the kit's own suite runs all 24 cases against them. A case no
   implementation has ever satisfied is a sentence, and a kit of 24 sentences is worse than nothing to
   the first adapter author: they cannot tell a bug in their adapter from a bug in the kit.
+- **The cases drive a fake in a canonical vocabulary**, and that makes it part of the kit's contract
+  (noted at `M3-T11`). C04, C05, C09, C10, C16 and C20 construct payloads literally —
+  `{type:'message', update_id, chat:{id,kind}, from:{id,name}, message_id, at, text}` — and filter
+  `outbound()` by call name (`sendMessage`, `ackUpdate`, `ackCallback`, `setTyping`, `react`,
+  `createPoll`). A fake's job therefore includes translating that vocabulary to and from its own
+  platform's. The simulator (`M3-T11`) adopts it outright, having nothing to translate from; the
+  Telegram fake at `M3-T32` will either translate or the kit will grow a `build` hook, and the
+  choice belongs to the task that has a real platform in front of it.
+- **C09 reads the trace, not the call list** (corrected at `M3-T11`). Its rule is that a click is
+  acked to the platform *before* the ingest, and the first version asked for `ackCallback` to be
+  index 0 of the calls since the press — which it is either way, because an `ingest` is not a
+  platform call. A planted break that swapped the two passed. The trace interleaves both sides,
+  which is what an ordering assertion needs and why C05 already used it.
+- **C21's floor is what the ceiling allows** (corrected at `M3-T11`). It asked for three refreshes
+  in three cadences, which is unsatisfiable for any cadence over 20 s: §3.11 caps the loop at 60 s,
+  so a 30-second cadence can only ever produce two. The profile that exposed it is `ideal`, through
+  the simulator; the kit's reference adapter uses Telegram's 4 s and sails past.
 
 **Harness.**
 ```ts

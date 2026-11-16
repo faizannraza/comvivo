@@ -26,6 +26,7 @@ import {
   RAW_TRANSACTION_BAN,
   SDK_PURITY_RULES,
   SECURITY_RULES,
+  SIMULATOR_PURITY_RULES,
   SYNC_TX_BAN,
   UNFILTERED_ALLOWED_GLOBS,
   UNFILTERED_READ_BAN,
@@ -366,6 +367,70 @@ describe('the real eslint.config.ts wires the bans to the right files', { tags: 
     const rules = await configuredRulesFor('packages/plugin-sdk/src/tool.ts');
     expect(Object.keys(rules)).toContain('no-restricted-globals');
     expect(Object.keys(rules)).toContain('no-restricted-properties');
+  });
+
+  it('bans every impure global inside the simulator, which `06` §3.21.7 asks for by name', async () => {
+    // "No real timers are used, enforced by a lint rule in the package." The simulator is the
+    // package whose entire value is that a run is reproducible: a `Date.now()` in it is a scenario
+    // that cannot fast-forward a month, and a `setTimeout` is one that waits in real seconds.
+    expect(await restrictedGlobalsFor('packages/channels/simulator/src/platform.ts')).toEqual([
+      'Buffer',
+      'Date',
+      'fetch',
+      'process',
+      'setImmediate',
+      'setInterval',
+      'setTimeout',
+    ]);
+  });
+
+  it.each(['Date', 'process', 'setTimeout', 'setInterval', 'setImmediate', 'Buffer', 'fetch'])(
+    'refuses %s in the simulator, where the scenario supplies the replacement',
+    async (name) => {
+      const code =
+        name === 'Buffer'
+          ? 'export const f = () => Buffer.alloc(1);'
+          : name === 'Date'
+            ? 'export const f = () => Date.now();'
+            : name === 'process'
+              ? 'export const f = () => process.argv;'
+              : name === 'fetch'
+                ? 'export const f = () => fetch("https://example.com");'
+                : `export const f = () => ${name}(() => undefined, 1);`;
+      expect(
+        await rulesFiredFor(
+          SIMULATOR_PURITY_RULES,
+          code,
+          'packages/channels/simulator/src/platform.ts',
+        ),
+      ).toContain('no-restricted-globals');
+    },
+  );
+
+  it('refuses Math.random in the simulator, so two runs produce identical ledgers', async () => {
+    expect(
+      await rulesFiredFor(
+        SIMULATOR_PURITY_RULES,
+        'export const f = () => Math.random();',
+        'packages/channels/simulator/src/platform.ts',
+      ),
+    ).toContain('no-restricted-properties');
+  });
+
+  it('exempts the simulator’s own tests and its fixture corpus, which are test data', async () => {
+    // A test needs a `VirtualClock` constructor argument and a corpus needs literals; neither is
+    // shipped, and the rule exists to keep the *product* deterministic. The exemption is asserted
+    // rather than assumed, because a ban that quietly covered the tests would be worked around
+    // instead of obeyed.
+    // Empty, not merely "missing the purity bans": `FETCH_ALLOWED_GLOBS` already covers
+    // `packages/channels/*/src/**` for the adapters that legitimately reach a network, so the
+    // simulator's `fetch` ban comes from this block alone and goes away with it.
+    expect(await restrictedGlobalsFor('packages/channels/simulator/src/simulator.test.ts')).toEqual(
+      [],
+    );
+    expect(
+      await restrictedGlobalsFor('packages/channels/simulator/src/__fixtures__/corpus.ts'),
+    ).toEqual([]);
   });
 
   it('bans only fetch outside core, where a clock is legitimate', async () => {

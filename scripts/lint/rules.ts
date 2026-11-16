@@ -167,6 +167,60 @@ export const SDK_RESTRICTED_GLOBALS = [
   },
 ] as const;
 
+/** Why each impure global is refused inside the simulator. */
+const SIMULATOR_PURITY_MESSAGES = {
+  Date:
+    'the simulator takes time from the clock it was built with, so a scenario can step ' +
+    'through thirty virtual days in milliseconds (06 §3.21.7).',
+  process:
+    'the simulator is configured by its constructor, and the browser demo (13) has no ' +
+    'environment to read.',
+  setTimeout:
+    'a real timer makes a scenario wait in real seconds and stops the virtual clock ' +
+    'from driving it. Use the injected `Timers`, which `VirtualClock` implements.',
+  setInterval: 'the same, and worse: an interval outlives the scenario that started it.',
+  setImmediate: 'a Node-only global in a package the browser demo compiles (01 §14 A11).',
+  Buffer:
+    'a Node-only global in a package the browser demo compiles (01 §14 A11). Use ' +
+    'Uint8Array, which is what the adapter surface already names.',
+} as const;
+
+/**
+ * The same bans, worded for the simulator (`06` §3.21.7; `M3-T11`).
+ *
+ * §3.21.7 asks for this rule by name: "No real timers are used, enforced by a lint rule in the
+ * package." A separate record rather than reusing the plugin SDK's is about the message a
+ * developer reads at three in the afternoon: the replacement for `Date` here is the scenario's
+ * injected clock, not a `ToolContext`, and a ban whose explanation names the wrong subsystem
+ * gets suppressed rather than obeyed. The *names* are deliberately identical — one impure
+ * global list for every pure package — so a global added to one is added to all.
+ */
+export const SIMULATOR_PURITY_RULES: Linter.RulesRecord = {
+  'no-restricted-globals': [
+    'error',
+    ...SDK_RESTRICTED_GLOBALS.map((entry) => ({
+      name: entry.name,
+      message: SIMULATOR_PURITY_MESSAGES[entry.name],
+    })),
+    ...FETCH_RESTRICTED_GLOBALS.map((entry) => ({
+      name: entry.name,
+      message:
+        'the simulator never reaches a network: its platform is in memory, and a scenario that ' +
+        'fetched would be neither deterministic nor runnable in the browser demo (13).',
+    })),
+  ],
+  'no-restricted-properties': [
+    'error',
+    {
+      object: 'Math',
+      property: 'random',
+      message:
+        'the simulator is deterministic by construction: ids come from the seed and times from ' +
+        'the injected clock, so two runs of one scenario produce identical ledgers (06 §3.21.7).',
+    },
+  ],
+};
+
 export const SDK_PURITY_RULES: Linter.RulesRecord = {
   // Both sets, for the reason `CORE_PURITY_RULES` spells out: flat config replaces a rule's
   // options rather than merging them, so this block has to be self-sufficient or `FETCH_BAN`

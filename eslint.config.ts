@@ -37,6 +37,7 @@ import {
   RAW_TX_AND_UNFILTERED_EXEMPT_GLOBS,
   SDK_PURITY_RULES,
   SECURITY_RULES,
+  SIMULATOR_PURITY_RULES,
   SYNC_TX_BAN,
   UNFILTERED_ALLOWED_GLOBS,
   UNFILTERED_READ_BAN,
@@ -195,6 +196,9 @@ export default defineConfig(
       // The same for a benchmark's helpers — the fixture builder and the `dbstat` size reader
       // beside the `*.bench.ts` files. See `comvivo/bench-helpers`.
       'packages/*/bench/**/*.ts',
+      // And for a TypeScript fixture corpus, which a package excludes from `dist` the same way.
+      // See `comvivo/fixture-helpers`.
+      'packages/**/src/**/__fixtures__/**/*.ts',
     ],
     extends: [tseslint.configs.strictTypeChecked],
     languageOptions: {
@@ -304,6 +308,19 @@ export default defineConfig(
     rules: SDK_PURITY_RULES,
   },
   {
+    // `06` §3.21.7 asks for this one by name: "No real timers are used, enforced by a lint rule
+    // in the package." The simulator is the package whose entire value is that a run is
+    // reproducible, so the bans are the product rather than hygiene — and they are the reason a
+    // scenario can fast-forward a month. Its own message set, because the replacement for each
+    // global is the scenario's injected port rather than a plugin's `ToolContext`.
+    //
+    // `__fixtures__` is exempt for the same reason the test files are: a corpus is test data.
+    name: 'comvivo/simulator-purity',
+    files: ['packages/channels/simulator/**/*.ts'],
+    ignores: ['**/*.test.ts', '**/__fixtures__/**'],
+    rules: SIMULATOR_PURITY_RULES,
+  },
+  {
     // `08` §3.7.13: a secret is compared in constant time, or not at all. Its own rule id rather
     // than another `no-restricted-syntax` selector, because this ban has an exemption of its own
     // and flat config **replaces** a rule's options — four selector blocks would have become
@@ -409,6 +426,30 @@ export default defineConfig(
           requireDefaultForNonUnion: true,
         },
       ],
+    },
+  },
+  {
+    // A fixture corpus written in TypeScript (`M3-T11`: the simulator's conformance corpus).
+    // `packages/**/src/**/__fixtures__/` is outside the package's `include` for the same reason
+    // `spike/` and `bench/` are — it must not ship — with the same consequence: the **sixth**
+    // directory in this project where `projectService` reported "not found" and left every
+    // type-aware rule inert. `tsconfig.test.json` covers it, and naming it is what makes them run.
+    name: 'comvivo/fixture-helpers',
+    files: ['packages/**/src/**/__fixtures__/**/*.ts'],
+    ignores: ['**/*.test.ts'],
+    extends: [tseslint.configs.strictTypeChecked],
+    languageOptions: {
+      parserOptions: {
+        project: ['./tsconfig.test.json'],
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      // A corpus is data: it describes payloads a platform sends, which are `unknown` by nature.
+      '@typescript-eslint/no-unsafe-assignment': 'off',
+      '@typescript-eslint/no-unsafe-member-access': 'off',
+      '@typescript-eslint/no-floating-promises': 'error',
+      '@typescript-eslint/no-misused-promises': 'error',
     },
   },
   {

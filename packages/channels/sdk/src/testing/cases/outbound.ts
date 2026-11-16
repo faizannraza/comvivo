@@ -296,7 +296,7 @@ export const C09: ConformanceCase = {
     check('C09', sendsSince(ctx, before).length > 0, 'a message with buttons was not sent');
 
     const ingestedBefore = ctx.ingested().length;
-    const callsBefore = ctx.fake.outbound().length;
+    const traceBefore = ctx.trace().length;
     await ctx.fake.deliver({
       type: 'callback',
       update_id: 94_001,
@@ -325,15 +325,22 @@ export const C09: ConformanceCase = {
 
     // `06` §3.7 step 2: the ack comes **first**. The press is the one event whose platform window
     // is shorter than the turn, and Telegram rejects a second answer.
-    const acks = ctx.fake
-      .outbound()
-      .slice(callsBefore)
-      .findIndex((call) => call.method === 'ackCallback');
+    //
+    // Read off the **trace**, not `outbound()`. The first version asked for `ackCallback` to be
+    // index 0 of the calls since the press, which it is either way: an `ingest` is not a platform
+    // call, so an adapter that ingested first and acked afterwards still had the ack at index 0.
+    // The simulator found it at `M3-T11` — a planted break that swapped the two passed. The trace
+    // interleaves both sides, which is what an ordering assertion needs, and is why C05 uses it.
+    const window = ctx.trace().slice(traceBefore);
+    const ackAt = window.findIndex((entry) => entry === 'call:ackCallback');
+    const ingestAt = window.findIndex((entry) => entry.startsWith('ingest:'));
+    check('C09', ackAt !== -1, 'the click was never acked to the platform (06 §3.7 step 2)');
     check(
       'C09',
-      acks === 0,
-      'the click was not acked to the platform before anything else. Telegram gives about two ' +
-        'seconds and refuses a second answer (06 §3.7 step 2).',
+      ingestAt === -1 || ackAt < ingestAt,
+      'the click was ingested before it was acked to the platform. Telegram gives about two ' +
+        'seconds and refuses a second answer (06 §3.7 step 2), so an ack that waits for the turn ' +
+        'is an ack that never lands.',
     );
 
     // An unknown token still ingests: the engine decides expiry and owes the member a toast

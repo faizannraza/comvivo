@@ -13,6 +13,7 @@
 import { BRAND } from '@comvivo/shared';
 import { profiles } from '../../profiles.js';
 import { ChannelCapabilitiesSchema } from '../../schemas.js';
+import { TYPING_MAX_SECONDS } from '../../typing.js';
 import { check, checkEqual } from '../assert.js';
 import { loadFixtures } from '../fixtures.js';
 import type { ConformanceCase } from '../harness.js';
@@ -336,12 +337,20 @@ export const C21: ConformanceCase = {
       .outbound()
       .slice(before)
       .filter((call) => call.method === 'setTyping' && (call.args as { on?: boolean }).on === true);
+    // **Not a flat three.** The first version asked for three refreshes in three cadences, which
+    // is unsatisfiable for any cadence over 20 s: `06` §3.11 caps the whole loop at
+    // `TYPING_MAX_SECONDS` (60), so a 30-second cadence can only ever produce two. The profile that
+    // exposed it is `ideal` (cadence 30), through the simulator at `M3-T11` — the kit's reference
+    // adapter uses Telegram's 4 s and sails past. What the case is really for is that the indicator
+    // is **refreshed** rather than set once, so the floor is what the ceiling allows.
+    const expected = Math.max(2, Math.min(3, Math.floor(TYPING_MAX_SECONDS / cadence)));
     check(
       'C21',
-      typingCalls.length >= 3,
-      `three cadences passed and the indicator was set ${String(typingCalls.length)} time(s). ` +
-        `The platform expires it, so an indicator set once vanishes after about ${String(cadence)} s ` +
-        'and the member sees nothing for the rest of the turn.',
+      typingCalls.length >= expected,
+      `three cadences passed and the indicator was set ${String(typingCalls.length)} time(s), ` +
+        `where a ${String(cadence)} s cadence under a ${String(TYPING_MAX_SECONDS)} s ceiling allows ` +
+        `${String(expected)}. The platform expires it, so an indicator set once vanishes and the ` +
+        'member sees nothing for the rest of the turn.',
     );
     // And it stops on its own. A loop that outlives the turn is a bot that looks permanently busy.
     await ctx.clock.advance({ seconds: 120 });

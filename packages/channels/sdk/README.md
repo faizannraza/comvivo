@@ -33,7 +33,8 @@ and its per-platform renderers, interaction tokens, and the adapter conformance 
 | `testing/` | The adapter conformance kit: C01–C24, a reference fake platform and adapter | `M3-T9` |
 | `testing/callbacks.ts` | `sec.callbacks.forged`: the forged-callback harness, against any resolver | `M3-T10` |
 
-Still to land in M3: the simulator adapter (`M3-T11`).
+The simulator (`M3-T11`) is the second adapter to run the conformance kit, in
+[`@comvivo/channel-simulator`](../simulator/README.md).
 
 ## Outbound safety
 

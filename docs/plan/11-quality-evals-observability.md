@@ -383,7 +383,9 @@ Cassettes are recorded only on purpose (`pnpm evals:record <scenario>`, maintain
 
 #### 3.2.6 Channel profiles
 
-The simulator can emulate each real adapter's `ChannelCapabilities` (`sim:telegram`, `sim:discord`, `sim:slack`, `sim:matrix`, `sim:signal`, `sim:web`). Capabilities are imported from each adapter's exported capabilities constant, and that markup's renderer is actually used. From M10, a scenario pack can run as a **capability matrix**: one run per profile. Profiles also carry the **send-idempotency class** each platform offers (§3.6 S10, §12).
+The simulator can emulate each real adapter's `ChannelCapabilities` (`sim:telegram`, `sim:discord`, `sim:slack`, `sim:matrix`, `sim:signal`, `sim:web`). Capabilities come from `06` §3.2's `profiles` — the same objects the real adapters declare — and that markup's renderer is actually used. From M10, a scenario pack can run as a **capability matrix**: one run per profile.
+
+> **Amended 2026-11-16 (`M3-T11`).** Two corrections. **Four profiles are available in M3**, not six: `discord-md`, `slack-mrkdwn` and `matrix-html` have no renderer until their adapters land in M8, and the simulator refuses those profiles rather than rendering Discord with Telegram's markup — a run that showed a test something a member would not see would be worse than no run. `sim:telegram`, `sim:signal`, `sim:web` and `sim:ideal` are live, and between them they cover three markups, every value of `deliveryVerification`, both `readsAllGroupMessages` branches, buttons and native polls on and off, and all four `ephemeral` levels. And the **send-idempotency class is derived from `deliveryVerification`** rather than carried as a second field: `native-idempotent` → `native`, `verifiable` → `dedupe-window` (five minutes, half §3.6 S10's duplicate window so the class stays distinguishable from `native`), `none` → `none`. A separate field could disagree with the one already in the profile, and nothing would say which was right.
 
 ### 3.3 Scenario DSL
 
