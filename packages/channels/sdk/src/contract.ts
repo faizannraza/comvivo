@@ -95,6 +95,16 @@ export interface ChannelCapabilities {
   readonly nativePolls: boolean;
   readonly buttons: boolean;
   readonly typingIndicator: boolean;
+  /**
+   * How often a typing indicator must be re-sent to stay visible, in seconds (`06` §3.11).
+   *
+   * `null` exactly when `typingIndicator` is false, which `ChannelCapabilitiesSchema` refines.
+   * Added at `M3-T8`, because the AC asks for the cadence to come "from profiles" and §3.11 keeps
+   * it in a prose table: Telegram's action lasts 5 s, Discord's expires at 10, Matrix's timeout is
+   * 30 000 ms and Signal's shows for 15. A manager that picked one number for all of them would
+   * either flicker on Telegram or spend four times the calls it needs on Matrix.
+   */
+  readonly typingRefreshSec: number | null;
   readonly voiceNotes: boolean;
   readonly images: boolean;
   readonly files: boolean;

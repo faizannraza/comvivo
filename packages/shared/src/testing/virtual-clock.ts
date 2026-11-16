@@ -18,6 +18,27 @@
 import { Temporal } from 'temporal-polyfill';
 import type { Clock, TimerHandle, Timers } from '../ports/clock.js';
 
+/**
+ * How many microtask hops a flush gives a continuation chain.
+ *
+ * One hop per `await` in the chain the fired timer started. Two was the original figure and it was
+ * too few for anything real: the typing manager's refresh loop awaits a rate-limit acquire, then the
+ * adapter call, then returns through two frames — about six hops — so the `setTimeout` for the next
+ * refresh was registered *after* `advanceTo` had given up looking for due timers and jumped the
+ * clock to its target. The symptom is a loop that stops after two iterations, which reads as a bug
+ * in the code under test rather than in the clock driving it.
+ *
+ * Draining further is also the more faithful model, not a looser one: a real event loop empties the
+ * microtask queue completely before the next macrotask, so the shallow flush was the inaccuracy.
+ * Sixteen covers every loop in this product with room to spare; a chain deeper than that appears to
+ * stall, and the fix is this number rather than a sleep in a test.
+ */
+const MICROTASK_FLUSH_HOPS = 16;
+
+async function flushMicrotasks(): Promise<void> {
+  for (let hop = 0; hop < MICROTASK_FLUSH_HOPS; hop += 1) await Promise.resolve();
+}
+
 interface ScheduledTimer {
   readonly handle: TimerHandle;
   /** Epoch nanoseconds at which it is due. */
@@ -145,13 +166,11 @@ export class VirtualClock implements Clock, Timers {
       this.#timers = this.#timers.filter((timer) => timer.handle.id !== next.handle.id);
       this.#now = new Temporal.Instant(next.dueAt);
       next.fn();
-      // Let whatever the callback resolved actually run before the next timer fires.
-      await Promise.resolve();
-      await Promise.resolve();
+      await flushMicrotasks();
     }
 
     this.#now = to;
-    await Promise.resolve();
+    await flushMicrotasks();
   }
 
   /**

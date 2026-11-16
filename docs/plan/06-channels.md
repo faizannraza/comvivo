@@ -504,9 +504,16 @@ The SDK `TypingManager` is driven by the engine: `typing.start(conversation)` wh
 | Slack | none | — | plain bots have no typing API |
 | Matrix | `PUT /typing {typing:true, timeout:30000}` | every 25 s | `typing:false` on stop |
 | Signal | `sendTyping` | every 12 s (shows 15 s) | `stop: true` on stop |
-| Web | SSE `typing` event | — | client times out after 20 s |
+| Web | SSE `typing` event | every 15 s | client times out after 20 s; the cadence was blank here until `M3-T8`, and with `maxSeconds` at 60 a one-shot event vanishes a third of the way through the longest turn it covers |
 
 Typing is never shown in chats where a send would fail (missing permission), and never for proactive or system messages. It has its own per-chat limit of 1 call per 4 s, which does not consume message tokens.
+
+Implemented at `M3-T8` as `channel-sdk/src/typing.ts`, with five notes:
+- **The cadence is a capability**, `ChannelCapabilities.typingRefreshSec`, paired with `typingIndicator` by a schema refinement (`null` exactly when the flag is false). The table above is the citation and the profile is the data; one number for every platform would either flicker on Telegram, whose action lasts 5 s, or spend four times the calls it needs on Matrix, whose timeout is 30 s.
+- **`typingIndicator: false` is a no-op rather than an error**, so the engine calls `start` unconditionally and no caller carries a per-platform branch. The **flag wins** over a cadence that contradicts it: `ChannelCapabilities` is a plain interface, so the simulator, a test and a plugin channel can all build one without the schema, and "do not show it" is the safe direction.
+- **`stop` is never metered.** A stop delayed behind a rate-limit token shows three dots *after* the reply has arrived, which reads as a second message coming that never does. Only `on` is.
+- **The per-chat limit is per chat *and thread*** (`M3-T8`). A forum topic is a separate indicator and `sendChatAction` takes a `message_thread_id`, so a bucket shared across a group's topics would — with the cadence equal to the limit — leave a second concurrent turn showing nothing at all for four seconds, which is most of the latency the indicator exists to cover.
+- **A failed call ends the loop for that chat**, logged once at `debug`. A missing permission fails identically every 4 s for the whole 60, so retrying it is fifteen calls to learn one thing, in a chat where §3.20.3's diagnostic already reports the real problem once. A turn never fails because of a typing call.
 
 ### 3.12 Ephemeral messages
 
@@ -1370,6 +1377,7 @@ export interface ChannelCapabilities {
   // spine §7.1 (unchanged)
   threads: boolean; reactions: boolean; edits: boolean; deletes: boolean;
   nativePolls: boolean; buttons: boolean; typingIndicator: boolean;
+  typingRefreshSec: number | null;             // seconds; null exactly when typingIndicator is false (M3-T8)
   voiceNotes: boolean; images: boolean; files: boolean;
   maxMessageChars: number; markup: Markup;
   mentionsByUserId: boolean; dmInitiation: 'any' | 'after-user-contact' | 'none';
@@ -1602,6 +1610,18 @@ export function reactionFor(key: ReactionKey, channel: ChannelId): string | null
 export function normaliseInboundEmoji(emoji: string): string;      // NFC, U+FE0F stripped
 export const TELEGRAM_ALLOWED_REACTIONS: string[];                 // 73 emoji, verified 2026-11-15
 export const profiles: Record<'telegram' | 'discord' | 'slack' | 'matrix' | 'signal' | 'web' | 'ideal', ChannelCapabilities>;
+// The typing indicator (§3.11; M3-T8). `start` is idempotent per chat and takes no await: the
+// engine calls it when the router decides `respond`, and it must not delay building the turn.
+export declare class TypingManager {
+  constructor(deps: { channel: ChannelId; capabilities: ChannelCapabilities; clock: Clock;
+    timers: Timers; setTyping?(chat: PlatformChatRef, on: boolean): Promise<void>;
+    logger?: Logger; maxSeconds?: number });
+  readonly enabled: boolean;                   // false where the platform has no typing API
+  readonly active: number;
+  start(chat: PlatformChatRef): void;
+  stop(chat: PlatformChatRef): Promise<void>;  // unmetered, and safe on a chat never started
+  stopAll(): Promise<void>;
+}
 // Rate limiting and retry (§3.14; M3-T7). Keys are built, never spelled: the round-robin lane is
 // the `chat:` key and the metric's `scope` label is the prefix, and neither fails loudly if an
 // adapter writes `chat-42` instead.

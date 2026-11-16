@@ -230,6 +230,17 @@ export const LOG_EVENTS = {
    * Carries no id, because a member id in a log line is a handle to a person (`01` §11.7).
    */
   'channel.mention_unresolved': 'model output mentioned a non-member id',
+  /**
+   * A typing indicator could not be set (`06` §3.11; `M3-T8`).
+   *
+   * `debug`, and the level is the whole point of the entry. Typing is cosmetic, so a failure is not
+   * news — but the usual cause is a missing permission, which fails identically every four seconds
+   * for the sixty a turn may last. At `warn` that is fifteen lines about one thing, in a chat where
+   * `06` §3.20.3's diagnostic is already reporting the real problem once. Carries the platform chat
+   * id and the error's **class**, never its message: a platform's error text quotes what it was
+   * asked to do.
+   */
+  'channel.typing_failed': 'a typing indicator could not be set',
 
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */

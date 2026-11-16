@@ -75,6 +75,7 @@ export const ChannelCapabilitiesSchema = z
     nativePolls: z.boolean(),
     buttons: z.boolean(),
     typingIndicator: z.boolean(),
+    typingRefreshSec: z.int().min(1).nullable(),
     voiceNotes: z.boolean(),
     images: z.boolean(),
     files: z.boolean(),
@@ -118,6 +119,14 @@ export const ChannelCapabilitiesSchema = z
   })
   .refine((caps) => caps.buttons === (caps.buttonLimits !== null), {
     message: 'buttons and buttonLimits must agree: limits are required exactly when buttons exist',
+  })
+  // The third pairing (`M3-T8`). A profile with `typingIndicator: true` and no cadence would leave
+  // `TypingManager` with nothing to schedule, so the indicator would appear once and vanish; the
+  // reverse is a number nobody reads.
+  .refine((caps) => caps.typingIndicator === (caps.typingRefreshSec !== null), {
+    message:
+      'typingIndicator and typingRefreshSec must agree: a cadence is required exactly when the ' +
+      'platform has a typing indicator',
   });
 
 // --- Inbound ------------------------------------------------------------------------------------

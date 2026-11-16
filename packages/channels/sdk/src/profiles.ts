@@ -44,6 +44,8 @@ const telegram: ChannelCapabilities = Object.freeze({
   nativePolls: true,
   buttons: true,
   typingIndicator: true,
+  // `sendChatAction` lasts ≤5 s ([api](https://core.telegram.org/bots/api#sendchataction)).
+  typingRefreshSec: 4,
   voiceNotes: true,
   images: true,
   files: true,
@@ -98,6 +100,8 @@ const discord: ChannelCapabilities = Object.freeze({
   nativePolls: true,
   buttons: true,
   typingIndicator: true,
+  // Discord expires a typing state after 10 s.
+  typingRefreshSec: 8,
   voiceNotes: true,
   images: true,
   files: true,
@@ -156,6 +160,8 @@ const slack: ChannelCapabilities = Object.freeze({
   buttons: true,
   // Plain bots cannot set a typing status; only assistant threads can.
   typingIndicator: false,
+  // Plain bots have no typing API at all, so there is nothing to refresh.
+  typingRefreshSec: null,
   voiceNotes: true,
   images: true,
   files: true,
@@ -204,6 +210,8 @@ const matrix: ChannelCapabilities = Object.freeze({
   nativePolls: false,
   buttons: false,
   typingIndicator: true,
+  // `PUT /typing` is sent with `timeout: 30000`.
+  typingRefreshSec: 25,
   voiceNotes: true,
   images: true,
   files: true,
@@ -253,6 +261,8 @@ const signal: ChannelCapabilities = Object.freeze({
   nativePolls: false,
   buttons: false,
   typingIndicator: true,
+  // signal-cli's typing state shows for about 15 s.
+  typingRefreshSec: 12,
   voiceNotes: true,
   images: true,
   files: true,
@@ -290,6 +300,10 @@ const web: ChannelCapabilities = Object.freeze({
   nativePolls: true,
   buttons: true,
   typingIndicator: true,
+  // The dashboard client times out a `typing` SSE event after 20 s. `06` §3.11's table left this
+  // blank, which `M3-T8` amends: with `maxSeconds` at 60, a one-shot event vanishes a third of
+  // the way through the longest turn it is meant to cover.
+  typingRefreshSec: 15,
   voiceNotes: true,
   images: true,
   files: true,
@@ -346,6 +360,8 @@ const ideal: ChannelCapabilities = Object.freeze({
   nativePolls: true,
   buttons: true,
   typingIndicator: true,
+  // Not a platform: generous, so the control profile refreshes as rarely as any real one.
+  typingRefreshSec: 30,
   voiceNotes: true,
   images: true,
   files: true,

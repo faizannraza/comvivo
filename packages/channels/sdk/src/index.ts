@@ -252,6 +252,13 @@ export {
   ResolvedMentionSchema,
   SentPartSchema,
 } from './schemas.js';
+// --- The typing indicator (06 §3.11; M3-T8) ----------------------------------------------------
+export {
+  TYPING_BUCKET,
+  TYPING_MAX_SECONDS,
+  type TypingDeps,
+  TypingManager,
+} from './typing.js';
 
 /**
  * Declare an adapter and the config shape a host must satisfy (`06` §4.1).

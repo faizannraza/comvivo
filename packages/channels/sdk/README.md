@@ -27,9 +27,10 @@ and its per-platform renderers, interaction tokens, and the adapter conformance 
 | `ratelimit/scheduler.ts` | The waiting order: priority, round-robin across chats, then FIFO | `M3-T7` |
 | `ratelimit/limiter.ts` | Atomic multi-key acquire, with no starvation of interactive work | `M3-T7` |
 | `retry.ts` | The backoff, the jitter and what to do after each `ChannelErrorKind` | `M3-T7` |
+| `typing.ts` | The typing indicator's refresh loop, per platform cadence | `M3-T8` |
 
-Still to land in M3: the typing manager (`M3-T8`) and the conformance kit behind the `./testing`
-entry point (`M3-T9`). The `discord-md`,
+Still to land in M3: the conformance kit behind the `./testing` entry point (`M3-T9`), and the
+renderer/callback safety corpus (`M3-T10`). The `discord-md`,
 `slack-mrkdwn` and `matrix-html` renderers arrive with their adapters in M8; `renderPart` refuses
 them by name until then rather than falling back to `plain`.
 
