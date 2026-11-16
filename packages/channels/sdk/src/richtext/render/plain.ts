@@ -68,6 +68,25 @@ export function renderPlain(document: RichText, context: RenderContext): PlainRe
   return out.finish();
 }
 
+/**
+ * Keep only the part of each range that still exists, and drop the ones that do not.
+ *
+ * Generic over the range shape so the style and mention lists share it: both are `{start, length}`
+ * plus their own fields, and two copies of a clamp is how one of them comes to be missing it.
+ */
+function clampRanges<T extends { readonly start: number; readonly length: number }>(
+  ranges: readonly T[],
+  limit: number,
+): T[] {
+  const out: T[] = [];
+  for (const range of ranges) {
+    const start = Math.max(0, Math.min(range.start, limit));
+    const length = Math.max(0, Math.min(range.start + range.length, limit) - start);
+    if (length > 0) out.push({ ...range, start, length });
+  }
+  return out;
+}
+
 class PlainWriter {
   #text = '';
   readonly #styles: PlainStyleRange[] = [];
@@ -82,7 +101,21 @@ class PlainWriter {
     // Trailing blank lines come from the `\n\n` every block appends; a message that ends in them
     // shows an empty bubble tail on some clients and costs length on all of them.
     const text = this.#text.replace(/\n+$/, '');
-    return { text, styles: this.#styles, mentions: this.#mentions };
+    // And the ranges are **clamped to what is left**. The trim is the last thing that changes the
+    // text, so a range covering a character it removed now points past the end — which is a
+    // malformed `bodyRanges` for Signal, and the kind of thing a client either ignores silently or
+    // rejects the whole message over.
+    //
+    // Found by `fuzz.render.plain` at seed 120: a bold run whose entire content was a newline,
+    // inside a quote, at the end of the document. It produced `{start: 160, length: 1}` on a
+    // 160-character message. `M3-T4` fixed one instance of this class — an offset shift that
+    // over-counted a blank line's prefix — and this is a second, one layer later, which is the
+    // argument for a fuzz corpus over more cased tests.
+    return {
+      text,
+      styles: clampRanges(this.#styles, text.length),
+      mentions: clampRanges(this.#mentions, text.length),
+    };
   }
 
   blocks(blocks: readonly Block[], depth: number): void {

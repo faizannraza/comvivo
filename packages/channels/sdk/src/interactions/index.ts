@@ -45,6 +45,14 @@ export {
   type StoredAction,
 } from './registry.js';
 export {
+  type ClickAttempt,
+  type ClickDecision,
+  clickReply,
+  decideClick,
+  type InteractionTokenRecordLike,
+  isAllowed,
+} from './resolve.js';
+export {
   DEFAULT_INTERACTION_TOKEN_TTL_DAYS,
   defaultInteractionTokenExpiry,
   INTERACTION_TOKEN_BYTES,

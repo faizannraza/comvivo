@@ -170,7 +170,7 @@ Owner = doc · package that implements the control. Test IDs are defined in §9 
 | T-S03 | S/E | Instance claim | The first stranger to DM a fresh bot becomes host | One-time **host claim code** printed to the console and shown by `village init` (formats in §3.7.12; flow in `09` §3.9.4): single use, 30-minute TTL, burned after 10 failed attempts; the 128-bit link token is used in deep links, the 40-bit typed code only where attempts are limited | 09 · apps/server; 06 | `sec.claim.*` |
 | T-S04 | S | Identity linking | Attacker links their platform account to the victim's Person | Link requires confirmation from an already-verified identity of that Person; 8-char codes, 10 min, single use | 06 | `sec.link.confirm-required` |
 | T-S05 | S | Dashboard login | Magic link seen by the platform or forwarded; login phishing | SD-09 pairing; fragment-borne tokens; GET interstitial; 10-min TTL; login notifications | 09 · server/http/auth; 08 | `sec.http.login.*`, `dast.zap.*` |
-| T-S06 | S | Button callbacks | Forged `callback_data` / `custom_id` / action values (client-controlled) | Opaque server-side IDs; payload bound to intended member and turn; presser authorization re-checked | 06 · channel-sdk; 05 | `sec.callbacks.forged` |
+| T-S06 | S | Button callbacks | Forged `callback_data` / `custom_id` / action values (client-controlled) | Opaque server-side IDs; payload bound to intended member and turn; presser authorization re-checked, **after** expiry and single use (a denial that came first would tell an ineligible presser that a live token exists and who it is for) | 06 · channel-sdk; 05 | `sec.callbacks.forged` |
 | T-S07 | S | MCP server | Stolen or guessed PAT; DNS rebinding to a local endpoint | 256-bit PATs, digest storage, scopes, expiry, Origin validation, rate limits | 10 · mcp; 08 | `sec.mcp.pat.*`, `sec.mcp.origin` |
 | T-T01 | T | Storage | Offline modification of DB/blobs/backups | SQLCipher page HMAC; blob AEAD + AAD; `VBK1` header bound into body AAD | 02 · storage/crypto | `sec.crypto.tamper.*` |
 | T-T02 | T/R | Audit | Admin erases evidence | Append-only hash chain; no admin delete API; host can (disclosed) | 02, 03 | `prop.audit.chain` |
@@ -299,7 +299,7 @@ The current official LLM list on genai.owasp.org is the **2025** edition (checke
 | L-07 | System prompt leakage | LLM07 | 3.6.6 | 05 | `redteam.discretion.canary` |
 | L-08 | Memory and context poisoning | LLM04, ASI06 | T-T03 | 04 | `redteam.poisoning` |
 | L-09 | Vector/embedding weaknesses (inversion, cross-tenant hits) | LLM08 | Local embeddings by default; encrypted at rest; label filter before rank; per-group partition | 04 | `prop.retrieval.ifc` |
-| L-10 | Improper output handling (markup injection, model text into SQL/paths) | LLM05 | Renderer escaping per markup (§3.12); zod on structured outputs; model output never reaches SQL, shell, paths or HTML | 05, 06 | `fuzz.render.*` |
+| L-10 | Improper output handling (markup injection, model text into SQL/paths) | LLM05 | Renderer escaping per markup (§3.12); zod on structured outputs; model output never reaches SQL, shell, paths or HTML | 05, 06 | `fuzz.render.*` (`telegram-html`, `web-md`, `plain`) |
 | L-11 | Misinformation; phishing amplification; human-agent trust exploitation | LLM09, ASI09 | Citations to source messages, confidence → proposals, provenance on untrusted links, charter disclaimers | 04, 05 | `redteam.trust` |
 | L-12 | Unbounded consumption | LLM10 | 3.6.7 | 05 | `redteam.wallet` |
 | L-13 | Model/tool supply chain | LLM03, ASI04 | Pinned model IDs; HF model revisions + SHA-256 for local ONNX/whisper; MCP definition pinning | 05, 10, 08 | `sec.supply.model-pins` |
@@ -811,12 +811,17 @@ SD-24 implements this:
 | Markup escaping | HTML parse mode: escape `<`, `>`, `&` outside tags | Escape markdown control chars in text nodes | mrkdwn escaping | Sanitized HTML subset + plain body | Plain text | Sanitized markdown |
 
 Rules:
-- At most **5** distinct member mentions per message (`outbound.maxMentionsPerMessage`). Reminders addressed to many people use one message without mentions.
-- **No group-wide notification tokens** are ever emitted in 1.0.
+- At most **5** distinct member mentions per message (`outbound.maxMentionsPerMessage`). Reminders addressed to many people use one message without mentions. The cap counts **people**, not mention nodes: a reply that names somebody twice has mentioned one person, and a repeat of an already-counted member is kept even once the cap is full — it adds no notification. Mentions over the cap are **flattened to their fallback text**, not removed, so the reader still sees who the message is about and only the ping is lost; and they are dropped in reverse author order, because `05`'s copy puts the addressee first and a cap that dropped by any other rule would silently un-notify the one member who needed it.
+- **No group-wide notification tokens** are ever emitted in 1.0. Neutralization runs against one **universal** list — `@everyone`, `@here`, `@room`, `@channel`, `@all`, `<!channel>`, `<!here>`, `<!everyone>` — on **every** platform, independent of what that platform's profile declares, and the token is broken with a zero-width character (U+200B) so it stays readable. A token is checked on the **rendered output string**, not on the AST: a token assembled across two text runs ("@every" + "one") is exactly what an AST-level check misses.
 - **Images:** only blob attachments the audience may read. Never fetched by URL on output.
-- **Buttons:** callback payloads are opaque server IDs (T-S06). Labels never contain unescaped user text.
+- **Buttons:** callback payloads are opaque server IDs (T-S06). Labels never contain unescaped user text, and are normalized rather than filtered: whitespace control characters become a **space**, markup and mass-mention tokens are neutralized, bidi overrides (U+202A–U+202E, U+2066–U+2069) are removed, and the result is trimmed and collapsed.
 - **Message splitting** never cuts inside an entity or link. Each split part goes through the guard together with the others.
 - **Untrusted links** reproduced from emails are shown with sender and domain ("from `school-pay.example` via email from x@y") and never as a call to action.
+- **Control characters** are **removed** from outbound text: C0 and C1 except tab, newline and carriage return. U+200B and U+2060 are kept, because they are the neutralization mechanism above.
+- **Sanitization runs before rendering, never after.** The Signal profile's renderer carries `bodyRanges` — byte offsets into the text it produced — so a sweep over the finished payload would invalidate every offset it moved. For the same reason, a renderer that emits offsets **clamps its ranges to the final text**: trailing-newline trimming is the common way a range comes to run past the end of the message.
+- **Link-preview suppression reports whether it is enforceable.** Telegram, Discord, Slack and Web can turn a preview off at the API; Matrix and Signal cannot, and there the policy is advisory. The renderer answers `{ suppress, enforceable }` so a caller can tell "off" from "we asked".
+
+> **Amended 2026-11-15 (`M3-T10`).** The five rules above and the three clarifications before them came out of building `sanitiseDocument`. Three were defects rather than omissions, and all three were found by the `fuzz.render.*` corpus rather than by the 61 hand-written injection cases `M3-T4` already had: a NUL survived rendering because `safetyFindings` **reported** control characters without anything removing them, which made the rule an observation rather than a guarantee; `sanitiseButtonLabel('Approve\nReject')` returned `'ApproveReject'`, jamming two words together, because whitespace controls were filtered out rather than mapped to a space; and the plain renderer trimmed trailing newlines without touching its style and mention ranges, so a bold run whose entire content was a newline at the end of a quote produced a range one past the end of a 160-character message — malformed `bodyRanges` for Signal. `M3-T4` had fixed one instance of that last class a layer earlier; this was a second.
 
 ### 3.13 Untrusted media and document processing
 - **Media workers:**
@@ -1575,7 +1580,7 @@ Each row lists the task, its files, its acceptance criteria and its dependencies
 | ID | Task | Files | Acceptance | Deps |
 |---|---|---|---|---|
 | M2-T80 | Egress manifest + Hybrid/Local-only | `packages/models/src/egress-manifest.ts`, config validation | Manifest matches §3.11.1; `localOnly` fail-closed at boot; `sensitiveRoutesLocal` routing; OpenAI `store:false`; `sec.egress.manifest` | `05` gateway tasks |
-| M3-T80 | Renderer safety | `packages/channels/sdk/src/render/safety.ts`, Telegram renderer | Mention neutralization + cap; preview suppression; escaping; `fuzz.render.*` (Telegram HTML, web-md); forged-callback harness in the SDK test kit (`sec.callbacks.forged`) | `06` SDK tasks |
+| M3-T80 | Renderer safety | `packages/channels/sdk/src/richtext/render/safety.ts`, `src/interactions/resolve.ts`, `src/testing/callbacks.ts` | Mention neutralization + cap; preview suppression; escaping; `fuzz.render.*` (Telegram HTML, web-md, plain); forged-callback harness in the SDK test kit (`sec.callbacks.forged`) | `06` SDK tasks |
 | M3-T81 | Pre-identity, bot and binding gates; instance claim | `packages/engine/src/ingest/gates.ts`, `apps/server/src/claim.ts` | `sec.gate.*`, `sec.claim.*`; FakeModel call count = 0 for gated traffic | `06`, minimal `09` server |
 
 ### M5 — IFC & discretion (with `03`)

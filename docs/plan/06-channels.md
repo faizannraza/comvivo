@@ -387,13 +387,13 @@ The mechanism is `channel-sdk/src/interactions/registry.ts`'s `ActionKindRegistr
    - Discord: `deferUpdate()`.
    - Slack: `ack()`.
 3. The adapter emits an envelope with `interaction:{kind:'button', payload:{token}}`. `platformMessageId` is the message carrying the button; `dedupeKey` is the platform callback/interaction id.
-4. The engine resolves the token, then checks expiry, single use and that the clicker is an allowed member. The router turns it into an `interaction` decision (05 §3.2.5), and the registered handler for `action.kind` runs **with the clicker's authority** (I3) on the deterministic fast path: **no model call** (trace disposition `interaction`).
+4. The engine resolves the token, then checks expiry, single use and that the clicker is an allowed member. **That order is normative** (`M3-T10`): an ineligible member pressing a live button must learn no more than one pressing a dead one, and eligibility checked first would answer "you may not use this" — a confirmation that something is pending and who it is for, which is what step 6's shared sentence exists to prevent. The rules are one pure function, `channel-sdk/src/interactions/resolve.ts`'s `decideClick`, so the same order runs in the engine's resolver and in `08`'s `sec.callbacks.forged` harness; the hash is compared again there even though the row was found by it, because that is the check that costs nothing and catches a lookup that matched on a prefix. The router turns the press into an `interaction` decision (05 §3.2.5), and the registered handler for `action.kind` runs **with the clicker's authority** (I3) on the deterministic fast path: **no model call** (trace disposition `interaction`).
 5. The result is delivered as one of:
    - an outbox **edit** of the original message (buttons removed, status line added);
    - a Telegram callback **toast**, `answerCallbackQuery(text ≤200)`, sent via a fast path because it must happen while the query is fresh;
    - an **ephemeral** message to the clicker (§3.12), or a normal reply.
    - Denials ("Only Alice can confirm this") always use toast or ephemeral and are never posted publicly.
-6. Unknown or expired tokens get a toast or ephemeral reply saying "This button has expired". The click is never ingested as a trigger.
+6. Unknown, expired **and already-used** tokens get a toast or ephemeral reply saying "This button has expired" — one sentence for all three, so a forged payload, a stale button and a replay are indistinguishable to the presser. The click is never ingested as a trigger.
 
 **Limits.**
 - Each message has ≤8 buttons, ≤3 per row and labels ≤30 characters, truncated with `…`. This stays under every platform limit: Discord labels ≤80, Slack ≤75. `channel-sdk/src/interactions/buttons.ts` owns the numbers and `layoutActionRows` applies them (`M3-T6`).

@@ -24,6 +24,7 @@ import type { RichText } from '@comvivo/core';
 import type { ChannelCapabilities, RenderContext, RenderedPart } from '../../contract.js';
 import { measureTelegramHtml, measureText, visibleText } from './measure.js';
 import { renderPlain } from './plain.js';
+import { sanitiseDocument } from './safety.js';
 import { renderTelegramHtml } from './telegram-html.js';
 import { renderWeb } from './web.js';
 
@@ -65,10 +66,15 @@ export function renderPart(
   context: RenderContext,
   capabilities: ChannelCapabilities,
 ): RenderedPart {
-  const plain = renderPlain(document, context);
+  // `08` §3.12's outbound safety pass, applied **here** rather than in each renderer: S6's rule is
+  // "no platform mass-mention token survives rendering", and a check each renderer chose to call
+  // would have coverage that is a reading of the code. It runs on the AST, before rendering, so the
+  // `plain` renderer's Signal offsets are computed over the final text — see `sanitiseDocument`.
+  const safe = sanitiseDocument(document, capabilities).document;
+  const plain = renderPlain(safe, context);
   switch (capabilities.markup) {
     case 'telegram-html': {
-      const html = renderTelegramHtml(document, context, { capabilities });
+      const html = renderTelegramHtml(safe, context, { capabilities });
       // Telegram's own unit: visible UTF-16 with the tags stripped and the entities decoded. Not
       // `measureText(html, 'utf16')`, which would count the markup and split a message that fits.
       return { payload: html, measured: measureTelegramHtml(html), plainText: plain.text };
@@ -81,12 +87,12 @@ export function renderPart(
       };
     case 'web-md':
       return {
-        payload: renderWeb(document, context),
+        payload: renderWeb(safe, context),
         // The visible text, not the JSON: the dashboard's limit is about how much there is to
         // read, and the JSON's size is an implementation detail of the transport. (Matrix is the
         // platform that genuinely caps the serialised event, and `06` §3.5.4 gives it both
         // numbers; that arrives with its adapter.)
-        measured: measureText(visibleText(document), capabilities.lengthUnit),
+        measured: measureText(visibleText(safe), capabilities.lengthUnit),
         plainText: plain.text,
       };
     case 'discord-md':
@@ -117,6 +123,21 @@ export {
   type PlainStyleRange,
   renderPlain,
 } from './plain.js';
+export {
+  AUDITED_MARKUPS,
+  capMentions,
+  type LinkPreviewPolicy,
+  linkPreviewPolicy,
+  MAX_MENTIONS_PER_MESSAGE,
+  type MentionCapResult,
+  neutraliseAllMassMentions,
+  type SafetyFinding,
+  type SanitisedDocument,
+  safetyFindings,
+  sanitiseButtonLabel,
+  sanitiseDocument,
+  UNIVERSAL_MASS_MENTION_TOKENS,
+} from './safety.js';
 export {
   renderTelegramHtml,
   TELEGRAM_EXPANDABLE_QUOTE_CHARS,

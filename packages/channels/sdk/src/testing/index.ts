@@ -47,6 +47,14 @@ export {
   checkRejects,
   deepEqual,
 } from './assert.js';
+export {
+  type ClickResolver,
+  type ForgedCallbackFixtures,
+  forgedCallbackChecks,
+  referenceClickResolver,
+  type SeededToken,
+  seedToken,
+} from './callbacks.js';
 export { C01, C02, C03, C04, C05, C16, C17, C20, outbound } from './cases/ingest.js';
 export { C06, C07, C08, C09, C10, C13, C14, C19 } from './cases/outbound.js';
 export { C11, C12, C15, C18, C21, C22, C23, C24 } from './cases/resilience.js';
