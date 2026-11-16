@@ -147,9 +147,9 @@ describe('tsconfig.depcruise.json', () => {
       )
       .sort();
     // `@comvivo/models/testing` came off this list at `M2-T6`, when `FakeProviderServer` moved
-    // there from `evals/src/chaos` — the inventory shrinking is the point of keeping it.
+    // there from `evals/src/chaos`. `@comvivo/channel-sdk/testing` came off at `M3-T9`, when `06`
+    // §3.25's conformance kit landed there. The inventory shrinking is the point of keeping it.
     expect(pending).toEqual([
-      '@comvivo/channel-sdk/testing',
       '@comvivo/core/testing',
       '@comvivo/engine/testing',
       '@comvivo/evals/arbitraries',

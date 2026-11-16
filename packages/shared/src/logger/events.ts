@@ -241,6 +241,20 @@ export const LOG_EVENTS = {
    * asked to do.
    */
   'channel.typing_failed': 'a typing indicator could not be set',
+  /**
+   * An adapter's receive loop started or stopped (`06` §3.15; `M3-T9`).
+   *
+   * `info`, because a host reading a log wants to see the moment a channel came up and the moment
+   * it went away — those two lines are the first thing anybody looks for when a group has gone
+   * quiet. They carry the channel and nothing else: a chat id here would be the first chat the
+   * adapter happened to touch, which is not information.
+   *
+   * `06` §3.25's C22 asserts that nothing at this level or above carries message text, and a
+   * lifecycle line is the easiest place to get that wrong — "connected to Okafor family" is a
+   * group's name in a log that ships to an operator.
+   */
+  'channel.connected': 'an adapter started its receive loop',
+  'channel.disconnected': 'an adapter stopped its receive loop',
 
   // --- Content debugging -----------------------------------------------------------------------
   /** Emitted once at startup when content logging is on, so it can never be on unnoticed. */

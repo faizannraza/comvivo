@@ -28,9 +28,26 @@ and its per-platform renderers, interaction tokens, and the adapter conformance 
 | `ratelimit/limiter.ts` | Atomic multi-key acquire, with no starvation of interactive work | `M3-T7` |
 | `retry.ts` | The backoff, the jitter and what to do after each `ChannelErrorKind` | `M3-T7` |
 | `typing.ts` | The typing indicator's refresh loop, per platform cadence | `M3-T8` |
+| `testing/` | The adapter conformance kit: C01–C24, a reference fake platform and adapter | `M3-T9` |
 
-Still to land in M3: the conformance kit behind the `./testing` entry point (`M3-T9`), and the
-renderer/callback safety corpus (`M3-T10`). The `discord-md`,
+Still to land in M3: the renderer and callback safety corpus (`M3-T10`) and the simulator adapter
+(`M3-T11`).
+
+## The conformance kit
+
+```ts
+import { describe, it } from 'vitest';
+import { describeAdapterConformance } from '@comvivo/channel-sdk/testing';
+
+describeAdapterConformance(myHarness, { describe, it });
+```
+
+24 cases from [`06` §3.25](../../../docs/plan/06-channels.md), capability-gated, each one a plain
+async function that throws on failure. The test runner is a parameter rather than an import, so
+installing this package does not install a test runner. A reference fake platform and adapter ship
+with the kit and the kit's own suite runs every case against them — a case no implementation has
+ever satisfied is a sentence, and an author cannot tell a bug in their adapter from a bug in a kit
+of sentences. The `discord-md`,
 `slack-mrkdwn` and `matrix-html` renderers arrive with their adapters in M8; `renderPart` refuses
 them by name until then rather than falling back to `plain`.
 

@@ -1281,7 +1281,64 @@ Nothing to set up. Members sign in to the dashboard with a pairing code they app
 - The last-seen cursors per chat live in `ctx.state`.
 - **Clock sanity:** `sentAt` is the platform time. `receivedAt` is the local clock, recorded by ingestion. A skew over 5 min logs `warn clock_skew`.
 
-### 3.25 Adapter conformance kit (`@comvivo/channel-sdk/testkit`)
+### 3.25 Adapter conformance kit (`@comvivo/channel-sdk/testing`)
+
+Implemented at `M3-T9`. The entry point is **`./testing`**, not `./testkit`: `M0-T1` scaffolded the
+subpath under that name, `@comvivo/shared/testing` and `@comvivo/core/testing` already use it, and
+dependency-cruiser's `testing-subpath-only-from-tests` keys on the directory — a second name for the
+same thing would be one the guard does not see.
+
+Eleven notes on the implementation, each a place the sketch below and the code differ:
+
+- **The clock is `VirtualClock`** (`11` §3.1.7), not a `ManualClock`. It implements `Clock` **and**
+  `Timers`, and the second half is what a conformance case needs: C12 and C21 are both assertions
+  about *when* a call happened.
+- **`describeAdapterConformance(h, runner, opts?)` takes the test runner explicitly.** §3.25's last
+  line asks third-party channel plugins to pass the kit, and an `import { describe, it } from
+  'vitest'` inside a published package makes a test runner a dependency of everyone who installs it
+  — including an author using `node:test`, and including a production bundle, where a runner in the
+  graph is supply-chain surface for no benefit. The binding is five lines the author writes once.
+- **The kit ships no filesystem fixture store.** `fixtures` is read through a `FixtureStore` port
+  that the caller supplies, because a published test kit should not assume Node — for a Vite-based
+  plugin the twelve-line implementation is `import.meta.glob`, not `readdir`. This repository's lives
+  at `tools/fixtures/store.ts`; the simulator (`M3-T11`) feeds the same cases from memory.
+- **`FakePlatformControl` gains three members**, each for a case that could not otherwise be written:
+  `delivered(chat)` (C14 asks for "no duplicate **in the fake**", and a natively-idempotent platform
+  answers a second *call* without creating a second message, so counting calls would pass an adapter
+  that sent twice), `setChatState(chat, {canSend, isAdmin})` (C24's probe scenarios have to be able
+  to say no), and a `times` argument on `failNext` (with a single shot a **retryable** kind never
+  reaches the caller — a conformant adapter retries it and the second call succeeds).
+- **`createFake` gains `onCall`**, and the harness gains an optional `store` and `ackMethod`. C05's
+  rule is "the platform is not acked before the ingest ack": each side is visible from one place
+  only, both land in the same virtual millisecond, and the kit cannot know how a platform
+  acknowledges — Telegram advances a `getUpdates` offset, Slack's Socket Mode expects an `ack`, a
+  webhook returns a 200. So the harness names it and the kit observes both in one sequence.
+- **C07 uses a seeded generator in the kit** rather than fast-check, for the same reason as the test
+  runner: a property-testing library as a peer dependency is something an adapter author has to
+  install and pin to run a conformance suite. 500 runs, seeded by the run index, so a failure names
+  the document. It also accounts for `maxPartsPerMessage`: a document needing more parts than the cap
+  allows **legitimately** loses content (§3.5.4), so the preservation half applies below the cap.
+- **C23's "equals `profiles.<id>`" applies where a profile exists.** A plugin channel (`10` §3) has
+  no entry and §3.25's last line asks plugins to pass the kit, so the clause is checked when the
+  entry is there and `ChannelCapabilitiesSchema` carries the rest. The optional-method pairing is
+  always checked.
+- **C03 asserts coverage, not only correctness.** C01 already compares every field of every fixture,
+  so what C03 adds is that the corpus contains each of the five classes at all: a corpus of plain
+  group messages passes everything else and proves nothing about an anonymous admin, which is
+  exactly the payload whose `senderKind` decides whether `08` PSC-9's S4 bot gate fires.
+- **A fresh fake per case.** C18 revokes the credentials, C15 stops the adapter, C12 drains a chat's
+  bucket for twenty virtual minutes. One shared platform would make the suite pass in the order it
+  was written and fail when somebody adds a case.
+- **`CaseContext.drain(work)` drives the clock.** A conformant adapter waits on timers — a bucket, a
+  backoff, a refresh — and in virtual time nothing fires them unless a test does. "Start the work,
+  advance a fixed amount, await it" is also wrong: an adapter's first platform call happens a few
+  microtasks in, so the timer it registers is often scheduled *after* the advance stopped scanning.
+  `drain` interleaves settling and jumping to the next due timer, and **fails loudly** when the work
+  is unfinished with nothing pending — which is an adapter waiting on something real.
+- **A reference fake and a reference adapter ship with the kit** (`testing/fake-platform.ts`,
+  `testing/fake-adapter.ts`), and the kit's own suite runs all 24 cases against them. A case no
+  implementation has ever satisfied is a sentence, and a kit of 24 sentences is worse than nothing to
+  the first adapter author: they cannot tell a bug in their adapter from a bug in the kit.
 
 **Harness.**
 ```ts
@@ -1346,7 +1403,11 @@ export function describeAdapterConformance<P extends FakePlatformControl>(
   - names are replaced from a persona list;
   - tokens, URLs with signatures, phone numbers and emails are removed;
   - media is replaced with tiny synthetic files.
-- CI `fixtures:lint` fails on token, phone and email patterns and on any `source:'recorded'` file without redaction markers.
+- CI `fixtures:lint` fails on token, phone and email patterns and on any `source:'recorded'` file without redaction markers. Implemented at `M3-T9` as `tools/fixtures/`, wired into `pnpm verify`.
+  - **The marker is `meta.redaction`**: `{version, at, saltId, replaced}`, where `saltId` is an HMAC *of* the salt and never the salt — it proves two fixtures were remapped consistently without making every remapped id reversible by anyone who can guess the original. `replaced` counts what each rule fired, so a rule that never fired on a recording is visible.
+  - **The marker rule is scoped to `fixtures/channels/`.** A channel fixture records a member's chat — their name, their id, their words — so a recorded one with no marker is a person's conversation in a public history. A provider fixture (`fixtures/providers/`, from `M2`) records a request Village made; it carries no member data, and `M2` wrote 28 of them before this marker existed. The **credential scan applies to every fixture**, because a leaked key is a leaked key wherever it is written down.
+  - **The linter is not the redactor's inverse.** It re-reads every fixture as raw text, which catches the case the redactor's key list misses: a token pasted into a message body, an email in a `caption`, a signed URL in a field a platform added last week. It **fails rather than fixes**, because a fixture is evidence and rewriting one in CI means the corpus a test ran against is not the corpus in the tree.
+  - **Ids keep their shape.** A fake Telegram supergroup id is still negative and 13 digits, a Matrix room id is still `!localpart:server`, a Slack `ts` is still a parseable decimal — because an adapter's own parsing is part of what a fixture tests, and a hex digest in any of those slots tests the fixture loader instead.
 - Third-party channel plugins (10) must ship a harness and pass the kit to be listed.
 
 ---

@@ -30,10 +30,14 @@ import type { Clock, TimerHandle, Timers } from '../ports/clock.js';
  *
  * Draining further is also the more faithful model, not a looser one: a real event loop empties the
  * microtask queue completely before the next macrotask, so the shallow flush was the inaccuracy.
- * Sixteen covers every loop in this product with room to spare; a chain deeper than that appears to
- * stall, and the fix is this number rather than a sleep in a test.
+ * Sixty-four, raised from sixteen at `M3-T9`: a conformance case drives a **multi-part** send,
+ * which is one chain of roughly six hops per part plus the frames above it, so three parts
+ * already pass sixteen. The cost is nothing — a microtask hop on an empty queue is a few
+ * nanoseconds — and the failure it prevents reads as a hung adapter rather than as a short
+ * flush. A chain deeper than this appears to stall, and the fix is this number rather than a
+ * sleep in a test.
  */
-const MICROTASK_FLUSH_HOPS = 16;
+const MICROTASK_FLUSH_HOPS = 64;
 
 async function flushMicrotasks(): Promise<void> {
   for (let hop = 0; hop < MICROTASK_FLUSH_HOPS; hop += 1) await Promise.resolve();
